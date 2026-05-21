@@ -106,6 +106,36 @@ Znajdź: smart money SHORT ale cena nie spada → potencjalny short squeeze.
 
 ---
 
+## LIVE QUOTES (ceny TradFi — HL xyz, live bez opóźnień)
+
+### Wszystkie instrumenty — brief
+```
+python scripts/quotes.py --brief
+```
+
+### Pełna tabela z grupowaniem
+```
+python scripts/quotes.py
+```
+
+### Tylko wybrana grupa
+```
+python scripts/quotes.py --group metals
+python scripts/quotes.py --group energy
+python scripts/quotes.py --group indices
+python scripts/quotes.py --group agri
+python scripts/quotes.py --group stocks
+```
+
+### Wybrane instrumenty
+```
+python scripts/quotes.py --coins GOLD CORN SP500 VIX
+```
+
+**Źródła:** HL=Hyperliquid live (Gold, Silver, Oil, Corn, Wheat, SP500, VIX, DXY, EUR, NVDA, TSLA...) | FH=Finnhub (QQQ i US stocks jako backup)
+
+---
+
 ## POZYCJE I ZLECENIA
 
 ### Sprawdź otwarte pozycje HL

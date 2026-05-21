@@ -387,6 +387,10 @@ Steps Claude executes when you type this:
   - Jeśli brak historii w DB (pierwsze uruchomienie) — pomiń i kontynuuj normalnie
 - Run: `python scripts/db.py context-trending` — historia trending tokenów (użyj w STEP 5 i X SENTIMENT)
 
+**PRE-STEP 0 — LIVE QUOTES (zawsze, jeden call, błyskawiczne)**
+- Run: `python scripts/quotes.py --brief` — aktualne ceny Gold, Silver, Oil, Corn, SP500, VIX, DXY, NVDA
+- Użyj tych cen w całym briefie — nigdy nie podawaj cen z głowy
+
 **STEP 0 — MY BOOK + MARKET PULSE (zawsze najpierw, równolegle)**
 - Run: `python scripts/hl_executor.py positions` — otwarte pozycje HL, unrealized PnL
 - Run: `python scripts/hl_executor.py orders` — WSZYSTKIE zlecenia HL: limity + TP + SL + trigger orders
@@ -416,6 +420,7 @@ Steps Claude executes when you type this:
 - Run: `python scripts/cot_tracker.py --brief`
 
 **STEP 4 — CHART READ (TV MCP, 4H per asset)**
+Ceny TradFi już masz z PRE-STEP 0 (`quotes.py`). TV MCP używaj tylko do odczytu wskaźników i poziomów.
 Dla każdego asseta z listy (BTC, ETH, SOL, HYPE, LINK):
 ```
 chart_set_symbol(symbol)
