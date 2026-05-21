@@ -260,8 +260,15 @@ def main() -> None:
         keys = CATEGORY_GROUPS[args.category]
         targets = {k: SOURCES[k] for k in keys}
 
+    try:
+        from tz_utils import now_pl, pl_label
+        from datetime import timezone as _tz
+        _u = datetime.now(_tz.utc)
+        _ts = f"{_u.strftime('%Y-%m-%d %H:%M')} UTC / {now_pl().strftime('%H:%M')} {pl_label(_u)}"
+    except Exception:
+        _ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     console.print(
-        f"\n[bold]Macro & News Layer[/bold] — {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+        f"\n[bold]Macro & News Layer[/bold] — {_ts}\n"
         f"[dim]Sources ({len(targets)}): {', '.join(targets.keys())}[/dim]\n"
     )
 

@@ -166,9 +166,20 @@ def cmd_whales(args: argparse.Namespace) -> None:
     top = sorted(rows, key=sort_value, reverse=True)[: args.top]
     wallets = [r.get("ethAddress", "") for r in top if r.get("ethAddress")]
 
+    try:
+        import sys as _sys
+        from pathlib import Path as _Path
+        _sys.path.insert(0, str(_Path(__file__).parent))
+        from tz_utils import fmt_both
+        from datetime import datetime as _dt, timezone as _tz
+        _ts = fmt_both(_dt.now(_tz.utc))
+    except Exception:
+        from datetime import datetime as _dt
+        _ts = _dt.now().strftime("%Y-%m-%d %H:%M")
     console.print(
         f"\n[bold]Aggregating positions across top {args.top} HL traders "
         f"(by {args.window} pnl)…[/bold] fetching {len(wallets)} wallets in parallel\n"
+        f"[dim]{_ts}[/dim]\n"
     )
 
     # Parallel fetch — up to 10 concurrent requests

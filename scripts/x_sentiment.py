@@ -611,7 +611,14 @@ def main() -> None:
 
     args = p.parse_args()
     cmd = args.cmd or "sentiment"
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from tz_utils import now_pl, pl_label
+        import datetime as _dt
+        _u = datetime.datetime.now(_dt.timezone.utc)
+        now = f"{_u.strftime('%Y-%m-%d %H:%M')} UTC / {now_pl().strftime('%H:%M')} {pl_label(_u)}"
+    except Exception:
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
     if cmd == "trending":
         console.print(f"\n[bold]X Trending Discovery — LIVE[/bold] ({now})\n")

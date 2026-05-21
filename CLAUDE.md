@@ -13,6 +13,18 @@ Przy każdej analizie tokenów z X (trending, research, wzmianka w briefie):
 - Jeśli nie znaleziony — napisz gdzie szukać (DexScreener, pump.fun, Birdeye)
 - Nigdy nie zostawiaj tokena bez kontraktu lub wskazówki jak go znaleźć
 
+## Czas — zasada obowiązkowa (wszystkie raporty i odpowiedzi)
+
+**ZAWSZE podawaj czas w dwóch strefach: UTC i czas polski (CET/CEST).**
+
+- Polska strefa: **CEST (UTC+2)** od ostatniej niedzieli marca do ostatniej niedzieli października; **CET (UTC+1)** pozostałe miesiące
+- Format obowiązkowy: `HH:MM UTC / HH:MM CEST` lub `HH:MM UTC / HH:MM CET`
+- Przykłady: `13:45 UTC / 15:45 CEST`,  `00:30 UTC / 01:30 CET`
+- W tabelkach: dwie osobne kolumny `UTC` i `Czas PL` — nie tylko jedna
+- Dotyczy: kalendarza ekonomicznego, newsów, nagłówków raportów, POSITION WATCH, whale scans, wszystkiego co ma timestamp
+
+Skrypt pomocniczy: `scripts/tz_utils.py` — funkcje `fmt_both()`, `pl_time_str()`, `now_pl()`
+
 ## Język raportów — styl edukacyjny (obowiązkowy)
 
 **Wszystkie raporty, analizy i odpowiedzi dotyczące finansów MUSZĄ być pisane prostym, edukacyjnym językiem.**

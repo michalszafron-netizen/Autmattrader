@@ -70,8 +70,9 @@ def is_high_impact(event: dict) -> bool:
 
 def format_time(dt_str: str) -> str:
     try:
+        from tz_utils import fmt_both
         dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-        return dt.strftime("%H:%M UTC")
+        return fmt_both(dt)
     except Exception:
         return dt_str or "TBD"
 
