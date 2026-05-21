@@ -195,6 +195,26 @@ CREATE TABLE IF NOT EXISTS oi_snapshots (
     funding_rate    REAL,
     UNIQUE(ts, coin)
 );
+
+CREATE TABLE IF NOT EXISTS token_snapshots (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts              TEXT NOT NULL,
+    coin            TEXT NOT NULL,
+    price           REAL,
+    change_24h      REAL,
+    trend_h4        TEXT,
+    trend_h1        TEXT,
+    trend_m15       TEXT,
+    sm_long_pct     REAL,
+    sm_short_pct    REAL,
+    oi_total_usd    REAL,
+    oi_change_1h    REAL,
+    funding_rate    REAL,
+    sentiment_score INTEGER,
+    composite_score REAL,
+    UNIQUE(ts, coin)
+);
+CREATE INDEX IF NOT EXISTS idx_tsnap_coin ON token_snapshots(coin);
 CREATE INDEX IF NOT EXISTS idx_oi_coin ON oi_snapshots(coin);
 CREATE INDEX IF NOT EXISTS idx_oi_ts   ON oi_snapshots(ts);
 
@@ -624,7 +644,7 @@ class DB:
             "daily_briefs", "trending_tokens", "whale_snapshots",
             "cot_snapshots", "x_sentiment", "econ_events",
             "token_research", "trade_alerts", "positions_history",
-            "oi_snapshots", "telegram_queries",
+            "oi_snapshots", "token_snapshots", "telegram_queries",
         ]
         counts = {}
         for t in tables:

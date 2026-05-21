@@ -429,6 +429,12 @@ Steps Claude executes when you type this:
 - Run: `python scripts/oi_tracker.py --trend --save` — OI z trendem vs poprzedni snapshot + zapis do DB
 - Zwroc uwage na: funding rate (crowded long/short) + spike >15% (alert)
 
+**STEP 1.6 — TOKEN DASHBOARD (per-token unified view)**
+- Run: `python scripts/token_dashboard.py --save` — kafelki dla BTC/ETH/SOL/HYPE/LINK
+- Sekcja TOKEN DASHBOARD w briefie pokazuje composite score 0-10 per token
+- Composite score łączy: trend (3 timeframes) + smart money bias + OI/price action + funding + sentiment
+- Score 7.5+ = strong setup, 5-7 = mixed, <5 = unfavorable
+
 **STEP 2 — WHALE READ (Hyperliquid)**
 - Run: `python scripts/hl_whale_tracker.py whales --top 20 --window week`
 - Run: `python scripts/hl_whale_tracker.py whales --top 20 --window day`
@@ -539,6 +545,18 @@ Zasady POSITION WATCH:
 | SOL  | ...     | ...   | ...      | ...   | ...   | ...     |
 
 [Interpretacja: czy funding crowded? Spike >15% = alert. OI rosnie z cena = trend silny.]
+
+### TOKEN DASHBOARD
+Dla każdego z obserwowanych tokenów (BTC, ETH, SOL, HYPE, LINK) — kafelek z:
+- Ceną + zmianami 1D/7D/30D + vs BTC
+- Trendem H4/H1/M15 (strzałki ↑↓→)
+- Smart Money: liczba pozycji + % LONG/SHORT
+- Whale avg entry (long/short)
+- OI + funding + sentiment
+- **Composite Score 0-10** (kluczowy syntetyczny sygnał)
+- Catalyst 7d (historia katalizatorów)
+
+[Token z najwyższym composite to TOP PICK kandydat. Score <5 = unikaj długiego ekspozycji.]
 
 ### WHALE LAYER
 [Weekly vs daily divergence table — net $ per coin; crowded long/short]

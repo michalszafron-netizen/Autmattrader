@@ -113,6 +113,9 @@ C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe scripts\quotes.py
 | `quotes.py` | `python scripts/quotes.py --brief` | 1 linijka do daily brief |
 | `oi_tracker.py` | `python scripts/oi_tracker.py` | Open Interest: Binance+Bybit+Extended |
 | `oi_tracker.py` | `python scripts/oi_tracker.py --trend --save` | OI z trendem + zapis do DB |
+| `token_dashboard.py` | `python scripts/token_dashboard.py` | Kafelki per token: trend+SM+OI+sentiment+composite score |
+| `token_dashboard.py` | `python scripts/token_dashboard.py --coins BTC HYPE` | Wybrane tokeny |
+| `token_dashboard.py` | `python scripts/token_dashboard.py --brief` | 1 linia per token (do daily-alpha) |
 | `macro_news.py` | `python scripts/macro_news.py --category alpha` | Newsy: coindesk + theblock + reuters |
 | `econ_calendar.py` | `python scripts/econ_calendar.py` | Kalendarz ekonomiczny dziś |
 | `econ_calendar.py` | `python scripts/econ_calendar.py --upcoming` | Tylko nadchodzące eventy dziś |
