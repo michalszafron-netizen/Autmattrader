@@ -531,6 +531,15 @@ Zasady POSITION WATCH:
 ### MACRO PULSE
 [5 bulletów z najważniejszych nagłówków ostatnich 12h]
 
+### OPEN INTEREST
+| Coin | Binance | Bybit | Extended | TOTAL | Trend | Funding |
+|------|---------|-------|----------|-------|-------|---------|
+| BTC  | ...     | ...   | ...      | ...   | ...   | ...     |
+| ETH  | ...     | ...   | ...      | ...   | ...   | ...     |
+| SOL  | ...     | ...   | ...      | ...   | ...   | ...     |
+
+[Interpretacja: czy funding crowded? Spike >15% = alert. OI rosnie z cena = trend silny.]
+
 ### WHALE LAYER
 [Weekly vs daily divergence table — net $ per coin; crowded long/short]
 
