@@ -270,3 +270,38 @@ trading-ai/
 | PowerShell nie zna aliasów `tgtrade`/`trade` | `. $PROFILE` (przeładuj profil) lub otwórz nowy terminal |
 | Ceny wyglądają dziwnie | Sprawdź czy nie używasz ETF (GLD/SLV) zamiast `quotes.py` |
 | SSL error na Windows | `$env:NODE_TLS_REJECT_UNAUTHORIZED = "0"` już jest w profilu — otwórz nowy terminal |
+| Bot próbuje Bash zamiast PowerShell (DeepSeek) | CLAUDE.md ma już regułę MUST PowerShell — jeśli model nadal próbuje Bash, przypomnij mu "use PowerShell tool only, never Bash" |
+| Daily brief nadpisał poprzedni | Od teraz: pierwszy = `YYYY-MM-DD_daily_alpha.md`, kolejne = `_v2.md`, `_v3.md` (CLAUDE.md zaktualizowany) |
+| Daily brief nie pokazał się w chacie | CLAUDE.md ma teraz regułę: MUST wyświetlić pełny brief w chacie ZANIM zapisze plik |
+
+---
+
+## Wersjonowanie raportów (od teraz)
+
+Każdy `/daily-alpha` w tym samym dniu **nie nadpisuje** poprzedniego:
+
+```
+reports/2026-05-21_daily_alpha.md         ← pierwszy run dnia
+reports/2026-05-21_daily_alpha_v2.md      ← drugi run tego samego dnia
+reports/2026-05-21_daily_alpha_v3.md      ← trzeci...
+```
+
+Każda wersja jest też **osobno zapisywana do bazy danych** — możesz porównać jak ewoluowała sytuacja w ciągu dnia komendą `python scripts/db.py context-daily`.
+
+---
+
+## Korzystanie z DeepSeek vs Claude
+
+Na lokalnym Windows i na VPS możesz używać różnych modeli przez Claude Code. Najważniejsze różnice:
+
+| | Claude Sonnet 4.6 / Opus 4.7 | DeepSeek V4 |
+|--|------|---------|
+| Trzymanie się skompikowanego workflow | Bardzo dobre | Średnie — może improwizować |
+| Tool calling (PowerShell/MCP) | Stabilne | Może mieszać Bash i PowerShell |
+| Polskie znaki w outputach | Stabilne | Czasami encoding issues |
+| Koszt | Wyższy | Niższy |
+| Jakość treści finansowej | Bardzo dobra | Dobra (porównywalna) |
+
+**Wniosek:** DeepSeek wymaga bardziej deterministycznych instrukcji w CLAUDE.md (które już są wprowadzone od dziś — sekcja "Workflow notes — OBOWIĄZKOWE"). Treść raportu będzie podobna, ale proces wykonawczy musi być twardszy.
+
+Jeśli używasz DeepSeek i widzisz że próbuje Bash zamiast PowerShell — w czacie napisz: *"use PowerShell tool only, never Bash on Windows paths"* — to wystarczy.

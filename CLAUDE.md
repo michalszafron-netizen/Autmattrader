@@ -605,20 +605,48 @@ Firecrawl: 3 kredyty tej sesji | Pozostało: X/1000 w miesiącu
 **Conviction: [X]/10** — [jednozdaniowe uzasadnienie]
 ```
 
-Workflow notes:
+Workflow notes — OBOWIĄZKOWE (each rule is MUST, not SHOULD):
+
+**1. ŚRODOWISKO — TYLKO PowerShell, NIGDY Bash**
+- Wszystkie komendy uruchamiaj przez PowerShell tool (jest na Windows)
+- NIGDY nie używaj Bash dla ścieżek `C:\...` — Bash ich nie widzi
+- Format komendy: `& "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe" "C:\Users\markowyy\trading-ai\scripts\NAZWA.py" ARGS`
+- Jeśli PowerShell zwraca pusty output — NIE przełączaj na Bash. Spróbuj ponownie przekierowując do pliku tymczasowego: `... > C:\Temp\out.txt 2>&1; Get-Content C:\Temp\out.txt`
+
+**2. WYŚWIETLENIE W CHACIE — pełny brief, NIE summary**
+- Pełny tekst raportu MUSI być wyświetlony w czacie zanim zapiszesz plik
+- Nie pokazuj tylko summary 5-liniowego — pokaż wszystkie sekcje
+- Po wyświetleniu — zapisz do pliku
+- Dopiero potem zapisz do DB
+
+**3. WERSJONOWANIE PLIKU — nigdy nie nadpisuj**
+- Sprawdź czy `reports/YYYY-MM-DD_daily_alpha.md` istnieje (PowerShell: `Test-Path`)
+- Jeśli istnieje → użyj nazwy `reports/YYYY-MM-DD_daily_alpha_v2.md`
+- Jeśli v2 też istnieje → v3, v4, etc. — inkrementuj
+- Pierwszy run dnia = bez suffiksu, drugi = `_v2`, trzeci = `_v3`
+- KAŻDA wersja idzie osobno do DB (source='daily-alpha' + version w content)
+
+**4. ZAPIS DO DB — ZAWSZE po wygenerowaniu**
+```python
+import sys; sys.path.insert(0, 'scripts')
+from db import DB
+content = open('reports/YYYY-MM-DD_daily_alpha[_vN].md', encoding='utf-8').read()
+DB().save_daily_brief(content, source='daily-alpha')
+```
+To zasila context dla kolejnego briefu (`db.py context-daily`).
+
+**5. FORMATOWANIE MD — wymogi czytelności**
+- Każda sekcja oddzielona `---` (linia pozioma)
+- Po każdym nagłówku H3 — pusta linia przed treścią
+- Tabele zawsze otoczone pustymi liniami (przed i po)
+- Listy z pustą linią przed pierwszym `-`
+- Długie paragrafy łam co 80-100 znaków
+- Emoji ostrożnie — tylko gdy faktycznie ułatwiają skanowanie
+
+**6. INNE**
 - TV chart wraca na BTC po zakończeniu
 - Nie wykonuj żadnych zleceń — tylko output
 - Budget: 3 Firecrawl kredyty per run (coindesk + theblock + reuters_world)
-- **ZAWSZE zapisz raport do pliku przed wysyłką na Telegram:**
-  `reports/YYYY-MM-DD_daily_alpha.md` (utwórz folder jeśli nie istnieje)
-  Zapis na dysk = kopia zapasowa gdy Telegram zawiedzie lub wiadomość zniknie
-- **ZAWSZE po wygenerowaniu briefu zapisz do bazy danych:**
-  ```python
-  import sys; sys.path.insert(0,'scripts')
-  from db import DB
-  DB().save_daily_brief(open('reports/YYYY-MM-DD_daily_alpha.md').read())
-  ```
-  Zastąp YYYY-MM-DD aktualną datą. To zasila kontekst dla jutrzejszego briefu.
 
 ## Agent platforms (status)
 
