@@ -47,34 +47,38 @@ FINNHUB_URL = "https://finnhub.io/api/v1"
 # finnhub_symbol=None → use HL only
 
 CATALOGUE: dict[str, list[tuple]] = {
+    # ZASADA: nigdy nie używaj ETF proxy (GLD/SLV/USO) jako ceny spot — to nie to samo.
+    # Wszystkie ceny towarów/indeksów bierzemy z HL xyz (live, bez opóźnień, prawdziwe ceny).
+    # Finnhub tylko dla akcji US których nie ma na HL xyz.
     "metals": [
-        ("Gold",      "xyz:GOLD",      "GLD",  2, "USD/oz"),
-        ("Silver",    "xyz:SILVER",    "SLV",  3, "USD/oz"),
-        ("Copper",    "xyz:COPPER",    None,   4, "USD/lb"),
-        ("Platinum",  "xyz:PLATINUM",  None,   2, "USD/oz"),
-        ("Palladium", "xyz:PALLADIUM", None,   2, "USD/oz"),
+        ("Gold",      "xyz:GOLD",      None, 2, "USD/oz"),
+        ("Silver",    "xyz:SILVER",    None, 3, "USD/oz"),
+        ("Copper",    "xyz:COPPER",    None, 4, "USD/lb"),
+        ("Platinum",  "xyz:PLATINUM",  None, 2, "USD/oz"),
+        ("Palladium", "xyz:PALLADIUM", None, 2, "USD/oz"),
     ],
     "energy": [
-        ("Brent Oil", "xyz:BRENTOIL", None,  2, "USD/bbl"),
-        ("US Oil",    "xyz:CL",       None,  2, "USD/bbl"),
-        ("Nat Gas",   "xyz:NATGAS",   None,  4, "USD/MMBtu"),
-        ("EU Gas TTF","xyz:TTF",      None,  2, "EUR/MWh"),
+        ("Brent Oil", "xyz:BRENTOIL", None, 2, "USD/bbl"),
+        ("US Oil",    "xyz:CL",       None, 2, "USD/bbl"),
+        ("Nat Gas",   "xyz:NATGAS",   None, 4, "USD/MMBtu"),
+        ("EU Gas TTF","xyz:TTF",      None, 2, "EUR/MWh"),
     ],
     "agri": [
-        ("Corn",      "xyz:CORN",   None, 4, "USD/bu"),
-        ("Wheat",     "xyz:WHEAT",  None, 4, "USD/bu"),
-        ("Uranium",   "xyz:URANIUM",None, 3, "USD/lb"),
+        ("Corn",    "xyz:CORN",    None, 4, "USD/bu"),
+        ("Wheat",   "xyz:WHEAT",   None, 4, "USD/bu"),
+        ("Uranium", "xyz:URANIUM", None, 3, "USD/lb"),
     ],
     "indices": [
-        ("S&P 500",   "xyz:SP500",  "SPY",  2, "pts"),
-        ("VIX",       "xyz:VIX",   None,   2, "pts"),
-        ("DXY",       "xyz:DXY",   None,   3, "index"),
-        ("EUR/USD",   "xyz:EUR",   None,   5, "rate"),
-        ("GBP/USD",   "xyz:GBP",   None,   5, "rate"),
-        ("JPY/USD",   "xyz:JPY",   None,   6, "rate"),
-        ("Nikkei",    "xyz:JP225", None,   0, "pts"),
+        ("S&P 500", "xyz:SP500", None, 2, "pts"),
+        ("VIX",     "xyz:VIX",   None, 2, "pts"),
+        ("DXY",     "xyz:DXY",   None, 3, "index"),
+        ("EUR/USD", "xyz:EUR",   None, 5, "rate"),
+        ("GBP/USD", "xyz:GBP",   None, 5, "rate"),
+        ("JPY/USD", "xyz:JPY",   None, 6, "rate"),
+        ("Nikkei",  "xyz:JP225", None, 0, "pts"),
     ],
     "stocks": [
+        # HL xyz ma prawie wszystkie duże US stocks — Finnhub tylko jako backup
         ("NVDA",  "xyz:NVDA",  "NVDA",  2, "USD"),
         ("TSLA",  "xyz:TSLA",  "TSLA",  2, "USD"),
         ("AAPL",  "xyz:AAPL",  "AAPL",  2, "USD"),
@@ -84,7 +88,6 @@ CATALOGUE: dict[str, list[tuple]] = {
         ("AMZN",  "xyz:AMZN",  "AMZN",  2, "USD"),
         ("PLTR",  "xyz:PLTR",  "PLTR",  2, "USD"),
         ("COIN",  "xyz:COIN",  "COIN",  2, "USD"),
-        ("QQQ",   None,        "QQQ",   2, "USD"),  # Nasdaq proxy, Finnhub only
     ],
 }
 

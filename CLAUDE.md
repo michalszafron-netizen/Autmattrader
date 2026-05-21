@@ -161,6 +161,17 @@ Timestamp format: `2026-05-20_08-30` — użyj aktualnej daty/godziny w nazwie p
 - `tests/` — pytest
 - `docs/` — module write-ups as we ship them
 
+## Źródła cen — zasada rozdzielenia (obowiązkowa)
+
+| Kontekst | Źródło | Narzędzie |
+|----------|--------|-----------|
+| Analiza, raporty, quotes, POSITION WATCH | **Hyperliquid xyz** | `scripts/quotes.py` lub `hl_executor.py quote` |
+| `/raport` — rysowanie poziomów na wykresie TV | **TradingView** | `quote_get()` z TV MCP |
+
+**Nigdy nie mieszaj źródeł przy rysowaniu.** Jeśli rysujesz TP/SL/Entry na wykresie TV — cena bazowa musi być z `quote_get()` tego wykresu, żeby linie trafiły dokładnie tam gdzie użytkownik je widzi. HL xyz i TV mogą się minimalnie różnić (inny feed, spread) — poziomy narysowane na złej cenie będą przesunięte.
+
+**Nigdy nie używaj ETF proxy** (GLD, SLV, USO, QQQ) jako ceny spot surowca. GLD ≠ cena złota w USD/oz.
+
 ## MCP available
 
 - `tradingview` (78 tools) — user-scope, works from any folder
