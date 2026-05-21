@@ -183,6 +183,21 @@ CREATE TABLE IF NOT EXISTS positions_history (
 );
 CREATE INDEX IF NOT EXISTS idx_pos_symbol ON positions_history(symbol);
 
+CREATE TABLE IF NOT EXISTS oi_snapshots (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts              TEXT NOT NULL,
+    coin            TEXT NOT NULL,
+    oi_binance      REAL DEFAULT 0,
+    oi_bybit        REAL DEFAULT 0,
+    oi_extended     REAL DEFAULT 0,
+    oi_total        REAL DEFAULT 0,
+    mark_price      REAL,
+    funding_rate    REAL,
+    UNIQUE(ts, coin)
+);
+CREATE INDEX IF NOT EXISTS idx_oi_coin ON oi_snapshots(coin);
+CREATE INDEX IF NOT EXISTS idx_oi_ts   ON oi_snapshots(ts);
+
 CREATE TABLE IF NOT EXISTS telegram_queries (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     ts          TEXT NOT NULL,
@@ -609,7 +624,7 @@ class DB:
             "daily_briefs", "trending_tokens", "whale_snapshots",
             "cot_snapshots", "x_sentiment", "econ_events",
             "token_research", "trade_alerts", "positions_history",
-            "telegram_queries",
+            "oi_snapshots", "telegram_queries",
         ]
         counts = {}
         for t in tables:

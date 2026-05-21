@@ -424,6 +424,11 @@ Steps Claude executes when you type this:
 - Run: `python scripts/macro_news.py --source reuters_world` (1 credit — geopolityka)
 - Wyciągnij 5 bulletów; oznacz co może ruszyć assets w ciągu 24h
 
+**STEP 1.5 — OPEN INTEREST (Binance + Bybit + Extended)**
+- Run: `python scripts/oi_tracker.py --brief` — aggregate OI dla BTC/ETH/SOL/XAU/XAG
+- Run: `python scripts/oi_tracker.py --trend --save` — OI z trendem vs poprzedni snapshot + zapis do DB
+- Zwroc uwage na: funding rate (crowded long/short) + spike >15% (alert)
+
 **STEP 2 — WHALE READ (Hyperliquid)**
 - Run: `python scripts/hl_whale_tracker.py whales --top 20 --window week`
 - Run: `python scripts/hl_whale_tracker.py whales --top 20 --window day`
