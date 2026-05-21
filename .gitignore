@@ -1,0 +1,51 @@
+# Secrets — NEVER commit
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node (if we add JS tooling)
+node_modules/
+package-lock.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Scraped content (Firecrawl output)
+.firecrawl/
+
+# Logs & local data
+logs/*.log
+data/*.db
+data/*.sqlite
+data/*.parquet
+*.pid
+
+# OS / build
+dist/
+build/
+*.egg
