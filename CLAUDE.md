@@ -405,6 +405,9 @@ Steps Claude executes when you type this:
 **STEP 0 — MY BOOK + MARKET PULSE (zawsze najpierw, równolegle)**
 - Run: `python scripts/hl_executor.py positions` — otwarte pozycje HL, unrealized PnL
 - Run: `python scripts/hl_executor.py orders` — WSZYSTKIE zlecenia HL: limity + TP + SL + trigger orders
+- Run: `python scripts/extended_executor.py positions` — pozycje Extended Exchange (StarkNet DEX)
+- Run: `python scripts/extended_executor.py orders` — zlecenia Extended (TPSL, limity)
+- Run: `python scripts/extended_executor.py balance` — konto Extended: equity, margin, health
 - Run: `python scripts/alpaca_executor.py positions` — pozycje Alpaca paper (ZAWSZE pokaż: nawet "brak pozycji" + equity + buying power)
 - Run: `python scripts/fear_greed.py --brief` — Crypto Fear & Greed Index
 - Run: `python scripts/econ_calendar.py` — pełny kalendarz dziś: co już wyszło + EXPERT VIEW
@@ -465,6 +468,11 @@ Output format (90s read, no fluff):
 **Hyperliquid:**
 [tabela pozycji HL — coin, kierunek, rozmiar, entry, uPnL, lewar]
 [tabela zleceń HL — osobne kolumny: Type (LIMIT/TP/SL/TRIGGER), Side, Trigger $, Limit $, Size]
+
+**Extended Exchange (StarkNet DEX):**
+[equity, available, used margin, health %, avg leverage]
+[tabela pozycji: market, side, size, entry, mark, uPnL, lev]
+[tabela zleceń TPSL: market, TP trigger / SL trigger]
 
 **Alpaca Paper:**
 [equity, cash, buying power, day P&L]

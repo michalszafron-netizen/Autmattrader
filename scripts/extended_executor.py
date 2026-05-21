@@ -226,38 +226,46 @@ def cmd_orders(args: argparse.Namespace) -> None:
 
 
 def cmd_markets(args: argparse.Namespace) -> None:
-    data = _get("/api/v1/markets")
+    data = _get("/api/v1/info/markets")
     markets = data if isinstance(data, list) else data.get("markets", [])
+    markets = [m for m in markets if m.get("status") == "ACTIVE" and m.get("active")]
 
     if not markets:
         console.print("[red]No markets data[/red]")
         return
 
-    table = Table(title=f"Extended Markets ({len(markets)} total)")
+    table = Table(title=f"Extended Markets — top 30 by volume ({len(markets)} active)")
     table.add_column("Market", style="cyan")
+    table.add_column("Category", style="dim")
     table.add_column("Mark $", justify="right")
     table.add_column("24h %", justify="right")
-    table.add_column("Volume", justify="right", style="dim")
+    table.add_column("Vol 24h", justify="right", style="dim")
 
-    for m in sorted(markets, key=lambda x: float(x.get("volume24h", 0) or 0), reverse=True)[:30]:
-        name   = m.get("market", m.get("symbol", "?"))
-        mark   = m.get("markPrice", m.get("price", "?"))
-        chg    = m.get("priceChange24h", m.get("change24h"))
-        vol    = m.get("volume24h", "?")
+    def _vol(m):
+        try: return float(m.get("marketStats", {}).get("dailyVolume", 0) or 0)
+        except: return 0
 
-        try: mark_str = f"${float(mark):,.2f}"
+    for m in sorted(markets, key=_vol, reverse=True)[:30]:
+        name   = m.get("name", "?")
+        cat    = m.get("subCategory", m.get("category", ""))
+        s      = m.get("marketStats", {})
+        mark   = s.get("markPrice", "?")
+        chg    = s.get("dailyPriceChangePercentage")
+        vol    = s.get("dailyVolume", "?")
+
+        try: mark_str = f"${float(mark):,.4f}"
         except: mark_str = str(mark)
 
         try:
-            chg_f = float(chg)
+            chg_f = float(chg) * 100
             cc = "green" if chg_f >= 0 else "red"
             chg_str = f"[{cc}]{chg_f:+.2f}%[/{cc}]"
         except: chg_str = "—"
 
-        try: vol_str = f"${float(vol)/1e6:.1f}M"
+        try: vol_str = f"${float(vol)/1e6:.2f}M"
         except: vol_str = str(vol)
 
-        table.add_row(name, mark_str, chg_str, vol_str)
+        table.add_row(name, cat, mark_str, chg_str, vol_str)
     console.print(table)
 
 
