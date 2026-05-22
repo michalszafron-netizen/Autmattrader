@@ -210,12 +210,27 @@ def format_alert(anomalies: list[dict], ts: str, threshold: float) -> str:
             exchange_label = "Binance Spot"
             trade_url = f"https://www.binance.com/en/trade/{a['ticker']}_USDT"
 
+        # Solana swap command if token exists on Solana (check known mints)
+        solana_cmd = ""
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from solana_executor import KNOWN_MINTS
+            if a["ticker"] in KNOWN_MINTS:
+                mint = KNOWN_MINTS[a["ticker"]]
+                solana_cmd = (
+                    f"\n   ⚡ <code>python scripts/solana_executor.py swap SOL "
+                    f"{a['ticker']} 0.01 --yes</code>"
+                )
+        except Exception:
+            pass
+
         lines.append(
             f"{fire} <b>${a['ticker']}</b> — <b>{mult:.1f}x</b> powyzej sredniej\n"
             f"   📍 {exchange_label}\n"
             f"   {emoji} 24h: {_fmt(a['vol24'])} | Avg30d: {_fmt(a['avg30d'])} | "
             f"Cena: {chg:+.1f}%\n"
             f"   🔗 <a href='{trade_url}'>Handluj na Binance</a>"
+            f"{solana_cmd}"
         )
     lines.append(f"\n⚡ {len(anomalies)} anomalii | Prog: {threshold}x")
     return "\n".join(lines)

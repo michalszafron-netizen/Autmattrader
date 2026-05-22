@@ -44,10 +44,38 @@ except Exception:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 PRIVATE_KEY_B58 = os.getenv("SOLANA_PRIVATE_KEY", "")
-RPC_URL         = os.getenv("SOLANA_RPC", "https://api.mainnet-beta.solana.com")
 JUPITER_QUOTE   = "https://quote-api.jup.ag/v6/quote"
 JUPITER_SWAP    = "https://quote-api.jup.ag/v6/swap"
 JUPITER_PRICE   = "https://api.jup.ag/price/v2"
+
+# RPC with automatic fallback chain
+_RPC_ENDPOINTS = [
+    os.getenv("SOLANA_RPC", ""),                          # primary from .env
+    "https://rpc.ankr.com/solana",                        # free backup, no key
+    "https://api.mainnet-beta.solana.com",                # public last resort
+]
+_RPC_ENDPOINTS = [r for r in _RPC_ENDPOINTS if r]        # remove empty
+
+def _rpc_call(method: str, params: list) -> dict:
+    """Try each RPC endpoint in order, return first success."""
+    last_err = None
+    for url in _RPC_ENDPOINTS:
+        try:
+            with httpx.Client(verify=_SSL, timeout=15) as c:
+                r = c.post(url, json={"jsonrpc": "2.0", "id": 1,
+                                      "method": method, "params": params})
+                if r.status_code == 429:
+                    continue  # rate limited, try next
+                r.raise_for_status()
+                result = r.json()
+                if "error" in result and result["error"]:
+                    last_err = result["error"]
+                    continue
+                return result.get("result", {})
+        except Exception as e:
+            last_err = e
+            continue
+    raise Exception(f"All RPC endpoints failed. Last error: {last_err}")
 
 _SSL = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
@@ -88,11 +116,7 @@ def _pubkey() -> str:
 # ── Solana RPC ────────────────────────────────────────────────────────────────
 
 def rpc(method: str, params: list) -> dict:
-    with httpx.Client(verify=_SSL, timeout=20) as c:
-        r = c.post(RPC_URL, json={"jsonrpc": "2.0", "id": 1,
-                                   "method": method, "params": params})
-        r.raise_for_status()
-        return r.json().get("result", {})
+    return _rpc_call(method, params)
 
 
 def get_sol_balance(pubkey: str) -> float:
