@@ -196,6 +196,32 @@ CREATE TABLE IF NOT EXISTS oi_snapshots (
     UNIQUE(ts, coin)
 );
 
+CREATE TABLE IF NOT EXISTS sm_snapshots (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts          TEXT NOT NULL,
+    wallet      TEXT NOT NULL,
+    coin        TEXT NOT NULL,
+    side        TEXT NOT NULL,
+    size        REAL,
+    entry       REAL,
+    notional    REAL,
+    upnl        REAL,
+    lev         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sm_snap_ts ON sm_snapshots(ts);
+
+CREATE TABLE IF NOT EXISTS sm_alerts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts          TEXT NOT NULL,
+    alert_type  TEXT NOT NULL,
+    coin        TEXT,
+    side        TEXT,
+    wallet      TEXT,
+    notional    REAL,
+    details     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sm_alert_ts ON sm_alerts(ts);
+
 CREATE TABLE IF NOT EXISTS fear_greed_history (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     ts              TEXT NOT NULL,
