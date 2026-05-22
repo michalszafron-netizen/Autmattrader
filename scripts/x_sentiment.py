@@ -656,7 +656,13 @@ def main() -> None:
             except Exception as _dbe:
                 pass  # DB errors never interrupt display
         except Exception as e:
-            console.print(f"[red]{e}[/red]")
+            err_str = str(e).lower()
+            if any(kw in err_str for kw in ["credit", "quota", "limit", "rate", "429", "billing", "insufficient"]):
+                console.print("[yellow]LIMIT KREDYTOW xAI — brak live X search dla trending[/yellow]")
+                console.print("[dim]Trending scan wymaga kredytow X search. Odnow na https://console.x.ai[/dim]")
+                console.print("[dim]Mozna sprobowac: python scripts/x_sentiment.py sentiment --no-live[/dim]")
+            else:
+                console.print(f"[red]{e}[/red]")
         return
 
     # sentiment mode
@@ -679,15 +685,33 @@ def main() -> None:
     console.print(f"\n[bold]X Sentiment[/bold] — {now}  [{mode}]\n"
                   f"[dim]Assets: {', '.join(coins)}[/dim]\n")
 
+    _credits_exhausted = False
     results = []
     for coin in coins:
         console.print(f"  {coin}...", end=" ")
         try:
-            result = query_knowledge(coin) if no_live else query_live(coin, hours)
+            result = query_knowledge(coin) if (no_live or _credits_exhausted) else query_live(coin, hours)
             console.print("[green]OK[/green]")
             results.append(result)
         except Exception as e:
-            console.print(f"[red]{e}[/red]")
+            err_str = str(e).lower()
+            # Detect credit/quota exhaustion — switch to knowledge fallback for remaining coins
+            if any(kw in err_str for kw in ["credit", "quota", "limit", "rate", "429", "billing", "insufficient"]):
+                _credits_exhausted = True
+                console.print(f"[yellow]LIMIT KREDYTOW — przelaczam na tryb bez live search[/yellow]")
+                try:
+                    result = query_knowledge(coin)
+                    result["data_source"] = "training_data_fallback"
+                    console.print("[yellow]OK (training data)[/yellow]")
+                    results.append(result)
+                except Exception as e2:
+                    console.print(f"[red]fallback tez nie dziala: {e2}[/red]")
+            else:
+                console.print(f"[red]{e}[/red]")
+
+    if _credits_exhausted:
+        console.print("[yellow]\nUWAGA: Kredyty xAI wyczerpane. Sentiment oparty na danych treningowych (brak live X search).[/yellow]")
+        console.print("[dim]Aby odnowic: https://console.x.ai — doladuj kredyty X search[/dim]")
 
     console.print()
     for r in results:

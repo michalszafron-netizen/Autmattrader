@@ -462,6 +462,8 @@ Na podstawie danych określ dla każdego asseta:
 
 **STEP 5 — X SENTIMENT (Grok)**
 - Run: `python scripts/x_sentiment.py sentiment --group all` (BTC, ETH, SOL, HYPE, LINK + macro)
+- Jeśli błąd kredytów ("credit", "quota", "429"): skrypt automatycznie przełącza na `--no-live` (dane treningowe)
+- NIGDY nie przerywaj briefu z powodu braku kredytów — napisz "X Sentiment: brak kredytów xAI" i kontynuuj
 
 **STEP 6 — SENPI (jeśli MCP dostępny)**
 - Call: `leaderboard_get_top` (ELITE/RELIABLE traders + ich pozycje)
