@@ -324,6 +324,179 @@ Bot z RAG może odpowiadać na:
 
 ---
 
+---
+
+## JUTRO — Plan sesji 2026-05-23
+
+> ⏰ **PRZYPOMNIENIE: Deploy na VPS jutro!** Wrzucić repo na serwer Hostinger.
+
+### 🎯 Priorytety jutrzejszej sesji (w kolejności)
+
+---
+
+### J.1 Gotowe prompty dla Hermesa — biblioteka komend
+
+Zestaw gotowych, przetestowanych promptów do wklejenia na Telegramie do Hermesa.
+Wychodzisz rano, wybierasz jeden, modyfikujesz 2 słowa, wpisujesz — gotowe.
+
+**Prompty do przygotowania:**
+
+```
+# CRON — Skaner wykresów co 4h
+Ustaw zadanie cron: co 4 godziny sprawdź wykresy BTC, ETH i SOL
+na interwale 4H przez TradingView MCP. Dla każdego podaj: trend,
+kluczowy support, kluczowy resistance. Jeśli widzisz wyraźny setup
+(breakout lub odbicie od wsparcia), wyślij alert z opisem i entry.
+
+# CRON — Poranny brief 07:00
+Ustaw cron na 07:00 każdego dnia: uruchom python scripts/daily_alpha.py
+i wyślij mi wynik przez Telegram.
+
+# CRON — Monitoring newsów co 30 min
+Ustaw cron co 30 minut: sprawdź RSS feedy coindesk i theblock przez
+blogwatcher, filtruj po słowach: Silver, Gold, BTC, Fed, Iran, OPEC.
+Jeśli coś trafnego — wyślij mi alert natychmiast.
+
+# QUICK — Szybki scan rynku
+Sprawdź przez TradingView MCP: BTC 1H trend, ETH 1H trend, aktualny
+Fear&Greed. Daj mi 3 zdania: gdzie jesteśmy, czego nie robić teraz.
+
+# QUICK — Moje pozycje
+Uruchom: python scripts/hl_executor.py positions oraz
+python scripts/extended_executor.py positions. Podsumuj uPnL total
+i powiedz czy któraś pozycja wymaga uwagi.
+
+# ANALIZA — Token research
+Zbadaj token [CA/TICKER] na Solana: cena, MC, liquidity, holders,
+rug risk. Powiedz czy warto wejść i przy jakim rozmiarze pozycji.
+
+# POLYMARKET — Deep check
+Sprawdź przez Polymarket skill: aktualne probability na BTC $150k,
+Fed cut w czerwcu, Iran deal. Pokaż jak zmieniały się ostatnie 24h.
+```
+
+---
+
+### J.2 Analiza kosztów Hermesa — refresh co 10-15 minut
+
+**Szacunkowe koszty dla DeepSeek V4 Flash** przy ciągłym monitoringu:
+
+| Scenariusz | Tokeny/scan | Scany/dzień | Koszt/dzień | Koszt/miesiąc |
+|---|---|---|---|---|
+| Refresh 15 min | ~3,000 | 96 | ~$0.04 | **~$1.20** |
+| Refresh 10 min | ~3,000 | 144 | ~$0.06 | **~$1.80** |
+| Refresh 5 min | ~3,000 | 288 | ~$0.12 | **~$3.60** |
+| Z cache hit (-98%) | ~3,000 | 144 | ~$0.002 | **~$0.06** |
+
+**Wniosek:** Nawet co 10 minut to **mniej niż 2$ miesięcznie**. Cache hit przy powtarzalnych system promptach redukuje do groszy. Możesz sobie pozwolić na refresh co 5 minut bez żadnego problemu finansowego.
+
+**Co skanować co 10-15 min:**
+- Trend BTC/ETH/SOL (4H + 1H)
+- Kluczowe S/R czy cena je narusza
+- Nagłe zmiany OI (>5% w 1h)
+- Breaking news z RSS
+
+---
+
+### J.3 Hermes News Intelligence — BlogWatcher Setup
+
+**Cel:** Hermes monitoruje ~15 źródeł newsów 24/7, filtruje po relevance, alertuje natychmiast.
+
+**Źródła RSS do dodania:**
+```
+Crypto:      coindesk.com/arc/outboundfeeds/rss/
+             theblock.co/rss/all
+             decrypt.co/feed
+             cointelegraph.com/rss
+TradFi:      reuters.com/finance/rss
+             ft.com/markets?format=rss
+Commodities: kitco.com/rss/news/gold-news.rss
+             oilprice.com/rss
+Macro:       federalreserve.gov/feeds/press_all.xml
+             forexlive.com/feed
+Geopolitics: bbc.com/news/world/rss.xml
+```
+
+**Trigger keywords per asset:**
+- Silver: silver, XAG, precious metals, SILVER Act, industrial demand
+- Gold: gold, XAU, central bank, inflation, safe haven
+- BTC: bitcoin, BTC, ETF, regulation, SEC, halving
+- Fed: Federal Reserve, FOMC, rate cut, interest rates, Powell/Warsh
+
+**Implementacja:** `hermes tools install blogwatcher` + cron co 20 min
+
+---
+
+### J.4 Polymarket — Głębsza Analiza Prediction Markets
+
+Obecny `polymarket.py` pobiera tylko price/probability. Rozszerzenie:
+
+- **Orderbook depth** — gdzie są duże pieniądze (np. $500k zakłady na BTC $150k)
+- **Price history 7d** — jak zmieniało się prawdopodobieństwo w czasie
+- **Alert gdy skok >10%** w ciągu 1h — rynek wie coś czego Ty nie wiesz jeszcze
+- **Nowe rynki scanner** — nowo otwarte markety mogą być arbitraż okazją
+
+**Narzędzie:** Hermes `polymarket` skill (już zainstalowany) + nowy skrypt `scripts/polymarket_deep.py`
+
+---
+
+### J.5 CRON Jobs — Serce Automatyzacji (Master Plan)
+
+Pełny plan wszystkich cron jobów które chcemy uruchomić:
+
+| Job | Trigger | Co robi | Status |
+|---|---|---|---|
+| Chart Scanner | co 4h | BTC/ETH/SOL na 4H — trend + setup | 🎯 JUTRO |
+| News Monitor | co 20 min | RSS 15 źródeł — filter + alert | 🎯 JUTRO |
+| Morning Brief | 07:00 CET | Pełny daily-alpha przez Hermesa | 📋 PLAN |
+| OI Spike Alert | co 1h | OI > 5% zmiana → alert | 📋 PLAN |
+| Polymarket Watch | co 2h | Probability shifts > 10% → alert | 📋 PLAN |
+| Position Check | co 6h | uPnL + SL proximity alert | 📋 PLAN |
+| Volume Daemon | co 1h | Już działa (volume_scanner.py) | ✅ DZIAŁA |
+| Smart Money | co 1h | Już działa (smart_money_tracker.py) | ✅ DZIAŁA |
+| Listings Scan | co 6h | Już działa (listings_scanner.py) | ✅ DZIAŁA |
+
+---
+
+### J.6 ⭐ OPCJE BINANCE — Arbitraż vs Spot/Perps
+
+**To jest prawdziwa nisza. Zbadać dokładnie.**
+
+**Idea:** Binance Options (europejskie, wygasają co godzinę i codziennie) vs:
+- xyz:GOLD / xyz:SILVER na Hyperliquid (perpy TradFi)
+- BTC/ETH perpy na HL i Extended
+- Corn/Wheat na HL xyz vs opcje CME/Binance
+
+**Potencjalne strategie:**
+```
+1. COVERED CALL na HL perp + sell Binance call option
+   → Trzymasz long Silver na HL, sprzedajesz call na Binance
+   → Zbierasz premium co tydzień, hedgujesz pozycję
+
+2. SYNTHETIC LONG/SHORT bez depozytu
+   → Kup call Binance + sprzedaj put Binance = synthetic long
+   → vs tani perp na HL = czysty arbitraż fundingu
+
+3. VOLATILITY ARBITRAŻ
+   → IV Binance options vs realized vol HL = gdy rozbieżność > X%
+   → Klasyczny vol arb, nieznany w krypto retail
+
+4. CALENDAR SPREAD między BTC perp (HL) a BTC futures opcja (Binance)
+```
+
+**Dlaczego nisza?**
+- Większość retail nawet nie wie że Binance ma opcje
+- Likwidność opcji krypto = szeroki spread = okazja dla kogoś kto rozumie pricing
+- HL xyz TradFi + Binance crypto options = cross-market arbitraż którego nikt nie robi
+
+**Co zbadać jutro:**
+1. Binance Options API — czy możemy quotować i handlować programowo?
+2. Aktualny IV (implied volatility) na BTC/ETH opcjach Binance
+3. Porównaj z realized vol z `oi_tracker.py` danych
+4. Czy CCXT obsługuje Binance Options?
+
+---
+
 ## Kolejność wdrożenia (rekomendacja)
 
 ```
