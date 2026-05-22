@@ -634,7 +634,11 @@ Workflow notes — OBOWIĄZKOWE (each rule is MUST, not SHOULD):
 **2. WYŚWIETLENIE W CHACIE — pełny brief, NIE summary**
 - Pełny tekst raportu MUSI być wyświetlony w czacie zanim zapiszesz plik
 - Nie pokazuj tylko summary 5-liniowego — pokaż wszystkie sekcje
-- Po wyświetleniu — zapisz do pliku
+- Po zapisaniu pliku — **OBOWIĄZKOWO** uruchom:
+  ```
+  & "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe" -m rich "C:\Users\markowyy\trading-ai\reports\NAZWA_PLIKU.md"
+  ```
+  To renderuje plik MD z pięknymi tabelami w konsoli — ZAWSZE po zapisie, niezależnie od modelu.
 - Dopiero potem zapisz do DB
 
 **3. WERSJONOWANIE PLIKU — nigdy nie nadpisuj**
