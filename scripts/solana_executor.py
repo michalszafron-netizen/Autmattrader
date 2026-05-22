@@ -44,8 +44,8 @@ except Exception:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 PRIVATE_KEY_B58 = os.getenv("SOLANA_PRIVATE_KEY", "")
-JUPITER_QUOTE   = "https://quote-api.jup.ag/v6/quote"
-JUPITER_SWAP    = "https://quote-api.jup.ag/v6/swap"
+JUPITER_QUOTE   = "https://api.jup.ag/swap/v1/quote"
+JUPITER_SWAP    = "https://api.jup.ag/swap/v1/swap"
 JUPITER_PRICE   = "https://api.jup.ag/price/v2"
 
 # RPC with automatic fallback chain
@@ -211,8 +211,9 @@ def execute_swap(quote_response: dict, keypair) -> str | None:
         signed_tx = VersionedTransaction(tx.message, [keypair])
         signed_b64 = base64.b64encode(bytes(signed_tx)).decode()
 
+        rpc_url = _RPC_ENDPOINTS[0]
         with httpx.Client(verify=_SSL, timeout=30) as c:
-            r = c.post(RPC_URL, json={
+            r = c.post(rpc_url, json={
                 "jsonrpc": "2.0", "id": 1,
                 "method": "sendTransaction",
                 "params": [signed_b64, {
