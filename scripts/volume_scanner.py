@@ -197,16 +197,25 @@ def format_alert(anomalies: list[dict], ts: str, threshold: float) -> str:
         f"Prog wykrycia: {threshold}x powyżej sredniej 30-dniowej\n",
     ]
     for a in top:
-        mult  = a["multiplier"]
-        chg   = a["chg"]
-        fire  = "🔥🔥🔥" if mult >= 10 else "🔥🔥" if mult >= 5 else "🔥"
-        emoji = "🟢" if chg >= 0 else "🔴"
-        market_tag = "PERP" if a["market"] == "futures" else "SPOT"
+        mult   = a["multiplier"]
+        chg    = a["chg"]
+        fire   = "🔥🔥🔥" if mult >= 10 else "🔥🔥" if mult >= 5 else "🔥"
+        emoji  = "🟢" if chg >= 0 else "🔴"
+        sym    = a["symbol"]
+
+        if a["market"] == "futures":
+            exchange_label = "Binance Futures (PERP)"
+            trade_url = f"https://www.binance.com/en/futures/{sym}"
+        else:
+            exchange_label = "Binance Spot"
+            trade_url = f"https://www.binance.com/en/trade/{a['ticker']}_USDT"
+
         lines.append(
-            f"{fire} <b>${a['ticker']}</b> [{market_tag}] — "
-            f"<b>{mult:.1f}x</b> powyzej sredniej\n"
+            f"{fire} <b>${a['ticker']}</b> — <b>{mult:.1f}x</b> powyzej sredniej\n"
+            f"   📍 {exchange_label}\n"
             f"   {emoji} 24h: {_fmt(a['vol24'])} | Avg30d: {_fmt(a['avg30d'])} | "
-            f"Cena: {chg:+.1f}%"
+            f"Cena: {chg:+.1f}%\n"
+            f"   🔗 <a href='{trade_url}'>Handluj na Binance</a>"
         )
     lines.append(f"\n⚡ {len(anomalies)} anomalii | Prog: {threshold}x")
     return "\n".join(lines)
