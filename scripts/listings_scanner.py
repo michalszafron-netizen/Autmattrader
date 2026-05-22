@@ -419,8 +419,8 @@ def run_once(dry_run: bool) -> int:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="New Listings Scanner — exchange announcements")
-    p.add_argument("--interval", type=int, default=1800,
-                   help="Scan interval seconds (default: 1800 = 30min)")
+    p.add_argument("--interval", type=int, default=21600,
+                   help="Scan interval seconds (default: 21600 = 6h)")
     p.add_argument("--daemon",   action="store_true",
                    help="Run forever")
     p.add_argument("--dry-run",  action="store_true",
