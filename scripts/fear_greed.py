@@ -129,8 +129,21 @@ def main() -> None:
     data = fetch(limit=max(args.days, 1))
 
     if args.brief:
-        d = data[0]
-        print(f"Fear & Greed: {d['value']}/100 - {d['value_classification']}")
+        # Fetch 5 days for trend line
+        data5 = fetch(limit=5)
+        today = data5[0]
+        # Chronological order: oldest → newest
+        vals = [int(d["value"]) for d in reversed(data5)]
+        trend_str = "→".join(str(v) for v in vals)
+        delta = vals[-1] - vals[0]   # today minus 4 days ago
+        if delta > 5:
+            trend_sym = "↑ (sentyment poprawia się)"
+        elif delta < -5:
+            trend_sym = "↓ (strach rośnie)"
+        else:
+            trend_sym = "→ (stabilny)"
+        _, today_label, _ = get_zone(int(today["value"]))
+        print(f"Fear & Greed: {today['value']}/100 — {today_label} | Trend 5d: {trend_str} {trend_sym}")
     elif args.days == 1:
         display_single(data[0])
     else:

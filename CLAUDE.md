@@ -555,16 +555,21 @@ Dla każdego z obserwowanych tokenów (BTC, ETH, SOL, HYPE, LINK) — kafelek z:
 - Smart Money: liczba pozycji + % LONG/SHORT
 - Whale avg entry (long/short)
 - OI + funding + sentiment
-- **Composite Score 0-10** (kluczowy syntetyczny sygnał)
+- **Composite Score 0-10** z etykietą znaczenia:
+  - 🟢 7.5-10 = LONG SETUP — silny sygnał byczości, szukaj wejścia long
+  - 🟢 6.0-7.4 = LEKKO BYCZO — przewaga bullish ale bez pełnego alignmentu
+  - 🟡 5.0-5.9 = MIXED / CZEKAJ — sprzeczne sygnały, brak edge
+  - 🔴 3.5-4.9 = LEKKO NIEDŹWIEDZI — uważaj z longiem
+  - 🔴 0-3.4  = SHORT BIAS — unikaj longa, rozważ short
 - Catalyst 7d (historia katalizatorów)
 
-[Token z najwyższym composite to TOP PICK kandydat. Score <5 = unikaj długiego ekspozycji.]
+[Token z najwyższym composite to TOP PICK kandydat. Score <5 = unikaj długiej ekspozycji.]
 
 ### WHALE LAYER
 [Weekly vs daily divergence table — net $ per coin; crowded long/short]
 
 ### MARKET PULSE
-Fear & Greed: [wartość]/100 - [label] | Interpretacja: [co to oznacza dla pozycji]
+Fear & Greed: [wartość]/100 — [label] | Trend 5d: [X→X→X→X→X] [↑/↓/→] | Interpretacja: [co to oznacza + czy strach rośnie czy maleje]
 
 ### COT SNAPSHOT
 [1 linijka per TradFi asset: bias + percentyl]
@@ -593,12 +598,56 @@ Exact HL order:
 
 ### ECON CALENDAR
 
-**Już opublikowane dziś:**
-[Wyniki danych które wyszły + krótki komentarz co oznaczają dla rynku]
+Zawsze analizuj wpływ na te same aktywa bazowe: **BTC · Gold · Silver · Oil · Nasdaq** + każda otwarta pozycja z MY BOOK. Nawet jeśli user nie ma ich w portfelu — one tworzą trendy i wpływają na wszystko inne.
 
-**Nadchodzące dziś:**
-[Lista z `--upcoming`: godzina | ważność | kraj — nazwa (est: X)]
-[Każdy event: 1 zdanie co może zmienić jeśli wyjdzie powyżej/poniżej oczekiwań]
+---
+
+**✅ OPUBLIKOWANE dziś** — dane już wyszły, nie ma scenariuszy, tylko WERDYKT i RZECZYWISTY WPŁYW:
+
+Format każdego eventu:
+
+```
+🕐 [HH:MM UTC / HH:MM CEST] | [KRAJ] — [NAZWA] | Wynik: [X] vs est [Y] → [MOCNE / SŁABE / ZGODNE]
+
+Wpływ na rynek:
+  BTC:     [↑/↓/→] — [1 zdanie dlaczego]
+  Gold:    [↑/↓/→] — [1 zdanie dlaczego]
+  Silver:  [↑/↓/→] — [1 zdanie dlaczego]
+  Oil:     [↑/↓/→] — [1 zdanie dlaczego]
+  Nasdaq:  [↑/↓/→] — [1 zdanie dlaczego]
+
+Moje pozycje:
+  [COIN] [LONG/SHORT]: ✅ wspiera pozycję / ❌ uderza w pozycję / ⚠️ neutralne — [1 zdanie]
+```
+
+Zasady dla sekcji OPUBLIKOWANE:
+- NIE pisz "jeśli wyjdzie X" — dane już wyszły, napisz co wyszło i co to oznacza TERAZ
+- NIE pisz scenariuszy dla przeszłości — to strata miejsca
+- Powiedz wprost: "dane były SŁABE (47.8 vs est 48.2) → to znaczy że konsumenci tracą wiarę w gospodarkę → Fed może ciąć stopy (tanie pieniądze) → risk-on → BTC ↑ Gold ↑"
+- Jeśli brak danych o wyniku (nie podano w kalendarzu) — napisz "wynik niedostępny — obserwuj ruch ceny jako proxy"
+
+---
+
+**⏳ NADCHODZĄCE dziś** — dane jeszcze nie wyszły → przygotuj scenariusze:
+
+Format każdego eventu:
+
+```
+🕐 [HH:MM UTC / HH:MM CEST] | [KRAJ] — [NAZWA] | Est: [X] | Ważność: [WYSOKI/ŚREDNI]
+
+Jeśli MOCNIEJSZE niż est (pozytywne dla gospodarki):
+  BTC [↑/↓] | Gold [↑/↓] | Silver [↑/↓] | Oil [↑/↓] | Nasdaq [↑/↓]
+  Moje pozycje: [COIN LONG/SHORT] → [zysk/strata] bo [1 zdanie]
+
+Jeśli SŁABSZE niż est (negatywne dla gospodarki):
+  BTC [↑/↓] | Gold [↑/↓] | Silver [↑/↓] | Oil [↑/↓] | Nasdaq [↑/↓]
+  Moje pozycje: [COIN LONG/SHORT] → [zysk/strata] bo [1 zdanie]
+```
+
+Zasady dla sekcji NADCHODZĄCE:
+- Scenariusze tylko tutaj — bo dane jeszcze nie wyszły
+- Zawsze tłumacz mechanizm: nie "CPI → Fed hawkish" ale "inflacja wyższa → Fed martwi się = nie tnie stóp (drogi kredyt) = mniej pieniędzy w obiegu = risk-off = BTC/akcje pod presją"
+- Jeśli brak nadchodzących eventów na dziś (weekend/święto) — napisz jedną linię: "Brak danych makro do końca dnia — rynek w trybie weekend liquidity (niska płynność)"
 
 ### CREDITS USED
 Firecrawl: 3 kredyty tej sesji | Pozostało: X/1000 w miesiącu
@@ -633,15 +682,13 @@ Workflow notes — OBOWIĄZKOWE (each rule is MUST, not SHOULD):
 - Format komendy: `& "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe" "C:\Users\markowyy\trading-ai\scripts\NAZWA.py" ARGS`
 - Jeśli PowerShell zwraca pusty output — NIE przełączaj na Bash. Spróbuj ponownie przekierowując do pliku tymczasowego: `... > C:\Temp\out.txt 2>&1; Get-Content C:\Temp\out.txt`
 
-**2. WYŚWIETLENIE W CHACIE — pełny brief, NIE summary**
-- Pełny tekst raportu MUSI być wyświetlony w czacie zanim zapiszesz plik
-- Nie pokazuj tylko summary 5-liniowego — pokaż wszystkie sekcje
-- Po zapisaniu pliku — **OBOWIĄZKOWO** uruchom:
-  ```
-  & "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe" -m rich "C:\Users\markowyy\trading-ai\reports\NAZWA_PLIKU.md"
-  ```
-  To renderuje plik MD z pięknymi tabelami w konsoli — ZAWSZE po zapisie, niezależnie od modelu.
-- Dopiero potem zapisz do DB
+**2. WYŚWIETLENIE W CHACIE — pełny brief, ZAWSZE, BEZWYJĄTKOWO**
+- **CHAT jest głównym miejscem wyświetlenia raportu** — tu tabele renderują się najładniej
+- Pełny tekst raportu MUSI być wyświetlony w czacie jako ostatni krok, PO zapisaniu pliku i DB
+- **NIGDY nie pokazuj skróconego summary** — pokaż KAŻDĄ sekcję: MY BOOK, POSITION WATCH, MACRO PULSE, OI, TOKEN DASHBOARD, WHALE LAYER, MARKET PULSE, COT, CHART READ, X SENTIMENT, TRADE PLAN, ECON CALENDAR, EXPERT VIEW
+- Kolejność: 1) zbierz dane → 2) zapisz plik → 3) zapisz do DB → 4) **wyświetl PEŁNY raport w czacie** (w tej kolejności)
+- `python -m rich` w terminalu jest opcjonalne — terminal użytkownika nie renderuje tabel poprawnie. Chat > terminal.
+- Jeśli raport jest długi — wyświetl go w całości mimo to. Użytkownik chce widzieć wszystko tutaj.
 
 **3. WERSJONOWANIE PLIKU — nigdy nie nadpisuj**
 - Sprawdź czy `reports/YYYY-MM-DD_daily_alpha.md` istnieje (PowerShell: `Test-Path`)
@@ -671,6 +718,11 @@ To zasila context dla kolejnego briefu (`db.py context-daily`).
 - TV chart wraca na BTC po zakończeniu
 - Nie wykonuj żadnych zleceń — tylko output
 - Budget: 3 Firecrawl kredyty per run (coindesk + theblock + reuters_world)
+
+**7. PODGLĄD PLIKU .MD**
+- **Chat = najlepsze miejsce** — tabele renderują się najładniej tu
+- VS Code: otwórz plik → `Ctrl+Shift+V` (lub kliknij ikonkę Preview w prawym górnym rogu) → renderuje tabele poprawnie
+- Terminal: `raport` w PowerShell uruchamia `python -m rich` — też dobre ale może mieć problemy z UTF-8
 
 ## Agent platforms (status)
 

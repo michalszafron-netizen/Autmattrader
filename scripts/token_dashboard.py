@@ -508,13 +508,25 @@ def _price(v: float | None) -> str:
 
 
 def _score_bar(score: float) -> str:
-    """Visual bar 0-10."""
+    """Visual bar 0-10 with clear action label."""
     filled = int(score)
-    if score >= 7.5:    color = "green"
-    elif score >= 5:    color = "yellow"
-    else:               color = "red"
+    if score >= 7.5:
+        color = "green"
+        label = "LONG SETUP"       # silny sygnał byczości — szukaj long
+    elif score >= 6.0:
+        color = "green"
+        label = "LEKKO BYCZO"      # przewaga bullish ale bez pełnego alignmentu
+    elif score >= 5.0:
+        color = "yellow"
+        label = "MIXED / CZEKAJ"   # sprzeczne sygnały — brak edge
+    elif score >= 3.5:
+        color = "red"
+        label = "LEKKO NIEDZWIEDZI" # przewaga niedźwiedzia — uważaj z longiem
+    else:
+        color = "red"
+        label = "SHORT BIAS"        # silny sygnał niedźwiedzia — unikaj longa
     bar = "█" * filled + "░" * (10 - filled)
-    return f"[{color}]{bar} {score}/10[/{color}]"
+    return f"[{color}]{bar} {score}/10 — {label}[/{color}]"
 
 
 def render_tile(d: TokenData) -> Panel:
