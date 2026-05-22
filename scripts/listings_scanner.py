@@ -414,6 +414,19 @@ def run_once(dry_run: bool) -> int:
         send_telegram(msg, dry_run=dry_run)
         print(f"  → {alert['exchange']} {alert.get('ticker','?')} [{alert['type']}]")
 
+    # Heartbeat — always send status even when no new listings
+    if not all_alerts:
+        hb = (
+            f"📡 <b>Listings Scanner</b> — {ts}\n"
+            f"\n"
+            f"✅ Brak nowych listingów w ostatnich 6h\n"
+            f"Monitorowane: Binance | Coinbase | Upbit | OKX\n"
+            f"\n"
+            f"<i>Nastepne sprawdzenie za 6h</i>"
+        )
+        send_telegram(hb, dry_run=dry_run)
+        print(f"[{ts}] Heartbeat sent — no new listings.")
+
     return len(all_alerts)
 
 
