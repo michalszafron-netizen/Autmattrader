@@ -196,6 +196,16 @@ CREATE TABLE IF NOT EXISTS oi_snapshots (
     UNIQUE(ts, coin)
 );
 
+CREATE TABLE IF NOT EXISTS fear_greed_history (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts              TEXT NOT NULL,
+    date            TEXT NOT NULL,
+    value           INTEGER NOT NULL,
+    classification  TEXT,
+    UNIQUE(date)
+);
+CREATE INDEX IF NOT EXISTS idx_fg_date ON fear_greed_history(date);
+
 CREATE TABLE IF NOT EXISTS token_snapshots (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     ts              TEXT NOT NULL,

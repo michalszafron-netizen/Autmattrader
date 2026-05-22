@@ -54,6 +54,10 @@ HL_API  = "https://api.hyperliquid.xyz"
 
 DEFAULT_COINS = ["BTC", "ETH", "SOL", "HYPE", "LINK"]
 
+# Smart Money fetch ONLY for these coins — others get "brak" to keep runtime <3 min
+# Add TradFi tickers here if they appear in HL whale positions
+SM_COINS = {"BTC", "ETH", "SOL", "LINK"}
+
 
 # ── Data structures ──────────────────────────────────────────────────────────
 
@@ -420,13 +424,16 @@ def fetch_all_for_coin(coin: str, mids: dict[str, float]) -> TokenData:
         return d
 
     # Parallelize independent calls
+    # Smart Money only for key coins — skip others to keep runtime fast
+    run_sm = coin.upper() in SM_COINS
+
     with ThreadPoolExecutor(max_workers=6) as pool:
         f_changes  = pool.submit(fetch_price_changes, coin, d.price)
         f_candles4 = pool.submit(fetch_hl_candles, coin, "4h", 48)
         f_candles1 = pool.submit(fetch_hl_candles, coin, "1h", 24)
         f_candles15= pool.submit(fetch_hl_candles, coin, "15m", 6)
         f_oi       = pool.submit(fetch_oi_funding, coin)
-        f_sm       = pool.submit(fetch_smart_money_for_coin, coin)
+        f_sm       = pool.submit(fetch_smart_money_for_coin, coin) if run_sm else None
 
         changes = f_changes.result()
         d.change_24h = changes.get("change_24h")
@@ -442,7 +449,7 @@ def fetch_all_for_coin(coin: str, mids: dict[str, float]) -> TokenData:
         d.oi_change_1h = oi.get("oi_change_1h")
         d.funding_rate = oi.get("funding")
 
-        sm = f_sm.result()
+        sm = f_sm.result() if f_sm else {"count": 0}
         d.sm_count       = sm.get("count", 0)
         d.sm_long_pct    = sm.get("long_pct")
         d.sm_short_pct   = sm.get("short_pct")

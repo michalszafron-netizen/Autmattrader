@@ -53,8 +53,8 @@ Użytkownik uczy się finansów razem z danymi. Piszesz jak do znajomego który 
 
 | Zamiast | Pisz |
 |---|---|
-| hawkish | "Fed martwi się inflacją i chce utrzymać wysokie stopy (drogi kredyt)" |
-| dovish | "Fed sygnalizuje obniżki stóp — tanie pieniądze w drodze" |
+| **hawkish** | **"Fed martwi się inflacją i nie tnie stóp (drogi kredyt)"** — NIGDY nie pisz samo "hawkish" bez wyjaśnienia |
+| **dovish** | **"Fed sygnalizuje obniżki stóp — tanie pieniądze w drodze"** — NIGDY nie pisz samo "dovish" bez wyjaśnienia |
 | risk-off | "inwestorzy uciekają z ryzykownych aktywów (BTC, akcje) do bezpiecznych (złoto, USD)" |
 | risk-on | "inwestorzy chętnie kupują ryzykowne aktywa (BTC, akcje rosną)" |
 | yield | "rentowność obligacji (procent który rząd płaci za pożyczone pieniądze)" |

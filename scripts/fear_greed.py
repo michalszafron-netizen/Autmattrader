@@ -131,12 +131,32 @@ def main() -> None:
     if args.brief:
         d = data[0]
         print(f"Fear & Greed: {d['value']}/100 - {d['value_classification']}")
-        return
-
-    if args.days == 1:
+    elif args.days == 1:
         display_single(data[0])
     else:
         display_history(data)
+
+    # Auto-save to DB (silently)
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).parent))
+        from db import DB as _DB
+        from datetime import timezone as _tz
+        _db = _DB()
+        for d in data:
+            _db._sqlite.execute(
+                """INSERT OR IGNORE INTO fear_greed_history
+                   (ts, date, value, classification)
+                   VALUES (?,?,?,?)""",
+                (
+                    datetime.now(_tz.utc).isoformat(timespec="seconds"),
+                    d.get("timestamp", d.get("date", "")),
+                    int(d.get("value", 0)),
+                    d.get("value_classification", d.get("classification", "")),
+                ),
+            )
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
