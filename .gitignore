@@ -45,6 +45,14 @@ data/*.sqlite
 data/*.parquet
 *.pid
 
+# Auto-generated reports and context
+reports/
+context/
+
+# Temp scripts (debug/test)
+tmp_*.py
+tmp_*.txt
+
 # OS / build
 dist/
 build/

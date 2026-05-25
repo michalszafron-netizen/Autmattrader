@@ -45,6 +45,10 @@ To jest najważniejsza rzecz do zrozumienia w całym projekcie:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+> **⚠️ Uwaga na nazwę "Hermes":** W projekcie są DWA różne "Hermesy":
+> - **Hermes Agent** (TUI, `hermes` w PowerShell) — autonomiczny agent z pamięcią długoterminową, działa 24/7 jako Scheduled Task, ma swój kanał Telegram (`@markowyy_hermes_bot`). Model: DeepSeek V4 Flash.
+> - **hermes.py** (`scripts/hermes.py`) — skrypt do generowania Daily Alpha Brief (MACRO+WHALE+COT+OI+EXPERT VIEW). Uruchamiasz go ręcznie lub Claude go wywołuje przez `/daily-alpha`.
+
 ### Kiedy używać którego?
 
 | Sytuacja | Którego bota? |
@@ -123,7 +127,7 @@ Plik profilu: `C:\Users\markowyy\Documents\WindowsPowerShell\Microsoft.PowerShel
 | **Brain 2** | Hermes Agent (DeepSeek V4 Flash) | ✅ | Pamięć, journal, 24/7 |
 | **Telegram 1** | Claude Plugins channel | ✅ | `tgtrade` → główny bot |
 | **Telegram 2** | Hermes Gateway | ✅ | Automatyczny, zawsze online |
-| **Charts** | TradingView MCP (78 narzędzi) | ✅ | Wykresy, wskaźniki, Pine Script |
+| **Charts** | TradingView MCP (78 narzędzi) | ✅ | Wykresy, wskaźniki, Pine Script, rysowanie poziomów |
 | **DEX 1** | Hyperliquid (agent wallet) | ✅ LIVE | Crypto perps + 78 TradFi (xyz) |
 | **DEX 2** | Extended Exchange (StarkNet) | ✅ LIVE | 115 rynków, ex-Revolut team |
 | **DEX 3** | Solana / Jupiter DEX | ✅ LIVE | Bot wallet: $11 (~AEbGdS6...) |
@@ -142,7 +146,10 @@ Plik profilu: `C:\Users\markowyy\Documents\WindowsPowerShell\Microsoft.PowerShel
 | **Open Interest** | Binance + Bybit + Extended | ✅ | Aggregate + trend + funding |
 | **Token Research** | CoinGecko + DexScreener + GoPlus + Grok | ✅ | EVM + Solana |
 | **Token Dashboard** | token_dashboard.py | ✅ | Composite score 0-10 z etykietą |
-| **Database** | SQLite lokalnie | ✅ | Historia briefów, OI, F&G, trendy |
+| **Edge Journal** | edge_journal.py + DeepSeek planner | ✅ | Obserwacje + AI weryfikacja z live data |
+| **Daily Brief** | hermes.py (skrypt) | ✅ | Orchestrator briefu: MACRO+WHALE+COT+EDGE |
+| **Blog Watcher** | blogwatcher.py (7 źródeł) | ✅ | Monitoring newsów z cache |
+| **Database** | SQLite lokalnie | ✅ | Historia briefów, OI, F&G, edge obs, pozycje |
 | **Repo** | github.com/michalszafron-netizen/Autmattrader | ✅ | |
 
 ---
@@ -198,6 +205,32 @@ Plik profilu: `C:\Users\markowyy\Documents\WindowsPowerShell\Microsoft.PowerShel
 
 Start: `bots` w PowerShell
 
+### Orchestracja — Daily Brief i monitoring
+
+| Skrypt | Komenda | Co robi |
+|---|---|---|
+| `hermes.py` | `python scripts/hermes.py` | **Daily Alpha Brief** — POSITION WATCH + MACRO + WHALE + COT + OI + EXPERT VIEW |
+| `hermes.py` | `python scripts/hermes.py --from-cache` | Brief bez Firecrawl (0 kredytów, dane z cache) |
+| `blogwatcher.py` | `python scripts/blogwatcher.py` | Monitoruje 7 źródeł news, cache MD, raport z pozycjami |
+| `blogwatcher.py` | `python scripts/blogwatcher.py --refresh` | Wymuś odświeżenie cache |
+| `fetch_positions.py` | `.venv/Scripts/python.exe scripts/fetch_positions.py` | Pozycje HL+Extended+Alpaca+Solana, snapshot SQLite, delta od poprzedniego |
+| `tv_webhook.py` | `python scripts/tv_webhook.py` | Webhook receiver dla TradingView alertów → HL executor |
+
+### Edge Journal — obserwacje i hipotezy
+
+| Skrypt | Komenda | Co robi |
+|---|---|---|
+| `edge_journal.py` | `python scripts/edge_journal.py add "obserwacja..." --assets GOLD MSTR --data` | Zapisz edge + AI weryfikacja (planner dobiera narzędzia) |
+| `edge_journal.py` | `python scripts/edge_journal.py add "..." --no-ai` | Zapisz bez AI (szybko) |
+| `edge_journal.py` | `python scripts/edge_journal.py add "..." --grok` | Weryfikacja przez Grok + X search |
+| `edge_journal.py` | `python scripts/edge_journal.py list` | Lista aktywnych obserwacji |
+| `edge_journal.py` | `python scripts/edge_journal.py list --all` | Wszystkie statusy |
+| `edge_journal.py` | `python scripts/edge_journal.py view 2` | Szczegóły z pełną AI analizą |
+| `edge_journal.py` | `python scripts/edge_journal.py recheck 2 --data` | Ponowna weryfikacja z aktualnymi danymi |
+| `edge_journal.py` | `python scripts/edge_journal.py close 2 --result "zadziałało" --pnl 250` | Zamknij jako potwierdzone |
+| `edge_journal.py` | `python scripts/edge_journal.py invalidate 2 --reason "błąd"` | Inwaliduj obserwację |
+| `edge_journal.py` | `python scripts/edge_journal.py context` | Podgląd/regeneracja context/my_edge.md |
+
 ### Analiza, kalkulator, baza
 
 | Skrypt | Komenda | Co robi |
@@ -214,7 +247,7 @@ Start: `bots` w PowerShell
 
 | Komenda | Co robi |
 |---|---|
-| `/daily-alpha` | Pełna analiza: MY BOOK + OI + WHALE + COT + CHART + SENTIMENT + ECON + EXPERT VIEW |
+| `/daily-alpha` | Pełna analiza: MY BOOK + OI + WHALE + COT + CHART + SENTIMENT + ECON + TWOJE EDGE + EXPERT VIEW |
 | `/raport` | Analiza 6 instrumentów na TradingView + rysowanie poziomów |
 | `/raport BTC` | Analiza + poziomy tylko dla BTC |
 | `/raport clean` | Usuń rysunki ze wszystkich wykresów |
@@ -297,6 +330,8 @@ Plik: `data/trading.db` (gitignored)
 | `volume_anomalies` | Zarejestrowane anomalie wolumenu |
 | `trending_tokens` | Historia trending tokenów z X |
 | `token_research` | Wyniki deep research tokenów |
+| `edge_observations` | Obserwacje rynkowe — status, AI verdict (VALID/QUESTIONABLE/INVALID), PnL |
+| `position_snapshots` | Snapshoty pozycji z fetch_positions.py — delta między checkupami |
 
 ---
 
@@ -315,39 +350,61 @@ Plik: `data/trading.db` (gitignored)
 ```
 trading-ai/
 ├── scripts/
+│   │
+│   ├── # ── ORCHESTRACJA ──────────────────────────────────────
+│   ├── hermes.py              # Daily Alpha Brief: MACRO+WHALE+COT+OI+EXPERT VIEW
+│   ├── blogwatcher.py         # 7 źródeł news, cache MD, raport z pozycjami
+│   ├── fetch_positions.py     # snapshot HL+Extended+Alpaca+Solana → SQLite + delta
+│   ├── tv_webhook.py          # TradingView alert → HL executor (Module 16)
+│   │
+│   ├── # ── EDGE JOURNAL ───────────────────────────────────────
+│   ├── edge_journal.py        # obserwacje rynkowe + AI planning + DeepSeek/Grok weryfikacja
+│   │
+│   ├── # ── DANE RYNKOWE ────────────────────────────────────────
 │   ├── quotes.py              # live ceny TradFi (HL xyz allMids)
-│   ├── oi_tracker.py          # Open Interest agregat
-│   ├── hl_executor.py         # Hyperliquid execution
-│   ├── extended_executor.py   # Extended Exchange (StarkNet DEX)
-│   ├── alpaca_executor.py     # Alpaca paper US stocks
-│   ├── solana_executor.py     # Solana / Jupiter DEX swaps
-│   ├── hl_whale_tracker.py    # whale positions agregat
-│   ├── smart_money_tracker.py # daemon: top 20 HL traderzy co 1h
-│   ├── listings_scanner.py    # daemon: nowe listingi co 6h
-│   ├── volume_scanner.py      # daemon: anomalie wolumenu co 1h
-│   ├── token_dashboard.py     # dashboard per token (composite score)
-│   ├── x_sentiment.py         # X sentiment przez Grok xAI
-│   ├── macro_news.py          # newsy Firecrawl
-│   ├── econ_calendar.py       # kalendarz FinnHub z wpływem
-│   ├── cot_tracker.py         # COT CFTC instytucje
+│   ├── oi_tracker.py          # Open Interest agregat (Binance+Bybit+Extended)
 │   ├── fear_greed.py          # Fear & Greed + trend 5d
-│   ├── polymarket.py          # prediction markets
-│   ├── token_research.py      # deep token research EVM/Solana
-│   ├── position_calc.py       # kalkulator wielkości pozycji
-│   ├── db.py                  # SQLite baza danych
+│   ├── x_sentiment.py         # X sentiment przez Grok xAI (15 aktywów)
+│   ├── macro_news.py          # newsy Firecrawl (10 źródeł)
+│   ├── econ_calendar.py       # kalendarz FinnHub + scenariusze dla 5 aktywów
+│   ├── cot_tracker.py         # COT CFTC — percentyle 3-letnie
+│   ├── polymarket.py          # prediction markets (Fed, BTC, geopolityka)
+│   │
+│   ├── # ── GIEŁDY — EXECUTION ──────────────────────────────────
+│   ├── hl_executor.py         # Hyperliquid perps + 78 xyz TradFi (LIVE)
+│   ├── extended_executor.py   # Extended Exchange — StarkNet DEX (LIVE)
+│   ├── alpaca_executor.py     # Alpaca paper US stocks (PAPER only)
+│   ├── solana_executor.py     # Solana / Jupiter DEX swaps (LIVE)
+│   │
+│   ├── # ── WHALE / SMART MONEY ────────────────────────────────
+│   ├── hl_whale_tracker.py    # whale positions agregat weekly/daily
+│   ├── smart_money_tracker.py # daemon 1h: top 20 HL traderzy (nowe pozycje >$50k)
+│   ├── listings_scanner.py    # daemon 6h: nowe listingi na 5 giełdach
+│   ├── volume_scanner.py      # daemon 1h: anomalie wolumenu Binance 3x+
+│   │
+│   ├── # ── ANALIZA / RESEARCH ──────────────────────────────────
+│   ├── token_dashboard.py     # composite score 0-10, kafelki per token
+│   ├── token_research.py      # deep token research EVM/Solana (6-7 źródeł)
+│   ├── position_calc.py       # kalkulator wielkości pozycji (2% risk)
+│   │
+│   ├── # ── INFRASTRUKTURA ──────────────────────────────────────
+│   ├── db.py                  # SQLite baza danych + edge_observations
 │   ├── tz_utils.py            # UTC → CET/CEST konwersja
-│   ├── start_daemons.bat      # launcher 3 demonów (bots/daemons alias)
+│   ├── start_daemons.bat      # launcher 3 demonów (alias: bots/daemons)
 │   ├── run_volume.bat         # launcher tylko volume scanner
 │   ├── run_smart_money.bat    # launcher tylko smart money
 │   ├── run_listings.bat       # launcher tylko listings scanner
 │   └── keepalive.ps1          # Windows anti-sleep
+│
+├── context/
+│   └── my_edge.md             # auto-gen przez edge_journal.py → wczytywany przez hermes.py
 ├── docs/
-│   ├── hl_prompts.md          # lista komend HL
+│   ├── hl_prompts.md          # lista komend HL (whale, pozycje, makro, COT, trade setup)
 │   └── roadmap.md             # plan dalszego rozwoju
 ├── reports/                   # auto-generowane raporty (gitignored)
 ├── data/                      # SQLite DB (gitignored)
 ├── .env                       # klucze API (gitignored!)
-├── .hermes.md                 # kontekst projektu dla Hermesa
+├── .hermes.md                 # kontekst projektu dla Hermesa Agent (TUI)
 ├── CLAUDE.md                  # instrukcje dla Claude Code
 └── README.md                  # ten plik
 ```
@@ -389,7 +446,7 @@ trading-ai/
 | Problem | Rozwiązanie |
 |---|---|
 | Bot nie odpowiada na Telegram (Claude) | Uruchom `tgtrade` od nowa |
-| Hermes nie odpowiada | `hermes gateway stop` → `hermes gateway start` |
+| Hermes (Agent TUI) nie odpowiada | `hermes gateway stop` → `hermes gateway start` |
 | Hermes odpowiada po angielsku | Napisz "odpowiadaj po polsku" — zapamięta na przyszłość |
 | "Provider authentication failed" w Hermesie | Sprawdź `%LOCALAPPDATA%\hermes\.env` — klucz DEEPSEEK_API_KEY |
 | Telegram polling conflict | Dwa boty używają tego samego tokena — sprawdź czy Hermes ma SWÓJ token |
@@ -401,6 +458,11 @@ trading-ai/
 | Daily brief nadpisał poprzedni | Nie powinien — CLAUDE.md ma regułę wersjonowania (_v2, _v3...) |
 | Raport nie widać w chacie | CLAUDE.md: MUST wyświetlić pełny brief w czacie (nie summary) |
 | `hermes config edit` nie działa | Edytuj bezpośrednio: `%LOCALAPPDATA%\hermes\config.yaml` |
+| `fetch_positions.py` błąd importu | Użyj `.venv\Scripts\python.exe`, NIE `python` (zależności tylko w venv) |
+| edge_journal daje złe 2/10 bez danych | Dodaj `--data` — AI planner zbierze potrzebne dane przed weryfikacją |
+| edge_journal: US rynek "OPEN" podczas holiday | Naprawione — Alpaca `/v1/clock` obsługuje holidaye (nie weekday heurystyka) |
+| edge_journal: verdict QUESTIONABLE bez baseline | Dodaj `--data` — automatycznie porówna HL ceny z Yahoo Finance last close |
+| `yfinance` SSL error | Naprawione — używamy bezpośrednio httpx z `verify=False` zamiast yfinance |
 
 ---
 
@@ -408,7 +470,20 @@ trading-ai/
 
 | Data | Co dodano |
 |---|---|
-| 2026-05-23 | **Hermes Agent** — pamięć długoterminowa, skill generation, drugi kanał Telegram |
+| 2026-05-25 | **edge_journal.py** — osobisty dziennik obserwacji rynkowych z AI weryfikacją |
+| 2026-05-25 | **AI Planning Agent** w edge_journal — DeepSeek decyduje które narzędzia są potrzebne per edge |
+| 2026-05-25 | DeepSeek jako domyślny verifier (zamiast Grok) — 10x tańszy, Grok tylko z `--grok` |
+| 2026-05-25 | `_fetch_reference_prices()` — automatyczny delta% HL vs Yahoo Finance (stocks + commodities) |
+| 2026-05-25 | `_get_us_market_clock()` — Alpaca API zamiast heurystyki weekday (obsługa holidayów) |
+| 2026-05-25 | `context/my_edge.md` — auto-generowany przez edge_journal, czytany przez hermes.py |
+| 2026-05-25 | hermes.py ← integracja z my_edge.md — sekcja `🧠 TWOJE EDGE` w daily brief |
+| 2026-05-25 | db.py ← tabela `edge_observations` (status/verdict/confidence/pnl) |
+| 2026-05-24 | **hermes.py** — skrypt Daily Alpha Brief: MY BOOK + MACRO + WHALE + COT + OI + EXPERT VIEW |
+| 2026-05-24 | **blogwatcher.py** — 7 źródeł news, cache MD, raport z pozycjami |
+| 2026-05-24 | **fetch_positions.py** — snapshot HL+Extended+Alpaca+Solana w SQLite + delta od poprzedniego |
+| 2026-05-24 | hermes.py `--from-cache` — brief bez Firecrawl (0 kredytów) |
+| 2026-05-24 | Solana: fix Jupiter Price v2 → CoinGecko; USDC zawsze $1.00 |
+| 2026-05-23 | **Hermes Agent** (TUI) — pamięć długoterminowa, skill generation, drugi kanał Telegram |
 | 2026-05-23 | **DeepSeek V4 Flash** jako model Hermesa ($0.14/1M tokenów) |
 | 2026-05-22 | ECON CALENDAR — nowy format: published=werdykt, upcoming=scenariusze dla 5 aktywów |
 | 2026-05-22 | Fear & Greed trend 5-dniowy w `--brief` |

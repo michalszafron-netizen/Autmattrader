@@ -184,6 +184,149 @@ WERDYKT: PASS / WATCH / AVOID
 
 ---
 
+## POZIOM 3.4 — TradFi Asset Research (akcje, ETF, surowce)
+
+### 3.4.1 Full research aktywów tradycyjnych — MarketWatch + Yahoo Finance
+
+**Motywacja:** Mamy full research kryptoaktywów (token_research.py). Na HL xyz handlujemy tokenizowanymi akcjami (xyz:HIMS, xyz:SPCX/SpaceX?, xyz:CL) i ETF-ami — ale nie mamy żadnego narzędzia do ich analizy fundamentalnej.
+
+**Cel:** `scripts/tradfi_research.py [TICKER]` — analogicznie do `token_research.py` dla krypto.
+
+**Źródła do integracji:**
+| Źródło | Co daje | Dostęp |
+|--------|---------|--------|
+| **MarketWatch** (Firecrawl) | Cena, P/E, EPS, revenue, analyst ratings, news | 1 credit |
+| **Yahoo Finance** (Firecrawl) | Full financials, balance sheet, insider trading | 1 credit |
+| **SEC EDGAR API** | 10-K/10-Q filings, insider transactions | Darmowe |
+| **Alpha Vantage** | Earnings, dividends, splits, fundamentals | Darmowy klucz |
+| **Finviz** (Firecrawl) | Screener data, short float, analyst targets | 1 credit |
+
+**Output:**
+```
+TRADFI RESEARCH: HIMS (HIMS & Hers Health)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Cena: $23.35  |  Market Cap: $5.2B  |  P/E: 28.4
+Catalyst: FDA ruling GLP-1 compounding — NEGATYWNY dla HIMS
+Short float: 18.3%  |  Analyst target: $31.00 (HOLD 4x, BUY 3x)
+Insider buying ostatnie 90 dni: $0  |  Selling: $2.1M
+HL xyz funding: -0.0000582754 (market SHORT-biased)
+
+WERDYKT: WATCH — fundamenty dobre, catalyst negatywny krótkoterm.
+```
+
+**Priorytet:** ⭐⭐⭐ — szczególnie ważne przy xyz TradFi instrumentach (HIMS, SPCX, CL).
+
+---
+
+## POZIOM 3.5 — Kozaki Wallet Tracker (elite smart money monitoring)
+
+### 3.5.1 Codzienny monitoring portfeli kozaków
+
+**Co to:** Codziennie rano sprawdzaj co aktualnie trzymają top wallets z `config/kozaki_watchlist.json`. Jeśli zmieniły pozycje — alert w Daily Brief.
+
+**Dlaczego ważne:** 5/10 top traderów w 4h oknie aktywnie grało xyz:BRENTOIL/CL pod geopolityczny news o Iran deal. Jeśli te portfele nagle wchodzą razem w ten sam asset → silny sygnał kierunkowy zanim newsy trafią do mainstreamu.
+
+**Implementacja:**
+```python
+# scripts/kozaki_monitor.py
+# Dla każdego wallet z kozaki_watchlist.json:
+leaderboard_get_trader_positions(trader_id=wallet['address'])
+# → jakie instrumenty, strona, rozmiar, uPnL
+
+# Szukaj klastrów: jeśli 3+ kozaków ma ten sam asset → flag
+# Porównaj z poprzednim snapshote'm (plik kozaki_snapshot_YYYYMMDD.json)
+```
+
+**Output w Daily Brief:**
+```
+KOZAKI LAYER — smart money positions (2026-05-24 07:00)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+xyz:BRENTOIL LONG:  3 wallets (0xe0ff, 0xebe1, 0x60a8)  ← KLASTER!
+ETH LONG:           2 wallets (0xa5b0, 0xa875)
+HYPE SHORT:         1 wallet  (0xebe1)
+
+Nowe pozycje vs wczoraj:
+  0xe0ff → dodał xyz:CL LONG [NOWE]
+  0x782e → zamknął wszystkie [ZAMKNĄŁ]
+```
+
+**Priorytet:** ⭐⭐⭐⭐ — UNIKALNA PRZEWAGA. Nikt w retail nie śledzi HL smart money klastrowo.
+
+**Pliki:**
+- `config/kozaki_watchlist.json` — lista 20 portfeli (10 leaderboard + 10 discovery) ✅ GOTOWE
+- `scripts/kozaki_monitor.py` — do zbudowania
+- `data/kozaki_snapshots/` — historia dziennych snapshotów
+
+---
+
+### 3.5.2 Analiza kozaków — głębszy profil (future)
+
+Dla każdego kozaka z `kozaki_watchlist.json` uruchom `discovery_get_trader_history` i `discovery_get_trader_state` → zbuduj profil:
+- Jakie instrumenty preferuje (top 3 assets)
+- Kiedy handluje (godziny UTC, dni tygodnia)
+- Czy jest momentum follower czy contrarian
+- Jaka jest jego reakcja na FOMC/macro events
+
+Cel: **predict** kiedy i gdzie wejdzie następny, zanim to zrobi.
+
+---
+
+## POZIOM 3.6 — Weekend Tokenized Geopolitical Arbitrage
+
+### 3.6.1 Strategia: xyz:BRENTOIL / xyz:CL pod weekendowe newsy
+
+**Odkrycie (2026-05-23):** W weekend ~5 z 10 top traderów na Hyperliquid zarobiło miliony USD grając xyz:BRENTOIL i xyz:CL (tokenizowana ropa WTI i Brent) pod news o negocjacjach Iran-USA. Ropa na CME była zamknięta — ale tokenizowana wersja na HL chodzi 24/7.
+
+**Mechanizm arbitrażu:**
+```
+Piątek 17:30 ET: CME zamknięte. Cena rropy "zamrożona".
+Weekend: News o Iran deal (lub jego fiask) → świat wie, ale rynki zamknięte.
+         xyz:BRENTOIL/CL na HL reaguje NATYCHMIAST.
+Poniedziałek 09:00 ET: CME otwiera → ropa dogania HL cenę.
+
+Gap w weekend = okno na tokenizowanym HL przed CME open.
+```
+
+**Podobna obserwacja:** xyz:SPCX (S&P Communications / NASDAQ-like) handlował wyżej niż tradycyjny NASDAQ w weekend. Tokenizowany rynek przodował.
+
+**Instrumenty na HL xyz:**
+| Symbol | Odpowiednik | CME Ticker | HL Ticker |
+|--------|-------------|------------|-----------|
+| WTI Crude | USO / UCO ETF | CL futures | xyz:CL |
+| Brent Oil | BNO ETF | CO futures | xyz:BRENTOIL |
+| S&P Comms | XLC ETF | - | xyz:SPCX |
+| HIMS | HIMS NYSE stock | - | xyz:HIMS |
+
+**Strategia weekendowa:**
+```
+1. Piątek 17:00 ET — sprawdź geopolityczne newsy (Telegram, Reuters)
+2. Identyfikuj asset z potencjalnym gap-em (ropa, złoto, indeksy)
+3. Sprawdź kozaki_watchlist.json — czy kozacy już budują pozycje?
+4. Wejdź na HL xyz PRZED tłumem, SL pod swing low/high
+5. Target: zamknij do niedzieli wieczoru lub rano w poniedziałek
+   (nie trzymaj do CME open — ryzyko gap reversalu)
+```
+
+**Setup detektora (do zbudowania):**
+```python
+# scripts/weekend_arb_scanner.py
+# Piątek 17:00 ET (21:00 UTC):
+# 1. Sprawdź CoT report (wychodzi w piątek) → bias instytucji
+# 2. Sprawdź kozaki pozycje na xyz instrumentach
+# 3. Sprawdź blogwatcher — geopolityczne newsy z ostatnich 4h
+# 4. Jeśli convergence (CoT + kozaki + news) → alert na Telegram
+```
+
+**Risk rules dla weekend arb:**
+- Max 1% kapitału (geopolityka = czarny łabędź ryzyko)
+- Obowiązkowy SL przed weekendem
+- Nie handluj xyz aktywów w niedzielę wieczór (liquidity zero)
+- Monitor: jeśli news odwraca się w sobotę → natychmiast zamknij
+
+**Priorytet:** ⭐⭐⭐⭐ — UNIKALNA NISZA. Większość retail nie wie że xyz TradFi instrumenty istnieją na HL.
+
+---
+
 ## POZIOM 4 — Własny bot Market Making / Scalping na Hyperliquid
 
 ### 4.1 MM/Scalping bot — xyz TradFi assets (HL CLOB)

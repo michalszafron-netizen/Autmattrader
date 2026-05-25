@@ -38,9 +38,53 @@ from rich.table import Table
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-# SSL fix for requests (used by cot_reports internally)
-os.environ.setdefault("REQUESTS_CA_BUNDLE", str(Path.home() / ".claude" / "windows-ca-bundle.pem"))
-os.environ.setdefault("SSL_CERT_FILE", os.environ["REQUESTS_CA_BUNDLE"])
+# ── Fix: requests → httpx proxy (prevents OPENSSL_Uplink crash on Windows) ───
+# Python's native ssl module / OpenSSL triggers OPENSSL_Uplink on this setup.
+# cot_reports uses requests internally to download CFTC zip files.
+# We replace requests.get / requests.Session with httpx equivalents (Windows SChannel).
+import ssl as _ssl
+import types as _types
+import httpx as _httpx
+import truststore as _truststore
+
+_SSL_CTX_PATCH = _truststore.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
+
+
+class _FakeResponse:
+    def __init__(self, r: _httpx.Response) -> None:
+        self.status_code = r.status_code
+        self.content     = r.content
+        self.text        = r.text
+        self.headers     = dict(r.headers)
+        self._r          = r
+
+    def raise_for_status(self) -> None:
+        self._r.raise_for_status()
+
+
+def _httpx_get(url: str, **kw) -> _FakeResponse:
+    kw.pop("stream", None)
+    kw.pop("verify", None)
+    return _FakeResponse(
+        _httpx.get(url, verify=_SSL_CTX_PATCH, follow_redirects=True,
+                   timeout=kw.pop("timeout", 120), **kw)
+    )
+
+
+class _FakeSession:
+    def get(self, url: str, **kw) -> _FakeResponse:
+        return _httpx_get(url, **kw)
+    def __enter__(self):  return self
+    def __exit__(self, *a): pass
+
+
+_fake_requests = _types.ModuleType("requests")
+_fake_requests.get = _httpx_get  # type: ignore[attr-defined]
+_fake_requests.Session = _FakeSession  # type: ignore[attr-defined]
+_fake_requests.exceptions = _types.ModuleType("requests.exceptions")  # type: ignore[attr-defined]
+_fake_requests.exceptions.RequestException = Exception  # type: ignore[attr-defined]
+sys.modules["requests"] = _fake_requests
+# ─────────────────────────────────────────────────────────────────────────────
 
 console = Console()
 

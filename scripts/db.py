@@ -262,6 +262,26 @@ CREATE TABLE IF NOT EXISTS telegram_queries (
     response    TEXT,
     latency_ms  INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS edge_observations (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT,
+    raw_note        TEXT NOT NULL,
+    asset_tags      TEXT,           -- JSON array, e.g. '["BTC","GOLD","USOIL"]'
+    edge_type       TEXT,           -- weekend_arb | divergence | funding | macro | pattern | other
+    timeframe       TEXT,           -- weekend | intraday | swing | multi-day
+    status          TEXT DEFAULT 'open',  -- open | confirmed | invalidated | expired
+    ai_verdict      TEXT,           -- VALID | QUESTIONABLE | INVALID
+    ai_confidence   INTEGER,        -- 1-10
+    ai_analysis     TEXT,           -- AI fact check + mechanism explanation
+    ai_trade_idea   TEXT,           -- Concrete trade setup derived from observation
+    ai_red_flags    TEXT,           -- Reasons this might be wrong
+    outcome_note    TEXT,           -- User's post-trade annotation
+    outcome_pnl     REAL            -- Actual P&L if traded
+);
+CREATE INDEX IF NOT EXISTS idx_edge_status  ON edge_observations(status);
+CREATE INDEX IF NOT EXISTS idx_edge_created ON edge_observations(created_at);
 """
 
 
@@ -674,6 +694,86 @@ class DB:
         )
         self._pb_write("telegram_queries", {"ts": ts, "user_id": user_id, "query": query})
 
+    # ── Edge journal ─────────────────────────────────────────────────────────
+    def save_edge_observation(
+        self,
+        raw_note: str,
+        asset_tags: list[str] | None = None,
+        edge_type: str = "other",
+        timeframe: str = "",
+    ) -> int:
+        """Insert a new observation, return its rowid."""
+        ts = _now()
+        cur = self._sqlite.execute(
+            """INSERT INTO edge_observations
+               (created_at, updated_at, raw_note, asset_tags, edge_type, timeframe, status)
+               VALUES (?,?,?,?,?,?,'open')""",
+            (
+                ts, ts,
+                raw_note,
+                json.dumps(asset_tags or []),
+                edge_type,
+                timeframe,
+            ),
+        )
+        return cur.lastrowid  # type: ignore[return-value]
+
+    def update_edge_observation(self, obs_id: int, **fields) -> None:
+        """Update any fields of an existing observation."""
+        fields["updated_at"] = _now()
+        set_clause = ", ".join(f"{k}=?" for k in fields)
+        values = list(fields.values()) + [obs_id]
+        self._sqlite.execute(
+            f"UPDATE edge_observations SET {set_clause} WHERE id=?",
+            tuple(values),
+        )
+
+    def get_edge_observations(
+        self,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        if status:
+            return self._sqlite.query(
+                "SELECT * FROM edge_observations WHERE status=? ORDER BY created_at DESC LIMIT ?",
+                (status, limit),
+            )
+        return self._sqlite.query(
+            "SELECT * FROM edge_observations ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        )
+
+    def get_edge_observation(self, obs_id: int) -> dict | None:
+        rows = self._sqlite.query(
+            "SELECT * FROM edge_observations WHERE id=?", (obs_id,)
+        )
+        return rows[0] if rows else None
+
+    def get_active_edge_context(self) -> str:
+        """Compact context block for Hermes / daily-alpha injection."""
+        rows = self._sqlite.query(
+            "SELECT * FROM edge_observations WHERE status='open' ORDER BY created_at DESC LIMIT 10"
+        )
+        if not rows:
+            return ""
+        lines = ["=== MOJE EDGE (aktywne obserwacje) ===",
+                 "Weryfikuj te tezy — nie traktuj jako pewnik.",
+                 ""]
+        for r in rows:
+            tags = ", ".join(json.loads(r.get("asset_tags") or "[]")) or "—"
+            verdict = r.get("ai_verdict") or "PENDING"
+            conf = r.get("ai_confidence")
+            conf_str = f" ({conf}/10)" if conf else ""
+            lines.append(f"[#{r['id']} | {r.get('edge_type','?')} | {tags} | {verdict}{conf_str}]")
+            lines.append(f"  {r['raw_note'][:300]}")
+            if r.get("ai_trade_idea"):
+                lines.append(f"  Trade idea: {r['ai_trade_idea'][:200]}")
+            if r.get("ai_red_flags"):
+                lines.append(f"  Red flags: {r['ai_red_flags'][:150]}")
+            lines.append("")
+        lines.append("=== END EDGE ===")
+        return "\n".join(lines)
+
     # ── Stats / diagnostics ──────────────────────────────────────────────────
     def stats(self) -> dict:
         tables = [
@@ -681,6 +781,7 @@ class DB:
             "cot_snapshots", "x_sentiment", "econ_events",
             "token_research", "trade_alerts", "positions_history",
             "oi_snapshots", "token_snapshots", "telegram_queries",
+            "edge_observations",
         ]
         counts = {}
         for t in tables:

@@ -29,8 +29,14 @@ import ssl
 import sys
 from pathlib import Path
 
-# ── Windows gRPC SSL fix (must happen before xai_sdk import) ─────────────────
-# gRPC BoringSSL doesn't do AIA fetching; Windows cert store has cached intermediates.
+# ── (gRPC SSL fix removed — xai_sdk replaced with httpx REST) ─────────────────
+# xai_sdk requires grpcio>=1.72 which crashes with OPENSSL_Uplink on Windows.
+# Live X search is available via xAI REST API: search_parameters.mode="on".
+# All API calls now use httpx + truststore (Windows SChannel — no OpenSSL).
+
+def _patch_grpc_ssl() -> None:
+    # Kept as no-op stub so any external callers don't break
+    pass
 
 def _build_windows_ca_bundle() -> bytes:
     import certifi
@@ -50,7 +56,7 @@ def _build_windows_ca_bundle() -> bytes:
     return "\n".join(parts).encode()
 
 
-def _patch_grpc_ssl() -> None:
+def _old_patch_grpc_ssl_UNUSED() -> None:
     import grpc
     _ca_bundle = _build_windows_ca_bundle()
     _orig = grpc.ssl_channel_credentials
@@ -63,19 +69,15 @@ def _patch_grpc_ssl() -> None:
     grpc.ssl_channel_credentials = _patched
 
 
-_patch_grpc_ssl()
+_patch_grpc_ssl()  # no-op stub
 
-# ── Now safe to import xai_sdk ────────────────────────────────────────────────
+# ── Imports (xai_sdk removed — using httpx REST) ──────────────────────────────
 import httpx
 import truststore
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from xai_sdk import Client
-from xai_sdk.chat import user as xai_user
-from xai_sdk.chat import system as xai_system
-from xai_sdk.tools import x_search, web_search
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
@@ -243,26 +245,52 @@ def _parse_json(raw: str) -> dict:
         raise
 
 
+RESPONSES_URL = "https://api.x.ai/v1/responses"
+
+
+def _extract_responses_text(data: dict) -> str:
+    """Extract text from xAI /v1/responses output array."""
+    for item in data.get("output", []):
+        if item.get("type") == "message":
+            for c in item.get("content", []):
+                if c.get("type") == "output_text":
+                    return c.get("text", "")
+    return ""
+
+
 def query_live(coin: str, hours: int = 24) -> dict:
+    """Live X search via xAI Responses API (Agent Tools). No gRPC needed."""
     label = ASSET_LABELS.get(coin.upper(), coin)
     is_macro = coin.upper() in MACRO_SET
     prompt_tmpl = LIVE_MACRO_PROMPT if is_macro else LIVE_CRYPTO_PROMPT
     prompt = prompt_tmpl.format(coin=coin.upper(), label=label, hours=hours)
 
-    from_dt = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=hours)
-    client = Client(api_key=API_KEY)
-    tools = [x_search(from_date=from_dt), web_search()] if is_macro else [x_search(from_date=from_dt)]
-    chat = client.chat.create(model=MODEL, tools=tools)
-    chat.append(xai_system(
-        "You are a market sentiment analyst. "
-        "Return ONLY valid JSON. No markdown fences. No extra text."
-    ))
-    chat.append(xai_user(prompt))
+    tools: list[dict] = [{"type": "x_search"}]
+    if is_macro:
+        tools.append({"type": "web_search"})
 
-    raw = ""
-    for _, chunk in chat.stream():
-        if chunk.content:
-            raw += chunk.content
+    try:
+        with httpx.Client(verify=_SSL_CTX, timeout=90.0) as client:
+            r = client.post(
+                RESPONSES_URL,
+                headers={"Authorization": f"Bearer {API_KEY}"},
+                json={
+                    "model": MODEL,
+                    "instructions": (
+                        "You are a market sentiment analyst. "
+                        "Return ONLY valid JSON. No markdown fences. No extra text."
+                    ),
+                    "input": [{"role": "user", "content": prompt}],
+                    "tools": tools,
+                    "temperature": 0.1,
+                    "max_output_tokens": 800,
+                },
+            )
+            r.raise_for_status()
+            raw = _extract_responses_text(r.json()).strip()
+    except Exception as e:
+        console.print(f"[yellow]query_live({coin}) error: {e} — fallback to knowledge[/yellow]")
+        return query_knowledge(coin)
 
     try:
         return _parse_json(raw)
@@ -346,18 +374,24 @@ Return ONLY valid JSON:
 
 
 def verify_engagement(ticker: str) -> dict:
-    """Fetch REAL engagement data with 3-day day-by-day breakdown."""
-    from_dt = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=72)
-    client = Client(api_key=API_KEY)
-    chat = client.chat.create(model=MODEL, tools=[x_search(from_date=from_dt)])
+    """Fetch REAL engagement data (3-day breakdown) via xAI Responses API."""
     prompt = ENGAGEMENT_VERIFY_PROMPT.format(ticker=ticker)
-    chat.append(xai_system("Output JSON only. No markdown fences."))
-    chat.append(xai_user(prompt))
-    raw = ""
-    for _, chunk in chat.stream():
-        if chunk.content:
-            raw += chunk.content
     try:
+        with httpx.Client(verify=_SSL_CTX, timeout=90.0) as client:
+            r = client.post(
+                RESPONSES_URL,
+                headers={"Authorization": f"Bearer {API_KEY}"},
+                json={
+                    "model": MODEL,
+                    "instructions": "Output JSON only. No markdown fences.",
+                    "input": [{"role": "user", "content": prompt}],
+                    "tools": [{"type": "x_search"}],
+                    "temperature": 0.1,
+                    "max_output_tokens": 700,
+                },
+            )
+            r.raise_for_status()
+            raw = _extract_responses_text(r.json()).strip()
         return _parse_json(raw)
     except Exception:
         return {}

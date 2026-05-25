@@ -193,6 +193,95 @@ Timestamp format: `2026-05-20_08-30` — użyj aktualnej daty/godziny w nazwie p
 
 Filled in as skills/integrations are installed. Each entry: short label + exact command.
 
+### fetch_positions.py — Live positions from all 4 venues
+
+```powershell
+$py = "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe"
+
+# Fetch all venues, save positions.json (standard run)
+& $py "C:\Users\markowyy\trading-ai\scripts\fetch_positions.py"
+
+# Skip Solana RPC (faster — use when Solana wallet is empty or RPC is slow)
+& $py "C:\Users\markowyy\trading-ai\scripts\fetch_positions.py" --no-solana
+
+# Preview without saving
+& $py "C:\Users\markowyy\trading-ai\scripts\fetch_positions.py" --dry-run
+
+# Raw JSON to stdout (for piping into other scripts)
+& $py "C:\Users\markowyy\trading-ai\scripts\fetch_positions.py" --json
+```
+
+Venues: Hyperliquid (perps + xyz TradFi) | Extended (StarkNet DEX) | Solana (spot wallet) | Alpaca (paper stocks)
+Output: `positions.json` — unified schema for blogwatcher.py and hermes.py
+Picks up TP/SL automatically from open orders on HL and Extended.
+
+### hermes.py — Daily Alpha Brief Orchestrator
+
+```powershell
+$py = "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe"
+
+# Pełny brief (wszystkie moduły + LLM synthesis)
+& $py "C:\Users\markowyy\trading-ai\scripts\hermes.py"
+
+# Bez newsów (oszczędność Firecrawl credits)
+& $py "C:\Users\markowyy\trading-ai\scripts\hermes.py" --no-news
+
+# Z cached newsami (zero Firecrawl, użyj STAMP z .firecrawl/blogwatcher/)
+& $py "C:\Users\markowyy\trading-ai\scripts\hermes.py" --from-cache 20250524_1430
+
+# Tylko dane, bez LLM (szybki przegląd)
+& $py "C:\Users\markowyy\trading-ai\scripts\hermes.py" --dry-run
+
+# Lepszy model LLM dla syntezy
+& $py "C:\Users\markowyy\trading-ai\scripts\hermes.py" --model grok-4.3 --no-news
+
+# Tylko COT + OI + pozycje (bez newsów, bez whales)
+& $py "C:\Users\markowyy\trading-ai\scripts\hermes.py" --no-news --no-whales
+
+# Zapisz do konkretnego pliku
+& $py "C:\Users\markowyy\trading-ai\scripts\hermes.py" --output "briefs\brief_2026-05-24.md"
+```
+
+Moduły zbierane równolegle: fear_greed | econ_calendar | oi_tracker | cot_tracker | hl_whale_tracker
+LLM synthesis: Grok (grok-3-mini default) → generuje POSITION WATCH + EXPERT VIEW cross-module
+Output: `Daily Alpha Brief.md` w root projektu
+Context: `context/my_edge.md` — aktywne obserwacje z edge_journal (dołączane do promptu)
+
+### edge_journal.py — Personal Market Edge Journal
+
+```powershell
+$py = "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe"
+
+# Dodaj nową obserwację (z AI weryfikacją Grok)
+& $py "C:\Users\markowyy\trading-ai\scripts\edge_journal.py" add "tekst obserwacji" --type weekend_arb --assets USOIL GOLD --timeframe weekend
+
+# Dodaj bez Grok (szybko, bez kredytów)
+& $py "C:\Users\markowyy\trading-ai\scripts\edge_journal.py" add "tekst" --no-x
+
+# Lista aktywnych
+& $py "C:\Users\markowyy\trading-ai\scripts\edge_journal.py" list
+
+# Szczegóły
+& $py "C:\Users\markowyy\trading-ai\scripts\edge_journal.py" view 1
+
+# Zamknij jako potwierdzoną (z wynikiem)
+& $py "C:\Users\markowyy\trading-ai\scripts\edge_journal.py" close 1 --result "zadziałało w pon" --pnl 250.0
+
+# Inwaliduj (okazało się błędne)
+& $py "C:\Users\markowyy\trading-ai\scripts\edge_journal.py" invalidate 1 --reason "fałszywa korelacja"
+
+# Wygeneruj/podgląd context/my_edge.md
+& $py "C:\Users\markowyy\trading-ai\scripts\edge_journal.py" context
+
+# Ponowna weryfikacja AI
+& $py "C:\Users\markowyy\trading-ai\scripts\edge_journal.py" recheck 1
+```
+
+Typy edge'a: `weekend_arb` | `divergence` | `funding` | `macro` | `pattern` | `other`
+Statusy: `open` → `confirmed` / `invalidated` / `expired`
+AI Verdykty: `VALID` | `QUESTIONABLE` | `INVALID` (Grok x_search, nie ślepo akceptuje)
+Context file: `context/my_edge.md` — auto-generowany, dołączany do Hermes daily brief
+
 ### Hyperliquid (whale tracker, read-only)
 
 Activate venv first (in any new shell):

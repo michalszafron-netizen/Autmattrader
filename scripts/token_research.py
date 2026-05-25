@@ -37,10 +37,16 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 console  = Console()
 _SSL     = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
+ROOT         = Path(__file__).parent.parent
+RESEARCH_DIR = ROOT / "reports" / "research"
+CACHE_DAYS   = 7   # ile dni raport jest "świeży" — powyżej robi fresh research
+
 ETHERSCAN_KEY = os.getenv("ETHERSCAN_API_KEY", "")
 ETHERSCAN_V2  = "https://api.etherscan.io/v2/api"
 HELIUS_KEY    = os.getenv("HELIUS_API_KEY", "")
 BIRDEYE_KEY   = os.getenv("BIRDEYE_API_KEY", "")
+XAI_KEY        = os.getenv("XAI_API_KEY", "")
+CRYPTOCOMPARE_KEY = os.getenv("CRYPTOCOMPARE_API_KEY", "")
 
 # Chains przetestowane na free tier Etherscan V2 (2026-05-20)
 # DZIALA: ETH, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche, Gnosis, Linea, Blast
@@ -67,6 +73,215 @@ CG_PLATFORMS = {
     "polygon":  "polygon-pos",
     "arbitrum": "arbitrum-one",
 }
+
+# ── Research cache helpers ────────────────────────────────────────────────────
+
+def _cache_filename(symbol: str, chain: str, ca: str, date_str: str) -> Path:
+    """Canonical path: reports/research/GMT_eth_0xe3c408bd_2026-05-24.md"""
+    RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
+    safe = f"{symbol.upper()}_{chain}_{ca[:10]}_{date_str}.md"
+    return RESEARCH_DIR / safe
+
+
+def find_cached_report(query: str, chain: str, max_age_days: int = CACHE_DAYS) -> Path | None:
+    """Find the newest cached report for this contract or ticker (case-insensitive).
+
+    Matches both contract address prefix and ticker symbol in filename.
+    Returns Path if found and < max_age_days old, else None.
+    """
+    if not RESEARCH_DIR.exists():
+        return None
+    now = datetime.now(timezone.utc)
+    query_lower = query.lower()[:10]  # first 10 chars of contract or full ticker
+    candidates = []
+    for f in RESEARCH_DIR.glob("*.md"):
+        if query_lower in f.name.lower():
+            try:
+                # Extract date from filename suffix _YYYY-MM-DD.md
+                date_part = f.stem.split("_")[-1]
+                file_date = datetime.strptime(date_part, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                age_days = (now - file_date).days
+                if age_days <= max_age_days:
+                    candidates.append((age_days, f))
+            except Exception:
+                continue
+    if not candidates:
+        return None
+    candidates.sort(key=lambda x: x[0])  # newest first
+    return candidates[0][1]
+
+
+def save_research_report(
+    symbol: str, chain: str, ca: str,
+    name: str, price, mc, fdv, vol24, ath_pct, ch7d, ch30d,
+    verdict: str, flags: list[str], dangers: list[str],
+    src_data: dict, owner_f: list[str], github: list[dict],
+    pairs: list[dict], positives: list[str], negatives: list[str],
+    conviction: int, overall: str, website: str, twitter: str, telegram: str,
+    x_out: str = "",
+    news_data: dict | None = None,
+) -> Path:
+    """Build clean markdown report and save to reports/research/."""
+    RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    ts    = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    path  = _cache_filename(symbol, chain, ca, today)
+
+    def _n(v, d=2):
+        if v is None: return "—"
+        if v >= 1e9:  return f"${v/1e9:.2f}B"
+        if v >= 1e6:  return f"${v/1e6:.2f}M"
+        if v >= 1e3:  return f"${v/1e3:.1f}K"
+        return f"${v:.{d}f}"
+
+    lines = [
+        f"# 🔍 Token Research: {symbol} — {name}",
+        f"",
+        f"**Ticker:** ${symbol}  ",
+        f"**Contract:** `{ca}`  ",
+        f"**Chain:** {chain}  ",
+        f"**Research date:** {ts}  ",
+        f"**Cache valid until:** {datetime.now(timezone.utc).strftime('%Y-%m-')}{ (datetime.now(timezone.utc).day + CACHE_DAYS):02d}",
+        f"",
+        f"---",
+        f"",
+        f"## 📊 Podstawowe dane",
+        f"",
+        f"| Metryka | Wartość |",
+        f"|---------|---------|",
+        f"| Cena | {_n(price, 6)} |",
+        f"| Market Cap | {_n(mc)} |",
+        f"| FDV | {_n(fdv)} |",
+        f"| Volume 24h | {_n(vol24)} |",
+    ]
+    if mc and vol24 and vol24 > 0:
+        lines.append(f"| MC/Vol ratio | {mc/vol24:.2f}x |")
+    if ath_pct is not None:
+        lines.append(f"| Spadek od ATH | {ath_pct:.1f}% |")
+    if ch7d is not None:
+        lines.append(f"| Zmiana 7d | {ch7d:+.1f}% |")
+    if ch30d is not None:
+        lines.append(f"| Zmiana 30d | {ch30d:+.1f}% |")
+    if website:
+        lines.append(f"| Strona | {website} |")
+    if twitter:
+        lines.append(f"| Twitter | [@{twitter}](https://twitter.com/{twitter}) |")
+    if telegram:
+        lines.append(f"| Telegram | [t.me/{telegram}](https://t.me/{telegram}) |")
+
+    lines += ["", "---", "", "## 🔐 Bezpieczeństwo (GoPlus)", ""]
+    lines.append(f"**Wynik:** `{verdict}`")
+    if flags:
+        lines.append("")
+        for f_ in flags:
+            lines.append(f"- ⚠️ {f_}")
+
+    lines += ["", "---", "", "## 📜 Kontrakt (Etherscan)", ""]
+    if src_data.get("verified"):
+        lines.append(f"- **Zweryfikowany:** TAK")
+        lines.append(f"- **Nazwa:** `{src_data.get('contract_name', '?')}`")
+        lines.append(f"- **Kompilator:** {src_data.get('compiler', '?')}")
+        lines.append(f"- **Proxy:** {'TAK' if src_data.get('is_proxy') else 'NIE'}")
+        if owner_f:
+            lines.append(f"- **Funkcje onlyOwner:** {', '.join(owner_f)}")
+        if dangers:
+            lines.append("")
+            for d in dangers:
+                lines.append(f"- ⚠️ {d}")
+    else:
+        lines.append("Kontrakt niezweryfikowany lub brak klucza Etherscan.")
+
+    if pairs:
+        lines += ["", "---", "", "## 💧 Liquidity (DexScreener)", ""]
+        lines.append("| DEX | Liquidity | Vol 24h |")
+        lines.append("|-----|-----------|---------|")
+        for p in pairs:
+            dex = p.get("dexId", "?")
+            liq = p.get("liquidity", {}).get("usd", 0)
+            v24 = p.get("volume", {}).get("h24", 0)
+            lines.append(f"| {dex} | {_n(liq)} | {_n(v24)} |")
+
+    if github:
+        lines += ["", "---", "", "## 💻 GitHub", ""]
+        for g in github:
+            lines.append(f"- **{g['name']}** — ⭐{g['stars']:,} | last push: {g.get('last_push','?')}")
+    else:
+        lines += ["", "---", "", "## 💻 GitHub", "", "_Brak repozytorium._"]
+
+    if x_out:
+        lines += ["", "---", "", "## 🐦 X/Twitter Sentiment", "", "```", x_out[:600], "```"]
+
+    # ── NEWS SECTION ──────────────────────────────────────────────────────────
+    nd = news_data or {}
+    cc_items = nd.get("cryptocompare", [])
+    gn_items = nd.get("google_news", [])
+    cg_items = nd.get("cg_updates", [])
+    tw_items = nd.get("twitter", [])
+
+    has_news = cc_items or gn_items or cg_items or tw_items
+    if has_news:
+        lines += ["", "---", "", "## 📰 News & Catalysts", ""]
+
+        if tw_items:
+            lines.append("### 🐦 Oficjalny Twitter (Grok live search)")
+            lines.append("")
+            for item in tw_items:
+                lines.append(f"- {item}")
+            lines.append("")
+
+        if cg_items:
+            lines.append("### 🦎 CoinGecko Status Updates")
+            lines.append("")
+            for item in cg_items:
+                lines.append(f"- **[{item['created_at']}]** `{item['category']}` — {item['description'][:200]}")
+            lines.append("")
+
+        if cc_items:
+            lines.append("### 📡 CryptoCompare News")
+            lines.append("")
+            lines.append("| Data | Tytuł | Źródło |")
+            lines.append("|------|-------|--------|")
+            for item in cc_items:
+                title_link = f"[{item['title'][:60]}]({item['url']})" if item.get("url") else item["title"][:60]
+                lines.append(f"| {item['published']} | {title_link} | {item['source']} |")
+            lines.append("")
+
+        if gn_items:
+            lines.append("### 🔍 Google News")
+            lines.append("")
+            lines.append("| Data | Tytuł | Źródło |")
+            lines.append("|------|-------|--------|")
+            for item in gn_items:
+                title_link = f"[{item['title'][:60]}]({item['url']})" if item.get("url") else item["title"][:60]
+                lines.append(f"| {item['published']} | {title_link} | {item['source']} |")
+            lines.append("")
+
+    lines += [
+        "", "---", "",
+        "## 🎯 Expert View", "",
+        f"**Ocena ogólna:** {overall}  ",
+        f"**Conviction:** {conviction}/10",
+        "",
+        "**Plusy:**",
+    ]
+    for p_ in positives:
+        lines.append(f"- ✅ {p_}")
+    if not positives:
+        lines.append("- (brak wyraźnych plusów)")
+    lines.append("")
+    lines.append("**Minusy:**")
+    for n_ in negatives:
+        lines.append(f"- ❌ {n_}")
+    if not negatives:
+        lines.append("- (brak wyraźnych minusów)")
+    lines += [
+        "", "---",
+        f"*Wygenerowano automatycznie przez token_research.py | {ts}*",
+    ]
+
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
 
 DANGEROUS_FUNCS = {
     "mint":                   "Moze tworzyc nowe tokeny — inflacja supply",
@@ -153,7 +368,10 @@ def fetch_dexscreener(ca: str) -> list[dict]:
         r = c.get(f"https://api.dexscreener.com/latest/dex/tokens/{ca}")
     if r.status_code != 200:
         return []
-    return r.json().get("pairs", [])[:3]
+    data = r.json()
+    if not isinstance(data, dict):
+        return []
+    return (data.get("pairs") or [])[:3]
 
 
 # ── 3. GoPlus Security (honeypot + rug check, free) ──────────────────────────
@@ -418,6 +636,201 @@ def fetch_x_sentiment(ticker: str) -> str:
         return f"X search error: {e}"
 
 
+# ── 6. News & Catalysts ───────────────────────────────────────────────────────
+
+def fetch_google_news_rss(ticker: str, name: str = "", limit: int = 5) -> list[dict]:
+    """Google News RSS — bezpłatne, bez klucza. Zwraca ostatnie newsy dla tickera.
+    Łączy ticker + nazwę projektu dla lepszych wyników (np. 'GMT STEPN').
+    """
+    import xml.etree.ElementTree as ET
+    query = f"{ticker} {name} crypto".strip() if name else f"{ticker} crypto"
+    try:
+        with client() as c:
+            r = c.get(
+                "https://news.google.com/rss/search",
+                params={"q": query, "hl": "en", "gl": "US", "ceid": "US:en"},
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+                follow_redirects=True,
+            )
+        if r.status_code != 200:
+            return []
+        root = ET.fromstring(r.text)
+        items = root.findall(".//item")
+        results = []
+        for item in items[:limit]:
+            src_el = item.find("source")
+            results.append({
+                "title":     item.findtext("title", ""),
+                "source":    src_el.text if src_el is not None else "",
+                "url":       item.findtext("link", ""),
+                "published": item.findtext("pubDate", "")[:16],
+                "body":      "",
+            })
+        return results
+    except Exception:
+        return []
+
+
+def fetch_cryptocompare_news(ticker: str, name: str = "", limit: int = 5) -> list[dict]:
+    """CryptoCompare News — CoinDesk/CoinTelegraph/Decrypt filtered by ticker.
+    Wymaga CRYPTOCOMPARE_API_KEY (free: 11k req/mies).
+    Filtruje wyniki: zwraca tylko artykuły które NAPRAWDĘ dotyczą tego tokena.
+    """
+    if not CRYPTOCOMPARE_KEY:
+        return []
+    # Try ticker + common aliases (e.g. UTK,UTRUST,XMONEY)
+    categories = ticker.upper()
+    if name:
+        # Add first word of name as extra category hint
+        first_word = name.split()[0].upper()
+        if first_word != ticker.upper() and len(first_word) >= 3:
+            categories = f"{ticker.upper()},{first_word}"
+    try:
+        with client() as c:
+            r = c.get(
+                "https://min-api.cryptocompare.com/data/v2/news/",
+                params={"categories": categories, "lang": "EN", "limit": limit * 3},  # fetch extra for filtering
+                headers={"Authorization": f"Apikey {CRYPTOCOMPARE_KEY}"},
+            )
+        if r.status_code != 200:
+            return []
+        items = r.json().get("Data", [])
+        if not isinstance(items, list):
+            return []
+
+        # Filter: only keep articles that mention ticker or name in title/body
+        keywords = {ticker.lower(), ticker.upper()}
+        if name:
+            for word in name.split()[:2]:
+                if len(word) >= 4:
+                    keywords.add(word.lower())
+        relevant = []
+        for item in items:
+            title = item.get("title", "").lower()
+            body  = item.get("body",  "")[:300].lower()
+            if any(kw.lower() in title or kw.lower() in body for kw in keywords):
+                relevant.append(item)
+            if len(relevant) >= limit:
+                break
+
+        return [
+            {
+                "title":     item.get("title", ""),
+                "source":    item.get("source_info", {}).get("name", item.get("source", "")),
+                "url":       item.get("url", ""),
+                "published": datetime.fromtimestamp(
+                    int(item.get("published_on", 0)), tz=timezone.utc
+                ).strftime("%Y-%m-%d"),
+                "body":      item.get("body", "")[:200],
+            }
+            for item in relevant
+        ]
+    except Exception:
+        return []
+
+
+def fetch_cg_status_updates(cg_id: str) -> list[dict]:
+    """CoinGecko status_updates — darmowy endpoint, zero kredytów."""
+    if not cg_id:
+        return []
+    try:
+        with client() as c:
+            r = c.get(
+                f"https://api.coingecko.com/api/v3/coins/{cg_id}/status_updates",
+                params={"per_page": 5},
+            )
+        if r.status_code != 200:
+            return []
+        updates = r.json().get("status_updates", [])
+        return [
+            {
+                "description": u.get("description", "")[:300],
+                "category":    u.get("category", ""),
+                "created_at":  u.get("created_at", "")[:10],
+            }
+            for u in updates[:5]
+            if u.get("description")
+        ]
+    except Exception:
+        return []
+
+
+_GROK_RESPONSES_URL = "https://api.x.ai/v1/responses"
+_GROK_MODEL         = "grok-4.3"
+
+
+def _extract_responses_text(data: dict) -> str:
+    """Extract text from xAI /v1/responses output array (same format as x_sentiment.py)."""
+    for item in data.get("output", []):
+        if item.get("type") == "message":
+            for c in item.get("content", []):
+                if c.get("type") == "output_text":
+                    return c.get("text", "")
+    return ""
+
+
+def fetch_official_twitter_news(twitter_handle: str, symbol: str) -> list[str]:
+    """Grok live search: ważne ogłoszenia z oficjalnego konta @{twitter_handle}.
+    Używa xAI Responses API (grok-4.3 + x_search tool) — identyczny pattern co x_sentiment.py.
+    Filtruje śmieci, zostawia tylko konkrety. Zwraca listę max 5 linii.
+    """
+    if not XAI_KEY or not twitter_handle:
+        return []
+    prompt = (
+        f"Search recent posts (last 30 days) from the official X/Twitter account @{twitter_handle} "
+        f"for the ${symbol} cryptocurrency project.\n"
+        f"Extract ONLY substantive announcements — partnerships, exchange listings, "
+        f"product launches, protocol upgrades, security incidents, tokenomics changes, "
+        f"major milestones, governance votes, migration/swap deadlines.\n"
+        f"SKIP: generic 'gm'/'gn' posts, price comments, retweets of others, "
+        f"promotional hype, follower milestones, memes, routine replies.\n"
+        f"Format each item as: [YYYY-MM-DD] SHORT_SUMMARY (1-2 sentences max).\n"
+        f"List up to 5 items. If no important news found in 30 days, return exactly: "
+        f"Brak waznych ogloszen w ostatnich 30 dniach."
+    )
+    try:
+        with client() as c:
+            r = c.post(
+                _GROK_RESPONSES_URL,
+                headers={"Authorization": f"Bearer {XAI_KEY}"},
+                json={
+                    "model":      _GROK_MODEL,
+                    "input":      [{"role": "user", "content": prompt}],
+                    "tools":      [{"type": "x_search"}],
+                    "temperature": 0.1,
+                    "max_output_tokens": 600,
+                },
+                timeout=45,
+            )
+        if r.status_code != 200:
+            return [f"Grok error {r.status_code}: {r.text[:100]}"]
+        text = _extract_responses_text(r.json()).strip()
+        if not text:
+            return ["Brak odpowiedzi od Grok"]
+        lines = [l.strip() for l in text.split("\n") if l.strip() and len(l.strip()) > 8]
+        return lines[:5]
+    except Exception as e:
+        return [f"Twitter fetch error: {e}"]
+
+
+def fetch_all_news(
+    symbol: str,
+    name: str = "",
+    cg_id: str = "",
+    twitter_handle: str = "",
+    no_x: bool = False,
+) -> dict:
+    """Pobiera news ze wszystkich trzech warstw. Zwraca dict z kluczami:
+       'google_news', 'cg_updates', 'twitter'
+    """
+    return {
+        "cryptocompare": fetch_cryptocompare_news(symbol, name),
+        "google_news":   fetch_google_news_rss(symbol, name),
+        "cg_updates":    fetch_cg_status_updates(cg_id),
+        "twitter":       [] if no_x else fetch_official_twitter_news(twitter_handle, symbol),
+    }
+
+
 # ── Analysis helpers ──────────────────────────────────────────────────────────
 
 def rug_summary(gp: dict) -> tuple[str, list[str]]:
@@ -658,6 +1071,50 @@ def run_research(ca: str, chain: str, no_x: bool = False) -> None:
         x_out = fetch_x_sentiment(symbol)
         console.print(Panel(x_out, title="[bold]X / Twitter Sentiment[/bold]", expand=False))
 
+    # ── NEWS & CATALYSTS ──────────────────────────────────────────────────────
+    cg_id = cg.get("id", "")
+    _news_sources = "CryptoCompare + Google News RSS"
+    if not no_x and twitter:
+        _news_sources += " + Twitter Grok"
+    console.print(f"\n[dim]Pobieranie news ({_news_sources})...[/dim]")
+    news = fetch_all_news(
+        symbol=symbol,
+        name=name,
+        cg_id=cg_id,
+        twitter_handle=twitter,
+        no_x=no_x,
+    )
+
+    cc_items = news.get("cryptocompare", [])
+    gn_items = news.get("google_news", [])
+    cg_upd   = news.get("cg_updates", [])
+    tw_items = news.get("twitter", [])
+    has_news = cc_items or gn_items or cg_upd or tw_items
+
+    if has_news:
+        news_lines = []
+        if tw_items:
+            news_lines.append(f"[bold cyan]🐦 Oficjalny Twitter (@{twitter})[/bold cyan]")
+            news_lines.extend(f"  {l}" for l in tw_items)
+            news_lines.append("")
+        if cg_upd:
+            news_lines.append("[bold cyan]🦎 CoinGecko Status Updates[/bold cyan]")
+            for u in cg_upd:
+                news_lines.append(f"  [{u['created_at']}] [dim]{u['category']}[/dim] {u['description'][:180]}")
+            news_lines.append("")
+        if cc_items:
+            news_lines.append("[bold cyan]📡 CryptoCompare News[/bold cyan]")
+            for n in cc_items:
+                news_lines.append(f"  {n['published']} [{n['source']}] {n['title'][:80]}")
+            news_lines.append("")
+        if gn_items:
+            news_lines.append("[bold cyan]🔍 Google News[/bold cyan]")
+            for n in gn_items:
+                news_lines.append(f"  {n['published']} [{n['source']}] {n['title'][:80]}")
+        console.print(Panel("\n".join(news_lines), title="[bold]📰 News & Catalysts[/bold]", expand=False))
+    else:
+        console.print(Panel("[dim]Brak newsów z żadnego źródła.[/dim]", title="[bold]📰 News & Catalysts[/bold]", expand=False))
+
     # ── EXPERT VIEW ───────────────────────────────────────────────────────────
     # Buduj syntetyczną ocenę na podstawie wszystkich danych
     score = 5  # bazowy
@@ -685,6 +1142,15 @@ def run_research(ca: str, chain: str, no_x: bool = False) -> None:
     if vol24 and mc and vol24 / mc < 0.02:
         negatives.append(f"Niskie dzienne volume ({vol24/mc*100:.1f}% MC) — maly zainteresowanie rynku")
 
+    # News catalyst signal
+    if "news" in dir():
+        total_news = (len(news.get("cryptocompare", [])) + len(news.get("google_news", []))
+                      + len(news.get("cg_updates", [])) + len(news.get("twitter", [])))
+        if total_news >= 3:
+            positives.append(f"Aktywne media — {total_news} nowych newsów/ogłoszeń")
+        elif total_news == 0:
+            negatives.append("Brak aktualnych newsów — projekt może być nieaktywny lub zapomniany")
+
     pos_text = "\n".join(f"  + {p}" for p in positives) or "  brak wyraznych plusow"
     neg_text = "\n".join(f"  - {n}" for n in negatives) or "  brak wyraznych minusow"
 
@@ -705,6 +1171,204 @@ def run_research(ca: str, chain: str, no_x: bool = False) -> None:
     )
 
     console.print(Panel(expert, title="[bold]EXPERT VIEW[/bold]", expand=False))
+
+    # ── Save markdown report (inline — bezpośredni dostęp do wszystkich zmiennych) ──
+    try:
+        def _n(v, d=2):
+            if v is None: return "N/A"
+            v = float(v)
+            if v >= 1e9:  return f"${v/1e9:.2f}B"
+            if v >= 1e6:  return f"${v/1e6:.2f}M"
+            if v >= 1e3:  return f"${v/1e3:.1f}K"
+            return f"${v:.{d}f}"
+
+        RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
+        _today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        _ts    = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        _path  = _cache_filename(symbol, chain, ca, _today)
+
+        _md = []
+        _md += [
+            f"# 🔍 Token Research: {symbol} — {name}",
+            f"",
+            f"**Ticker:** `${symbol}` | **Contract:** `{ca}` | **Chain:** {chain}",
+            f"**Research:** {_ts} | **Cache valid 7 days**",
+            f"",
+        ]
+
+        # ── OVERVIEW ──
+        _md += ["---", "", "## 📊 Podstawowe dane", ""]
+        _md += ["| Metryka | Wartość |", "|---------|---------|"]
+        _md.append(f"| Cena | {_n(price, 6)} |")
+        _md.append(f"| Market Cap | {_n(mc)} |")
+        _md.append(f"| FDV | {_n(fdv)} |")
+        _md.append(f"| Volume 24h | {_n(vol24)} |")
+        if mc and vol24 and vol24 > 0:
+            _md.append(f"| MC/Vol ratio | {mc/vol24:.2f}x |")
+        if ath is not None:
+            _md.append(f"| ATH | {_n(ath, 6)} |")
+        if ath_pct is not None:
+            _md.append(f"| Spadek od ATH | {ath_pct:.1f}% |")
+        if ch7d is not None:
+            _md.append(f"| Zmiana 7d | {ch7d:+.1f}% |")
+        if ch30d is not None:
+            _md.append(f"| Zmiana 30d | {ch30d:+.1f}% |")
+        if pct_circ:
+            _md.append(f"| Supply w obiegu | {pct_circ:.0f}% ({_n(supply_circ)} / {_n(supply_total)} max) |")
+        if website:  _md.append(f"| Strona | {website} |")
+        if twitter:  _md.append(f"| Twitter | [@{twitter}](https://x.com/{twitter}) |")
+        if telegram: _md.append(f"| Telegram | [t.me/{telegram}](https://t.me/{telegram}) |")
+
+        # ── DESCRIPTION ──
+        if desc:
+            _md += ["", "---", "", "## 📖 Co to jest?", "", desc, ""]
+
+        # ── DEX LIQUIDITY ──
+        if pairs:
+            _md += ["---", "", "## 💧 Liquidity (DexScreener)", ""]
+            _md += ["| DEX | Liquidity | Vol 24h | Buys/Sells | FDV |",
+                    "|-----|-----------|---------|-----------|-----|"]
+            for _p in pairs:
+                _liq  = _n(_p.get("liquidity", {}).get("usd"))
+                _vol  = _n(_p.get("volume", {}).get("h24"))
+                _fdv2 = _n(_p.get("fdv"))
+                _txns = _p.get("txns", {}).get("h24", {})
+                _bs   = f"{_txns.get('buys',0)}/{_txns.get('sells',0)}"
+                _md.append(f"| {_p.get('dexId','?')} | {_liq} | {_vol} | {_bs} | {_fdv2} |")
+
+        # ── SECURITY (GoPlus) ──
+        _md += ["", "---", "", "## 🔐 Bezpieczeństwo (GoPlus)", ""]
+        _verdict_icon = {"PASS": "✅", "WARN": "⚠️", "DANGER": "🚨", "UNKNOWN": "❓"}.get(verdict, "❓")
+        _md.append(f"**Wynik:** {_verdict_icon} `{verdict}`")
+        _md += ["", f"| Metryka | Wartość |", f"|---------|---------|"]
+        _md.append(f"| Holders | {holder_count:,} |")
+        _md.append(f"| Podatek kupno/sprzedaż | {buy_tax:.1f}% / {sell_tax:.1f}% |")
+        _md.append(f"| Owner zrzekł się kontroli | {renounced} |")
+        if flags:
+            _md += ["", "**Flagi:**"]
+            for _f in flags:
+                _icon = "✅" if "dobry" in _f.lower() or "zablokowane" in _f.lower() and "0%" not in _f else "⚠️"
+                _md.append(f"- {_icon} {_f}")
+
+        # ── ETHERSCAN / SOURCE CODE ──
+        _md += ["", "---", "", "## 📜 Analiza kodu kontraktu (Etherscan)", ""]
+        if src_data and src_data.get("verified"):
+            _owner_f = src_data.get("owner_functions", [])
+            _dangers = src_data.get("dangers_found", [])
+            _md += [
+                f"- **Zweryfikowany:** ✅ TAK",
+                f"- **Nazwa:** `{src_data.get('contract_name','?')}`",
+                f"- **Kompilator:** {src_data.get('compiler','?')}",
+                f"- **Typ:** {'🔄 PROXY → ' + src_data.get('implementation','') if src_data.get('is_proxy') else '✅ Nie jest proxy'}",
+                f"- **Vesting w kodzie:** {'✅ TAK' if src_data.get('has_vesting') else '⚠️ NIE'}",
+            ]
+            if src_data.get("mint_external"):
+                _md.append("- **Mint:** 🚨 mint() jest PUBLICZNY — owner może tworzyć nowe tokeny!")
+            elif src_data.get("mint_internal_only"):
+                _md.append("- **Mint:** ✅ mint() tylko wewnętrzny — supply jest stały")
+            if _owner_f:
+                _md.append(f"- **Funkcje onlyOwner:** `{', '.join(_owner_f)}`")
+            if _dangers:
+                _md += ["", "**⚠️ Niebezpieczne wzorce:**"]
+                for _d in _dangers:
+                    _md.append(f"- 🚨 {_d}")
+            else:
+                _md.append("- ✅ Nie znaleziono niebezpiecznych wzorców")
+        else:
+            _md.append("_Kontrakt niezweryfikowany lub brak klucza Etherscan._")
+
+        # ── GITHUB ──
+        _md += ["", "---", "", "## 💻 GitHub", ""]
+        if github:
+            for _g in github:
+                _last = _g.get("last_push", "?")
+                _ago = ""
+                try:
+                    _dt = datetime.fromisoformat(_last + "T00:00:00+00:00")
+                    _ago = f" ({(datetime.now(timezone.utc)-_dt).days} dni temu)"
+                except Exception:
+                    pass
+                _md += [
+                    f"- **Repo:** [{_g['name']}](https://github.com/{_g['name']})",
+                    f"- **Gwiazdki:** {_g['stars']:,} | **Forki:** {_g['forks']:,} | **Open issues:** {_g['open_issues']:,}",
+                    f"- **Ostatni push:** {_last}{_ago} | **Język:** {_g.get('language','?')}",
+                ]
+        else:
+            _md.append("_Brak repozytoriów GitHub._")
+
+        # ── X SENTIMENT ──
+        if not no_x and "x_out" in dir() and x_out:
+            _md += ["", "---", "", "## 🐦 X/Twitter Sentiment (market)", "", "```"]
+            _md += x_out.split("\n")
+            _md += ["```"]
+
+        # ── NEWS & CATALYSTS ──
+        _nd = news if "news" in dir() else {}
+        _cc  = _nd.get("cryptocompare", [])
+        _gn  = _nd.get("google_news", [])
+        _cgu = _nd.get("cg_updates", [])
+        _tw  = _nd.get("twitter", [])
+        _md += ["", "---", "", "## 📰 News & Catalysts", ""]
+
+        if _tw:
+            _md += [f"### 🐦 Oficjalny Twitter (@{twitter})", ""]
+            for _item in _tw:
+                _md.append(f"- {_item}")
+            _md.append("")
+        if _cgu:
+            _md += ["### 🦎 CoinGecko Status Updates", ""]
+            for _u in _cgu:
+                _md.append(f"- **[{_u['created_at']}]** `{_u['category']}` — {_u['description'][:300]}")
+            _md.append("")
+        if _cc:
+            _md += ["### 📡 CryptoCompare News", "", "| Data | Tytuł | Źródło |", "|------|-------|--------|"]
+            for _item in _cc:
+                _tl = f"[{_item['title'][:70]}]({_item['url']})" if _item.get("url") else _item["title"][:70]
+                _md.append(f"| {_item['published']} | {_tl} | {_item['source']} |")
+            _md.append("")
+        if _gn:
+            _md += ["### 🔍 Google News", "", "| Data | Tytuł | Źródło |", "|------|-------|--------|"]
+            for _item in _gn:
+                _tl = f"[{_item['title'][:70]}]({_item['url']})" if _item.get("url") else _item["title"][:70]
+                _md.append(f"| {_item['published']} | {_tl} | {_item['source']} |")
+            _md.append("")
+        if not (_tw or _cgu or _cc or _gn):
+            _md.append("_Brak newsów z żadnego źródła._")
+
+        # ── EXPERT VIEW ──
+        _md += ["", "---", "", "## 🎯 Expert View", ""]
+        _ov_icon = {"Neutralnie": "🔸", "Ciekawa opcja": "🟡", "Mocny sygnał": "🟢"}.get(overall, "🔸")
+        _md += [
+            f"**Ocena ogólna:** {_ov_icon} {overall}",
+            f"**Conviction:** {conviction}/10",
+            "",
+            "### ✅ Plusy",
+        ]
+        for _p in positives:
+            _md.append(f"- {_p}")
+        if not positives:
+            _md.append("- _(brak wyraźnych plusów)_")
+        _md += ["", "### ❌ Minusy"]
+        for _neg in negatives:
+            _md.append(f"- {_neg}")
+        if not negatives:
+            _md.append("- _(brak wyraźnych minusów)_")
+        _md += [
+            "",
+            "### 🔎 Co sprawdzić ręcznie",
+            f"1. [{website}]({website}) — czy team jest doxxed?" if website else "1. Strona projektu — czy team jest doxxed?",
+            f"2. [@{twitter}](https://x.com/{twitter}) — kiedy ostatni tweet, jaka aktywność?" if twitter else "2. Twitter projektu",
+            f"3. [t.me/{telegram}](https://t.me/{telegram}) — ile członków, jaka aktywność?" if telegram else "3. Telegram projektu",
+            "4. Audit bezpieczeństwa (CertiK, Hacken, PeckShield) — szukaj na stronie",
+            "",
+            "---",
+            f"*Wygenerowano automatycznie przez token_research.py | {_ts}*",
+        ]
+
+        _path.write_text("\n".join(_md), encoding="utf-8")
+        console.print(f"\n[green]💾 Raport zapisany →[/green] [cyan]{_path.relative_to(ROOT)}[/cyan]")
+    except Exception as _e:
+        console.print(f"[yellow]Zapis raportu: błąd — {_e}[/yellow]")
 
     # ── Save to DB ──
     try:
@@ -732,14 +1396,51 @@ def run_research(ca: str, chain: str, no_x: bool = False) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Deep fundamental token research")
-    p.add_argument("token",   help="Contract address (0x...) or ticker")
-    p.add_argument("--chain", default="bsc",
+    p.add_argument("token",    nargs="?", default="", help="Contract address (0x...) or ticker")
+    p.add_argument("--chain",  default="bsc",
                    choices=["bsc", "eth", "base", "polygon"],
                    help="Blockchain (default: bsc)")
-    p.add_argument("--no-x",  action="store_true", help="Skip X sentiment search")
+    p.add_argument("--no-x",   action="store_true", help="Skip X sentiment search")
+    p.add_argument("--force",  action="store_true", help="Ignoruj cache, rób fresh research")
+    p.add_argument("--list",   action="store_true", help="Pokaż wszystkie zapisane raporty")
     args = p.parse_args()
 
+    # ── --list: pokaż zapisane raporty ──
+    if args.list:
+        RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
+        files = sorted(RESEARCH_DIR.glob("*.md"), key=lambda f: f.stat().st_mtime, reverse=True)
+        if not files:
+            console.print("[dim]Brak zapisanych raportów w reports/research/[/dim]")
+        else:
+            from rich.table import Table as _T
+            t = _T(title=f"Token Research Cache ({len(files)} raportów)")
+            t.add_column("Plik", style="cyan")
+            t.add_column("Data", style="dim")
+            t.add_column("Rozmiar", justify="right", style="dim")
+            from datetime import datetime as _dt
+            for f in files:
+                mtime = _dt.fromtimestamp(f.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+                size  = f"{f.stat().st_size // 1024}KB" if f.stat().st_size > 1024 else f"{f.stat().st_size}B"
+                t.add_row(f.name, mtime, size)
+            console.print(t)
+            console.print(f"\n[dim]Folder: {RESEARCH_DIR}[/dim]")
+        return
+
     token = args.token.strip()
+
+    # ── Cache check (skip if --force) ──
+    if not args.force:
+        cached = find_cached_report(token, args.chain)
+        if cached:
+            age = (datetime.now(timezone.utc).date() -
+                   datetime.strptime(cached.stem.split("_")[-1], "%Y-%m-%d").date()).days
+            console.print(
+                f"\n[green]📋 Znaleziono raport w cache[/green] "
+                f"[dim]({cached.name}, {age}d temu)[/dim]\n"
+                f"[dim]Użyj [bold]--force[/bold] aby zrobić fresh research.[/dim]\n"
+            )
+            console.print(cached.read_text(encoding="utf-8"))
+            return
     # Auto-detect Solana (base58 address, no 0x prefix, 32-44 chars)
     if is_solana_address(token):
         console.print(f"[cyan]Auto-detected: Solana token[/cyan]")
