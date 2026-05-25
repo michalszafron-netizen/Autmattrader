@@ -2,6 +2,23 @@
 
 This is a personal AI trading project. When working in this folder, follow these rules.
 
+## ⚡ POZYCJE — JEDNA KOMENDA, ZAWSZE (obowiązkowe)
+
+Gdy użytkownik pyta o pozycje, portfel, co ma otwarte, ile ma na giełdach — **ZAWSZE uruchom:**
+
+```
+python scripts/fetch_positions.py
+```
+
+**NIE używaj** samego Senpi MCP ani Alpaca MCP do pokazania pozycji — one widzą tylko część.
+`fetch_positions.py` pobiera WSZYSTKIE 4 venue jednocześnie:
+- **Hyperliquid** (perpy + xyz TradFi)
+- **Extended Exchange** (StarkNet DEX)
+- **Solana** (spot wallet — SOL, tokeny)
+- **Alpaca** (paper stocks)
+
+Wynik wyświetl jako tabelę. Jeśli Solana jest wolna: dodaj flagę `--no-solana` tylko gdy user o to poprosi.
+
 ## Kontrakty tokenów — zasada obowiązkowa
 
 Przy każdej analizie tokenów z X (trending, research, wzmianka w briefie):
