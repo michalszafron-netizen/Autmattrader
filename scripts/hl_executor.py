@@ -26,6 +26,14 @@ Usage:
 
 from __future__ import annotations
 
+# Fix: Git Bash na Windows injectuje OPENSSL_CONF który crashuje podpisywanie kluczem
+# (OPENSSL_Uplink error). Czyścimy przed załadowaniem eth-account / cryptography.
+import os as _os
+if _os.name == "nt":
+    _os.environ.pop("OPENSSL_CONF", None)
+    _os.environ.pop("SSL_CERT_FILE", None)
+    _os.environ.pop("SSL_CERT_DIR", None)
+
 import argparse
 import os
 import ssl

@@ -782,10 +782,11 @@ Firecrawl: 3 kredyty tej sesji | Pozostało: X/1000 w miesiącu
 
 Workflow notes — OBOWIĄZKOWE (each rule is MUST, not SHOULD):
 
-**1. ŚRODOWISKO — TYLKO PowerShell, NIGDY Bash**
+**1. ŚRODOWISKO — TYLKO PowerShell, NIGDY Bash** ⚠️ KRYTYCZNE
 - Wszystkie komendy uruchamiaj przez PowerShell tool (jest na Windows)
-- NIGDY nie używaj Bash dla ścieżek `C:\...` — Bash ich nie widzi
-- Format komendy: `& "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe" "C:\Users\markowyy\trading-ai\scripts\NAZWA.py" ARGS`
+- **NIGDY nie używaj Bash tool do uruchamiania python.exe** — Git Bash + Windows python.exe = OPENSSL_Uplink crash przy każdym podpisywaniu kluczem (zlecenia HL, eth-account). To nie jest błąd kodu — to konflikt DLL systemowy. Dotyczy WSZYSTKICH live orderów.
+- Bash tool = tylko do komend linuxowych (git przez WSL, curl). Nie do python.exe na Windows.
+- Format komendy PowerShell: `& "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe" "C:\Users\markowyy\trading-ai\scripts\NAZWA.py" ARGS`
 - Jeśli PowerShell zwraca pusty output — NIE przełączaj na Bash. Spróbuj ponownie przekierowując do pliku tymczasowego: `... > C:\Temp\out.txt 2>&1; Get-Content C:\Temp\out.txt`
 
 **2. WYŚWIETLENIE W CHACIE — pełny brief, ZAWSZE, BEZWYJĄTKOWO**
