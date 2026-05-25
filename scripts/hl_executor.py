@@ -26,13 +26,23 @@ Usage:
 
 from __future__ import annotations
 
-# Fix: Git Bash na Windows injectuje OPENSSL_CONF który crashuje podpisywanie kluczem
-# (OPENSSL_Uplink error). Czyścimy przed załadowaniem eth-account / cryptography.
-import os as _os
-if _os.name == "nt":
-    _os.environ.pop("OPENSSL_CONF", None)
-    _os.environ.pop("SSL_CERT_FILE", None)
-    _os.environ.pop("SSL_CERT_DIR", None)
+# Fix: Git Bash na Windows wstrzykuje mingw64/libssl.dll do PATH, co crashuje
+# eth-account przy podpisywaniu (OPENSSL_Uplink: no OPENSSL_Applink).
+# Rozwiązanie: re-launch procesu z czystym PATH zanim jakikolwiek DLL zostanie załadowany.
+import os as _os, sys as _sys, subprocess as _sub
+
+if _os.name == "nt" and "_HL_CLEAN_ENV" not in _os.environ:
+    _raw = _os.environ.get("PATH", "")
+    _sep = ";" if ";" in _raw else ":"
+    _bad = ("mingw", "usr\\bin", "usr/bin", "git\\usr", "git/usr")
+    _env = _os.environ.copy()
+    _env["PATH"] = _sep.join(p for p in _raw.split(_sep) if not any(b in p.lower() for b in _bad))
+    _env.pop("OPENSSL_CONF", None)
+    _env.pop("SSL_CERT_FILE", None)
+    _env.pop("SSL_CERT_DIR", None)
+    _env["_HL_CLEAN_ENV"] = "1"
+    _result = _sub.run([_sys.executable] + _sys.argv, env=_env)
+    _sys.exit(_result.returncode)
 
 import argparse
 import os
@@ -181,6 +191,41 @@ def _build_and_sign_order(
         exchange.info.coin_to_asset[name] = idx
 
     return exchange.order(coin, is_buy, sz, limit_px, {"limit": {"tif": tif}}, reduce_only=reduce_only)
+
+
+def _build_and_sign_sl_order(
+    coin: str,
+    is_buy: bool,
+    sz: float,
+    trigger_px: float,
+    tpsl: str = "sl",
+) -> dict:
+    """Place a stop-market (trigger SL or TP) order on HL. reduce_only=True always."""
+    from eth_account import Account
+    from hyperliquid.exchange import Exchange
+    from hyperliquid.utils import constants
+
+    agent_key = os.getenv("HL_AGENT_PRIVATE_KEY")
+    main_wallet = os.getenv("HL_MAIN_WALLET_ADDRESS")
+    if not agent_key or not main_wallet:
+        raise ValueError("HL_AGENT_PRIVATE_KEY and HL_MAIN_WALLET_ADDRESS must be set in .env")
+
+    account = Account.from_key(agent_key)
+    exchange = Exchange(account, constants.MAINNET_API_URL, account_address=main_wallet)
+
+    REGISTRY.load()
+    for name, idx in REGISTRY._name_to_index.items():
+        exchange.info.name_to_coin[name] = name
+        exchange.info.coin_to_asset[name] = idx
+
+    # For a stop-market: limitPx = slippage buffer (buy: +10%, sell: -10%)
+    limit_px = round(trigger_px * 1.10, 4) if is_buy else round(trigger_px * 0.90, 4)
+
+    return exchange.order(
+        coin, is_buy, sz, limit_px,
+        {"trigger": {"isMarket": True, "triggerPx": round(trigger_px, 4), "tpsl": tpsl}},
+        reduce_only=True,
+    )
 
 
 def _cancel_order(coin: str, oid: int) -> dict:
@@ -392,6 +437,72 @@ def cmd_positions(args: argparse.Namespace) -> None:
     console.print(table)
 
 
+def cmd_sl(args: argparse.Namespace) -> None:
+    coin = REGISTRY.resolve(args.coin)
+    trigger_px = float(args.trigger)
+    sz = float(args.size)
+    # SL on a SHORT = close via BUY; SL on a LONG = close via SELL
+    is_buy = args.direction.lower() in ("short", "s")
+
+    side_str = "BUY (close short)" if is_buy else "SELL (close long)"
+    slippage_px = round(trigger_px * 1.10, 4) if is_buy else round(trigger_px * 0.90, 4)
+
+    console.print(f"\n[bold]Stop-Loss Order[/bold]: [red]SL TRIGGER ${trigger_px:.4f}[/red] -> {side_str}")
+    console.print(f"  Coin: [cyan]{coin}[/cyan]  |  Size: {sz}  |  Limit (slippage): ${slippage_px:.4f}")
+    console.print(f"  Mode: {'[yellow]DRY-RUN (paper)[/yellow]' if PAPER_MODE else '[bold green]LIVE[/bold green]'}")
+
+    if PAPER_MODE:
+        console.print("[yellow]PAPER MODE — SL not submitted. Set TRADING_MODE=live to place real orders.[/yellow]")
+        return
+
+    result = _build_and_sign_sl_order(coin, is_buy, sz, trigger_px)
+    if result.get("status") == "ok":
+        statuses = result["response"]["data"]["statuses"]
+        for s in statuses:
+            if "resting" in s:
+                oid = s["resting"]["oid"]
+                console.print(f"[green]SL placed[/green] — OID: {oid}")
+            elif "filled" in s:
+                console.print(f"[bold green]SL filled immediately[/bold green] — {s['filled']}")
+            elif "error" in s:
+                console.print(f"[red]Error: {s['error']}[/red]")
+    else:
+        console.print(f"[red]Failed: {result}[/red]")
+
+
+def cmd_tp(args: argparse.Namespace) -> None:
+    coin = REGISTRY.resolve(args.coin)
+    trigger_px = float(args.trigger)
+    sz = float(args.size)
+    # TP on a SHORT = close via BUY; TP on a LONG = close via SELL
+    is_buy = args.direction.lower() in ("short", "s")
+
+    side_str = "BUY (close short)" if is_buy else "SELL (close long)"
+    slippage_px = round(trigger_px * 1.10, 4) if is_buy else round(trigger_px * 0.90, 4)
+
+    console.print(f"\n[bold]Take-Profit Order[/bold]: [green]TP TRIGGER ${trigger_px:.4f}[/green] -> {side_str}")
+    console.print(f"  Coin: [cyan]{coin}[/cyan]  |  Size: {sz}  |  Limit (slippage): ${slippage_px:.4f}")
+    console.print(f"  Mode: {'[yellow]DRY-RUN (paper)[/yellow]' if PAPER_MODE else '[bold green]LIVE[/bold green]'}")
+
+    if PAPER_MODE:
+        console.print("[yellow]PAPER MODE — TP not submitted. Set TRADING_MODE=live to place real orders.[/yellow]")
+        return
+
+    result = _build_and_sign_sl_order(coin, is_buy, sz, trigger_px, tpsl="tp")
+    if result.get("status") == "ok":
+        statuses = result["response"]["data"]["statuses"]
+        for s in statuses:
+            if "resting" in s:
+                oid = s["resting"]["oid"]
+                console.print(f"[green]TP placed[/green] — OID: {oid}")
+            elif "filled" in s:
+                console.print(f"[bold green]TP filled immediately[/bold green] — {s['filled']}")
+            elif "error" in s:
+                console.print(f"[red]Error: {s['error']}[/red]")
+    else:
+        console.print(f"[red]Failed: {result}[/red]")
+
+
 def cmd_open_orders(args: argparse.Namespace) -> None:
     wallet = os.getenv("HL_MAIN_WALLET_ADDRESS")
     # frontendOpenOrders returns ALL order types: limit, stop-loss, take-profit, trigger
@@ -489,6 +600,22 @@ def main() -> None:
     c.add_argument("coin")
     c.add_argument("oid", type=int)
     c.set_defaults(func=cmd_cancel)
+
+    sl = sub.add_parser("sl", help="Place stop-loss trigger order (reduce-only)")
+    sl.add_argument("coin", help="e.g. MSTR, xyz:MSTR, SILVER")
+    sl.add_argument("direction", choices=["long", "short", "l", "s"],
+                    help="Direction of your CURRENT position (sl closes it)")
+    sl.add_argument("size", type=float, help="Size to close (use full position size)")
+    sl.add_argument("trigger", type=float, help="Trigger price for stop-loss")
+    sl.set_defaults(func=cmd_sl)
+
+    tp = sub.add_parser("tp", help="Place take-profit trigger order (reduce-only)")
+    tp.add_argument("coin", help="e.g. MSTR, xyz:MSTR, SILVER")
+    tp.add_argument("direction", choices=["long", "short", "l", "s"],
+                    help="Direction of your CURRENT position (tp closes it)")
+    tp.add_argument("size", type=float, help="Size to close (use full position size)")
+    tp.add_argument("trigger", type=float, help="Trigger price for take-profit")
+    tp.set_defaults(func=cmd_tp)
 
     sub.add_parser("positions", help="Show open positions").set_defaults(func=cmd_positions)
     sub.add_parser("orders", help="Show open orders").set_defaults(func=cmd_open_orders)
