@@ -153,6 +153,46 @@ def cmd_leaderboard(args: argparse.Namespace) -> None:
     console.print(table)
 
 
+def fetch_prices(coins: list[str] | None = None) -> dict[str, Decimal]:
+    """Fetch current HL mark prices via allMids. Optionally filter by coin list."""
+    mids = fetch_all_mids()
+    result = {}
+    for coin, price_str in mids.items():
+        if coins is None or coin.upper() in [c.upper() for c in coins]:
+            try:
+                result[coin] = Decimal(str(price_str))
+            except Exception:
+                pass
+    return result
+
+
+def cmd_prices(args: argparse.Namespace) -> None:
+    """Show current HL mark prices from allMids endpoint — the canonical price source."""
+    coins = [c.upper() for c in args.coins] if args.coins else None
+    mids = fetch_all_mids()
+
+    items = sorted(mids.items())
+    if coins:
+        items = [(k, v) for k, v in items if k.upper() in coins]
+
+    if not items:
+        console.print("[yellow]No matching coins found.[/yellow]")
+        return
+
+    table = Table(title="HL Current Mark Prices (allMids) — live, exchange-native")
+    table.add_column("Coin", style="cyan")
+    table.add_column("Mark Price $", justify="right", style="bold green")
+
+    for coin, price_str in items:
+        try:
+            price = Decimal(str(price_str))
+            table.add_row(coin, f"${price:,.6f}")
+        except Exception:
+            table.add_row(coin, str(price_str))
+
+    console.print(table)
+
+
 def cmd_positions(args: argparse.Namespace) -> None:
     state = fetch_clearinghouse_state(args.wallet)
     asset_positions = state.get("assetPositions", [])
@@ -168,13 +208,21 @@ def cmd_positions(args: argparse.Namespace) -> None:
         console.print("[dim]No open positions.[/dim]")
         return
 
+    # Fetch live mark prices once for all coins in this wallet
+    coins_in_wallet = [
+        p.get("position", {}).get("coin", "") for p in asset_positions
+    ]
+    live_prices = fetch_prices(coins_in_wallet)
+
     table = Table(title="Open positions")
     table.add_column("Coin", style="cyan")
     table.add_column("Side")
     table.add_column("Size", justify="right")
-    table.add_column("Entry $", justify="right")
-    table.add_column("Mark/Pos $", justify="right")
-    table.add_column("Unrealized PnL", justify="right")
+    table.add_column("Entry $", justify="right", style="dim")
+    table.add_column("Mark $ (live)", justify="right", style="bold green")
+    table.add_column("Entry vs Mark", justify="right")
+    table.add_column("Pos Value $", justify="right")
+    table.add_column("uPnL", justify="right")
     table.add_column("Lev", justify="right", style="dim")
 
     for p in asset_positions:
@@ -188,11 +236,26 @@ def cmd_positions(args: argparse.Namespace) -> None:
         upnl_style = "green" if upnl >= 0 else "red"
         lev = pos.get("leverage", {}).get("value", "?")
         position_value = Decimal(pos.get("positionValue", "0"))
+
+        # Live mark price from allMids (canonical source)
+        mark = live_prices.get(coin)
+        mark_str = f"${mark:,.4f}" if mark else "[dim]N/A[/dim]"
+
+        # Entry vs mark delta (shows how far from entry we are)
+        if mark and entry > 0:
+            delta_pct = (mark - entry) / entry * 100
+            delta_style = "green" if delta_pct > 0 else "red"
+            delta_str = f"[{delta_style}]{delta_pct:+.2f}%[/{delta_style}]"
+        else:
+            delta_str = "[dim]—[/dim]"
+
         table.add_row(
             coin,
             f"[{side_style}]{side}[/{side_style}]",
             f"{abs(szi):,.4f}",
             f"${entry:,.4f}",
+            mark_str,
+            delta_str,
             f"${position_value:,.2f}",
             f"[{upnl_style}]${upnl:+,.2f}[/{upnl_style}]",
             f"{lev}x",
@@ -321,6 +384,15 @@ def cmd_whales(args: argparse.Namespace) -> None:
     if coin_filter and coin_wallets:
         coin_wallets.sort(key=lambda x: x["val"], reverse=True)
 
+        # Fetch live mark price for this coin (single API call)
+        live_mark = fetch_prices([coin_filter]).get(coin_filter)
+        if live_mark:
+            console.print(
+                f"\n[bold]Live mark price[/bold] ([cyan]{coin_filter}[/cyan]): "
+                f"[bold green]${live_mark:,.4f}[/bold green]  "
+                f"[dim](source: HL allMids — use this, NOT entry prices, for current analysis)[/dim]\n"
+            )
+
         detail = Table(title=f"{coin_filter} — per-wallet positions ({len(coin_wallets)} traders)")
         detail.add_column("#", style="dim", width=3)
         detail.add_column("Wallet", style="cyan")
@@ -328,7 +400,8 @@ def cmd_whales(args: argparse.Namespace) -> None:
         detail.add_column("Side")
         detail.add_column("Size", justify="right")
         detail.add_column("Pos $", justify="right")
-        detail.add_column("Entry $", justify="right")
+        detail.add_column("Entry $ (hist)", justify="right", style="dim")
+        detail.add_column("Mark $ (live)", justify="right", style="bold green")
         detail.add_column("uPnL", justify="right")
         detail.add_column("Lev", justify="right", style="dim")
         detail.add_column(f"PnL {args.window}", justify="right", style="dim")
@@ -338,14 +411,25 @@ def cmd_whales(args: argparse.Namespace) -> None:
             upnl_style = "green" if w["upnl"] >= 0 else "red"
             pnl_style = "green" if w["lb_pnl"] >= 0 else "red"
             addr = w["wallet"]
+
+            # Compute mark price from positionValue / abs(szi)
+            abs_szi = abs(w["szi"])
+            computed_mark = w["val"] / abs_szi if abs_szi > 0 else None
+            mark_str = (
+                f"[bold green]${computed_mark:,.4f}[/bold green]"
+                if computed_mark
+                else "[dim]N/A[/dim]"
+            )
+
             detail.add_row(
                 str(i),
                 addr[:10] + "..." + addr[-4:],
                 w["name"],
                 f"[{side_style}]{w['side']}[/{side_style}]",
-                f"{abs(w['szi']):,.4f}",
+                f"{abs_szi:,.4f}",
                 f"${w['val']:,.0f}",
                 f"${w['entry']:,.4f}",
+                mark_str,
                 f"[{upnl_style}]${w['upnl']:+,.2f}[/{upnl_style}]",
                 f"{w['lev']}x",
                 f"[{pnl_style}]${w['lb_pnl']:,.0f}[/{pnl_style}]",
@@ -606,6 +690,17 @@ def cmd_snapshot_diff(args: argparse.Namespace) -> None:
 def main() -> None:
     p = argparse.ArgumentParser(description="Hyperliquid whale tracker (read-only)")
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    # --- prices ---
+    pr = sub.add_parser(
+        "prices",
+        help="Show live HL mark prices (allMids) — canonical price source for analysis",
+    )
+    pr.add_argument(
+        "coins", nargs="*", metavar="COIN",
+        help="Specific coins to show (e.g. NEAR AAVE BTC). Omit for all.",
+    )
+    pr.set_defaults(func=cmd_prices)
 
     # --- leaderboard ---
     lb = sub.add_parser("leaderboard", help="Show top traders ranked by performance")

@@ -300,15 +300,25 @@ Wybierz najsilniejszego smart_money wallet z ostatnich 30 dni. Cross-reference: 
 > Wpisz to codziennie rano. Dostajesz 80% wartości całego stacku w jednej odpowiedzi.
 
 ```
-Uruchom moją wieczorną zmianę:
-1. snapshot save → snapshot diff (jeśli mam previous snapshot)
-2. whale_scanner.py both 25
-3. blogwatcher digest 24h
-4. fetch_positions
-5. Funding regime na BTC/ETH/SOL
+Uruchom moją poranną zmianę:
+
+KROK 0 — CENY (ZAWSZE NAJPIERW):
+Uruchom: python scripts/hl_whale_tracker.py prices BTC ETH SOL NEAR AAVE HYPE
+To jest jedyne wiarygodne źródło cen. Wszystkie analizy cenowe opieraj WYŁĄCZNIE
+na tych wartościach (mark price z HL allMids), NIE na entry_price wielorybów
+(to historyczne ceny otwarcia, mogą być tygodnie stare).
+
+KROK 1: snapshot save → snapshot diff (jeśli mam previous snapshot)
+KROK 2: python hyperliquid-whale-tracker/.claude/skills/hyperliquid-whale-tracker/scripts/whale_scanner.py both 25
+KROK 3: blogwatcher digest 24h
+KROK 4: fetch_positions (moje aktualne pozycje)
+KROK 5: Funding regime na BTC/ETH/SOL
+
+WAŻNE: Gdy widzisz "entry_price" w danych wielorybów — to HISTORYCZNA cena wejścia
+tradera (może być sprzed tygodni). Aktualną cenę rynkową masz tylko z KROKU 0.
 
 Daj mi w jednej odpowiedzi:
-- TOP 1 LONG trade (najwyższa convicstion) z entry/SL/TP/confidence
+- TOP 1 LONG trade (najwyższa conviction) z entry/SL/TP/confidence
 - TOP 1 SHORT trade (contrarian setup) z entry/SL/TP/confidence
 - 1 watchlist coin (jeszcze nie teraz, ale obserwuj)
 - Ranking moich obecnych pozycji (best to worst) + action per pozycja
@@ -316,6 +326,8 @@ Daj mi w jednej odpowiedzi:
 
 Bądź brutalny w ocenie. Confidence rating 1-10 wymagany.
 ```
+
+> ⚠️ **Zawsze uruchamiaj KROK 0 jako pierwszy.** `entry_price` w danych whale = historyczna cena wejścia tradera (może być sprzed tygodni lub miesięcy). `mark_price` z `allMids` = aktualna cena rynkowa na HL. Mylenie tych dwóch było źródłem błędnych analiz NEAR/AAVE.
 
 ---
 

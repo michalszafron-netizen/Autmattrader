@@ -66,13 +66,25 @@ def get_wallet_positions(address):
             leverage_data = p.get("leverage", {})
             leverage = leverage_data.get("value", "?") if isinstance(leverage_data, dict) else str(leverage_data)
             liq_px = p.get("liquidationPx")
+            entry_price = float(p.get("entryPx", 0))
+            unrealized_pnl = float(p.get("unrealizedPnl", 0))
+
+            # Compute CURRENT mark price from position data.
+            # Formula: mark_price = entry_price + unrealizedPnl / szi
+            # (works for both LONG and SHORT since szi is signed)
+            # This is the live market price — NOT the historical entry price.
+            if size != 0:
+                mark_price = entry_price + unrealized_pnl / size
+            else:
+                mark_price = entry_price
 
             positions.append({
                 "coin": p.get("coin", "?"),
                 "direction": "LONG" if size > 0 else "SHORT",
                 "size": abs(size),
-                "entry_price": float(p.get("entryPx", 0)),
-                "unrealized_pnl": float(p.get("unrealizedPnl", 0)),
+                "entry_price": entry_price,        # HISTORICAL — when whale opened position
+                "mark_price": round(mark_price, 6), # LIVE — current market price (use this!)
+                "unrealized_pnl": unrealized_pnl,
                 "leverage": leverage,
                 "liquidation_price": float(liq_px) if liq_px else None
             })
