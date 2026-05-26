@@ -50,9 +50,13 @@ IGNORE = {
     "BTC", "ETH",  # too much data noise — always high volume
 }
 
-DEFAULT_THRESHOLD  = 3.0   # minimum multiplier to alert
-DEFAULT_TOP_N      = 8     # max tokens per alert message
-MIN_VOL_USD        = 1_000_000  # ignore tokens with <$1M 24h volume
+DEFAULT_THRESHOLD  = 3.0   # minimum multiplier to alert (24h window)
+DEFAULT_TOP_N      = 10    # max tokens per alert message
+MIN_VOL_USD        = 500_000    # ignore tokens with <$500K 24h volume (was $1M)
+
+# Early-detection window (4h vs rolling hourly avg)
+EARLY_WINDOW_HOURS = 4     # compare last N hours vs historical hourly avg
+EARLY_THRESHOLD    = 2.5   # multiplier to fire early alert (slightly lower — 4h is noisier)
 
 
 # ── Binance API ───────────────────────────────────────────────────────────────
@@ -174,6 +178,67 @@ def fetch_recent_pct_changes(
         return None
 
 
+def fetch_short_window_multiplier(
+    symbol: str,
+    market: str = "futures",
+    hours: int = EARLY_WINDOW_HOURS,
+) -> tuple[float, float, float] | None:
+    """Detect early volume spikes using recent N-hour window vs historical hourly average.
+
+    Returns (recent_vol, baseline_vol, multiplier) or None on error.
+
+    How it works:
+      - Fetches ~20 days of 1h klines (Binance limit=500 for 1h)
+      - recent_vol  = sum of last `hours` CLOSED 1h candles (quoteVol)
+      - baseline    = mean hourly vol over all older candles * hours
+      - multiplier  = recent_vol / baseline
+
+    Why this catches spikes 12-18h earlier than the 24h ticker:
+      The 24h rolling window dilutes a spike by mixing it with 20h of normal volume.
+      A 4h window is immediately dominated by the spike — no dilution.
+    """
+    try:
+        limit = min(20 * 24 + hours + 1, 500)  # up to ~20 days of 1h candles
+        if market == "futures":
+            base = "https://fapi.binance.com"
+            path = "/fapi/v1/klines"
+        else:
+            base = "https://api.binance.com"
+            path = "/api/v3/klines"
+
+        with httpx.Client(verify=_SSL, timeout=12) as c:
+            r = c.get(f"{base}{path}", params={
+                "symbol": symbol, "interval": "1h", "limit": str(limit),
+            })
+            r.raise_for_status()
+            candles = r.json()
+
+        if not candles or len(candles) < hours + 48:
+            return None
+
+        # Exclude current incomplete candle (last one)
+        closed = candles[:-1]
+
+        # Recent window: last `hours` closed candles
+        recent_candles = closed[-hours:]
+        recent_vol = sum(float(c[7]) for c in recent_candles)
+
+        # Baseline: average hourly volume from all older candles
+        older_candles = closed[:-hours]
+        if len(older_candles) < 24:
+            return None
+        avg_hourly = sum(float(c[7]) for c in older_candles) / len(older_candles)
+        baseline = avg_hourly * hours  # scale to same window size
+
+        if baseline <= 0:
+            return None
+
+        return (recent_vol, baseline, recent_vol / baseline)
+
+    except Exception:
+        return None
+
+
 def fetch_30d_avg_volume(symbol: str, market: str = "futures") -> float | None:
     """Fetch 30 daily candles and return average daily volume in USD."""
     try:
@@ -263,25 +328,70 @@ def find_anomalies(threshold: float) -> list[dict]:
     spot_candidates.sort(key=lambda x: -x["vol24"])
     print(f"{len(spot_map)} in map | {len(spot_candidates)} standalone")
 
-    # Check 30d average for top candidates (futures + standalone spot)
-    all_candidates = futures_candidates[:40] + spot_candidates[:20]
+    # ── Pass 1: 24h window vs 30d daily average ──────────────────────────────
+    # Larger candidate pool: 80 futures + 40 spot (was 40+20)
+    all_candidates = futures_candidates[:80] + spot_candidates[:40]
     print(f"  Fetching 30d averages for {len(all_candidates)} tokens...", end=" ", flush=True)
 
+    found_24h: dict[str, dict] = {}  # ticker → anomaly (24h detections)
     checked = 0
     for cand in all_candidates:
         avg = fetch_30d_avg_volume(cand["symbol"], cand["market"])
-        if not avg or avg < 100_000:
+        if not avg or avg < 50_000:
             continue
         multiplier = cand["vol24"] / avg
         if multiplier >= threshold:
-            anomalies.append({
+            entry = {
                 **cand,
-                "avg30d":     avg,
-                "multiplier": multiplier,
-            })
+                "avg30d":       avg,
+                "multiplier":   multiplier,
+                "mult_24h":     multiplier,
+                "mult_4h":      None,
+                "detection":    "24h",
+            }
+            found_24h[cand["ticker"]] = entry
+            anomalies.append(entry)
         checked += 1
+    print(f"checked {checked}, found {len(found_24h)} via 24h window")
 
-    print(f"checked {checked}, found {len(anomalies)} anomalies")
+    # ── Pass 2: 4h early-detection window ────────────────────────────────────
+    # Run for ALL candidates — catches spikes that haven't yet dominated the 24h window
+    print(
+        f"  Early-detection 4h scan for {len(all_candidates)} tokens...",
+        end=" ", flush=True,
+    )
+    early_found = 0
+    for cand in all_candidates:
+        result = fetch_short_window_multiplier(cand["symbol"], cand["market"])
+        if not result:
+            continue
+        recent_vol, baseline, mult_4h = result
+        if mult_4h < EARLY_THRESHOLD:
+            continue
+
+        ticker = cand["ticker"]
+        if ticker in found_24h:
+            # Already flagged by 24h — just enrich with 4h data
+            found_24h[ticker]["mult_4h"] = mult_4h
+            found_24h[ticker]["detection"] = "both"
+        else:
+            # NEW early detection — not yet visible in 24h window
+            # Fetch 30d avg for context (don't filter by it though)
+            avg30d = fetch_30d_avg_volume(cand["symbol"], cand["market"]) or 0.0
+            entry = {
+                **cand,
+                "avg30d":     avg30d,
+                "multiplier": mult_4h,   # show 4h multiplier as headline
+                "mult_24h":   cand["vol24"] / avg30d if avg30d > 0 else None,
+                "mult_4h":    mult_4h,
+                "detection":  "4h",
+            }
+            anomalies.append(entry)
+            early_found += 1
+
+    print(f"found {early_found} additional early (4h-only) anomalies")
+    print(f"  Total anomalies: {len(anomalies)}")
+    anomalies.sort(key=lambda x: -x["multiplier"])
     anomalies.sort(key=lambda x: -x["multiplier"])
 
     # ── Spot cross-check for futures anomalies ────────────────────────────────
@@ -383,11 +493,29 @@ def format_alert(anomalies: list[dict], ts: str, threshold: float) -> str:
         f"Prog wykrycia: {threshold}x powyżej sredniej 30-dniowej\n",
     ]
     for a in top:
-        mult   = a["multiplier"]
-        chg    = a["chg"]
-        fire   = "🔥🔥🔥" if mult >= 10 else "🔥🔥" if mult >= 5 else "🔥"
-        emoji  = "🟢" if chg >= 0 else "🔴"
-        sym    = a["symbol"]
+        mult       = a["multiplier"]
+        mult_24h   = a.get("mult_24h")
+        mult_4h    = a.get("mult_4h")
+        detection  = a.get("detection", "24h")
+        chg        = a["chg"]
+        fire       = "🔥🔥🔥" if mult >= 10 else "🔥🔥" if mult >= 5 else "🔥"
+        emoji      = "🟢" if chg >= 0 else "🔴"
+        sym        = a["symbol"]
+
+        # Detection window label — most important UX signal
+        if detection == "4h":
+            detect_tag = "⚡ <b>EARLY 4h</b>"  # spike just started — act now
+        elif detection == "both":
+            detect_tag = "⚡ 4h + 📊 24h"       # confirmed by both windows
+        else:
+            detect_tag = "📊 24h"               # standard detection
+
+        # Multiplier breakdown line
+        mult_line = f"   {detect_tag} — {mult:.1f}x"
+        if mult_4h is not None and mult_24h is not None:
+            mult_line += f"  (4h: {mult_4h:.1f}x | 24h: {mult_24h:.1f}x)"
+        elif mult_4h is not None:
+            mult_line += f"  (4h: {mult_4h:.1f}x)"
 
         if a["market"] == "futures":
             market_label = "Futures"
@@ -469,6 +597,7 @@ def format_alert(anomalies: list[dict], ts: str, threshold: float) -> str:
 
         lines.append(
             f"{fire} <b>${a['ticker']}</b> — <b>{mult:.1f}x</b> powyzej sredniej\n"
+            f"{mult_line}\n"
             f"   📍 {exchange_label}\n"
             f"   {emoji} {market_label} 24h: {_fmt(a['vol24'])} | Avg30d: {_fmt(a['avg30d'])} | "
             f"Cena: {chg:+.1f}%"
@@ -564,8 +693,8 @@ def run_once(threshold: float, dry_run: bool) -> int:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Volume Anomaly Scanner")
-    p.add_argument("--interval",  type=int,   default=3600,
-                   help="Scan interval seconds (default: 3600 = 1h)")
+    p.add_argument("--interval",  type=int,   default=900,
+                   help="Scan interval seconds (default: 900 = 15min; was 3600)")
     p.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD,
                    help=f"Volume multiplier threshold (default: {DEFAULT_THRESHOLD}x)")
     p.add_argument("--daemon",    action="store_true", help="Run forever")
