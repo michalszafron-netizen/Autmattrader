@@ -486,10 +486,11 @@ def _spot_cross_label(spot_mult: float | None) -> str:
     return f"⚪ {spot_mult:.1f}x normalny"
 
 
-def format_alert(anomalies: list[dict], ts: str, threshold: float) -> str:
-    top = anomalies[:DEFAULT_TOP_N]
+def format_alert(anomalies: list[dict], ts: str, threshold: float, part: int = 0, total_parts: int = 0) -> str:
+    top = anomalies  # caller slices before passing
+    part_tag = f" — część {part}/{total_parts}" if total_parts > 1 else ""
     lines = [
-        f"📊 <b>Volume Anomaly Scanner</b> — {ts}",
+        f"📊 <b>Volume Anomaly Scanner</b> — {ts}{part_tag}",
         f"Prog wykrycia: {threshold}x powyżej sredniej 30-dniowej\n",
     ]
     for a in top:
@@ -679,10 +680,15 @@ def run_once(threshold: float, dry_run: bool) -> int:
     anomalies = find_anomalies(threshold)
 
     if anomalies:
-        msg = format_alert(anomalies, ts, threshold)
-        send_telegram(msg, dry_run=dry_run)
+        # Split into chunks so each Telegram message stays under the 4096-char limit
+        chunk_size = DEFAULT_TOP_N
+        chunks = [anomalies[i:i + chunk_size] for i in range(0, len(anomalies), chunk_size)]
+        total = len(chunks)
+        for idx, chunk in enumerate(chunks, 1):
+            msg = format_alert(chunk, ts, threshold, part=idx, total_parts=total)
+            send_telegram(msg, dry_run=dry_run)
         save_to_db(anomalies, ts)
-        print(f"[{ts}] Alert sent: {len(anomalies)} anomalies")
+        print(f"[{ts}] Alert sent: {len(anomalies)} anomalies in {total} message(s)")
     else:
         hb = format_heartbeat(ts, threshold)
         send_telegram(hb, dry_run=dry_run)
