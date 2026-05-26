@@ -1,0 +1,267 @@
+{
+  "version": 2,
+  "description": "Base assets + sources config for BlogWatcher v2 (with common extract rules)",
+  "last_updated": "2026-05-23",
+
+  "common_extract_rules": "RULES — APPLY TO EVERY ENTRY:\n(R1) ASSET WHITELIST: affected_assets entries MUST come ONLY from this list: [BTC, ETH, SOL, HYPE, LINK, DXY, US10Y, VIX, BTC.D, GOLD, SILVER, OIL, NATGAS, NDX, SPX, CORN, COFFEE, COCOA]. Map common aliases: Bitcoin=BTC, Ethereum=ETH, Solana=SOL, Chainlink=LINK, Dollar Index/USD Index/USD=DXY, 10-year yield/10Y/Treasury yield=US10Y, Volatility Index/Fear Gauge=VIX, Bitcoin Dominance=BTC.D, XAU=GOLD, XAG=SILVER, WTI/Brent/Crude=OIL, Natural Gas/Henry Hub=NATGAS, Nasdaq 100/NQ/Tech 100=NDX, S&P 500/SPY/Dow (proxy)=SPX, Maize/ZC=CORN, Arabica/KC=COFFEE, CC=COCOA. If an asset isn't in the whitelist (e.g. XRP, Copper, individual stocks), DROP it — do NOT remap to similar tickers.\n(R2) US-ONLY INDICES: SPX = S&P 500 only. NDX = Nasdaq 100 only. FTSE 100, DAX, CAC, Nikkei, KOSPI, Hang Seng, IBEX → DO NOT map these to SPX or NDX. If a news is about a non-US index AND there is no explicit US spillover, set affected_assets to [] for that entry.\n(R3) ASSET INCLUSION: include an asset in affected_assets if it is mentioned by name/ticker OR if the article topic directly and clearly affects it (examples of direct: OPEC cut → OIL; Fed rate change → DXY+US10Y+SPX+NDX; Middle East war → OIL+GOLD+SILVER; central bank gold buying → GOLD+SILVER; CPI print → DXY+US10Y+SPX+NDX+GOLD; geopolitical risk-off → GOLD+SILVER+US10Y bullish, SPX+NDX+BTC bearish). For source-specific pages (Kitco → metals, OilPrice → energy, CoinDesk → crypto), DEFAULT to including the page's natural assets unless the article is clearly off-topic. Better to include relevant assets than to return empty arrays.\n(R4) PER-ASSET SENTIMENT — CRITICAL: A single news often impacts assets with OPPOSITE sentiments. Examples: 'DXY weakens, gold rallies' = DXY bearish + GOLD bullish; 'Iran sanctions' = OIL bullish + SPX/NDX bearish + GOLD bullish; 'Fed cuts rates' = DXY bearish + US10Y bearish + SPX/NDX/BTC/ETH bullish + GOLD bullish. When this happens, output MULTIPLE entries — one per sentiment group, sharing the same headline text. ONLY group assets together when they share the SAME sentiment direction.\n(R5) KEY LEVELS: include only price levels EXPLICITLY stated in the article text. If none mentioned, set key_levels to []. Do NOT invent or recall levels from memory. Empty is fine.\n(R6) IMPACT: 'high' = directly market-moving (FOMC decision, war start, hack >$100M, major data); 'medium' = notable (analyst calls, secondary data, sector news); 'low' = minor/contextual.\n(R7) SENTIMENT VOCABULARY: use ONLY 'bullish' | 'bearish' | 'neutral'. Do not use 'positive', 'negative', 'mixed', 'up', 'down' — those will be rejected.\n(R8) OUTPUT: valid JSON array only — no markdown fences, no commentary. Aim for 5-7 entries per source if the page has any actionable content. Return [] ONLY when the page is empty or completely off-topic (very rare for our curated sources).",
+
+  "sources": {
+    "coindesk": {
+      "label": "CoinDesk — crypto markets",
+      "url": "https://www.coindesk.com/markets",
+      "category": "crypto",
+      "tier": "core",
+      "extract_prompt": "Source focus: top 5-7 market-moving crypto headlines from last 12h. Likely assets: BTC, ETH, SOL, HYPE, LINK, BTC.D. Likely categories: macro, regulatory, whale, exchange, ecosystem, defi. SKIP sponsored content and pure opinion pieces. Schema per entry: { headline, summary (1 sentence), affected_assets, sentiment, impact, category, key_levels (optional) }."
+    },
+    "theblock": {
+      "label": "The Block — crypto/DeFi markets",
+      "url": "https://www.theblock.co/latest",
+      "category": "crypto",
+      "tier": "core",
+      "extract_prompt": "Source focus: top 5-7 crypto/DeFi headlines from last 12h. PRIORITIZE exchange flows, on-chain data, institutional moves, whale activity, regulatory. Likely assets: BTC, ETH, SOL, HYPE, LINK, BTC.D. Categories: whale, exchange, defi, regulatory, ecosystem, macro. SKIP pure opinion pieces. Schema per entry: { headline, summary, affected_assets, sentiment, impact, category, key_levels (optional) }."
+    },
+    "reuters_markets": {
+      "label": "Reuters — financial markets",
+      "url": "https://www.reuters.com/markets",
+      "category": "markets",
+      "tier": "core",
+      "extract_prompt": "Source focus: top 5-7 financial market headlines from last 12h. Coverage: equities (US: SPX/NDX only — apply R2 strictly), FX (DXY, EUR/USD, USD/JPY → only DXY in whitelist), bonds (US10Y), commodities crossover (GOLD, SILVER, OIL, NATGAS). Categories: macro, fx, bonds, equities, commodities, fed. CRITICAL: foreign indices (FTSE, DAX, Nikkei, Hang Seng) do NOT map to SPX/NDX — see R2. Schema per entry: { headline, summary, affected_assets, sentiment, impact, category, key_levels (optional) }."
+    },
+    "reuters_world": {
+      "label": "Reuters — world & geopolitics",
+      "url": "https://www.reuters.com/world",
+      "category": "geo",
+      "tier": "core",
+      "extract_prompt": "Source focus: top 5-7 geopolitical/world headlines from last 12h that could impact markets. Mapping heuristics (apply only when article CLEARLY implies the linkage): wars/Iran/sanctions → OIL, NATGAS, GOLD, SILVER, CORN (Ukraine grain), DXY; Fed/US policy → DXY, US10Y, SPX, NDX, BTC, ETH; China shock → CORN, COFFEE, COCOA, COPPER (not in list), commodities broadly; risk-off → GOLD, SILVER, US10Y up + SPX/NDX/BTC down; election/trade disputes → DXY, SPX/NDX. Remember R4 (per-asset sentiment) — safe-haven assets often have OPPOSITE sentiment from risk assets in same story. Categories: geopolitics, war, sanctions, election, fed, trade. Schema per entry: { headline, summary, affected_assets, sentiment, impact, category, key_levels (optional) }."
+    },
+    "kitco": {
+      "label": "Kitco — gold & silver news",
+      "url": "https://www.kitco.com/news/gold",
+      "category": "commodities",
+      "tier": "core",
+      "extract_prompt": "Source focus: top 5-7 precious metals headlines from last 12h. Likely assets: GOLD, SILVER. Cross-impact assets (apply R4 — opposite sentiment likely): DXY (USD strength = bearish metals, USD weakness = bullish metals), US10Y (yields up = bearish metals), VIX (risk-off = bullish safe-haven metals). Include central banks, inflation, Fed, USD, ETF flows. Categories: macro, cb_buying, inflation, fed, geopolitics, etf_flows. Schema per entry: { headline, summary, affected_assets, sentiment, impact, category, key_levels (optional, only if explicit in text) }."
+    },
+    "oilprice": {
+      "label": "OilPrice.com — crude oil & energy",
+      "url": "https://oilprice.com/latest-energy-news/world-news",
+      "category": "commodities",
+      "tier": "core",
+      "extract_prompt": "Source focus: top 5-7 oil/energy headlines from last 12h. Primary assets: OIL, NATGAS. Cross-impact (apply R4 carefully): DXY (oil pricing), SPX/NDX (oil shocks = inflation pressure on equities, R4 may apply), GOLD (oil spike from war = both bullish via inflation/safe haven). Categories: opec, supply, demand, geopolitics, inventory, refining. Key levels only if explicit (e.g. WTI/Brent levels). Schema per entry: { headline, summary, affected_assets, sentiment, impact, category, key_levels (optional) }."
+    },
+    "barchart": {
+      "label": "Barchart — commodity news",
+      "url": "https://www.barchart.com/news/commodities",
+      "category": "commodities",
+      "tier": "core",
+      "extract_prompt": "Source focus: top 5-7 commodity/agriculture headlines from last 24h. PRIMARY assets (this is the dedicated softs source): CORN, COFFEE, COCOA. Secondary: OIL, NATGAS, GOLD, SILVER, DXY. Categories: weather, harvest, supply, demand, geopolitics, usda, crop_report. R4 reminder — weather/supply shock typically affects multiple agri assets with SAME sentiment, but DXY usually opposite. Schema per entry: { headline, summary, affected_assets, sentiment, impact, category, key_levels (optional) }."
+    },
+
+    "reuters_commodities": {
+      "label": "Reuters Commodities (fallback for Barchart)",
+      "url": "https://www.reuters.com/markets/commodities",
+      "category": "commodities",
+      "tier": "fallback",
+      "extract_prompt": "Source focus: top 5-7 commodity headlines from last 24h. Coverage: CORN, COFFEE, COCOA, OIL, NATGAS, GOLD, SILVER, DXY. Categories: supply, demand, geopolitics, weather, usda, opec. Schema per entry: { headline, summary, affected_assets, sentiment, impact, category, key_levels (optional) }."
+    },
+    "fed": {
+      "label": "Federal Reserve — press releases",
+      "url": "https://www.federalreserve.gov/newsevents/pressreleases.htm",
+      "category": "markets",
+      "tier": "backup",
+      "extract_prompt": "Source focus: Fed press releases from last 14 days. Likely impacted assets: DXY, US10Y, SPX, NDX, BTC, ETH, GOLD, SILVER. R4 CRITICAL — Fed dovish = bullish for risk (SPX/NDX/BTC/ETH/GOLD/SILVER) + bearish for DXY/US10Y. Fed hawkish = inverse. Categories: fomc, monetary_policy, rates, inflation. Extra field allowed: 'hawkishness' (1-10, 1=very dovish, 10=very hawkish). Schema per entry: { headline, summary, affected_assets, sentiment, impact, category, key_levels (optional), hawkishness (optional) }."
+    },
+    "bbc_world": {
+      "label": "BBC News — world (fallback geo)",
+      "url": "https://www.bbc.com/news/world",
+      "category": "geo",
+      "tier": "backup",
+      "extract_prompt": "Source focus: top 5-7 world events affecting markets from last 12h. Apply same geopolitical mapping as reuters_world: wars/sanctions → OIL/NATGAS/GOLD/SILVER/CORN; risk-off → GOLD/SILVER/US10Y bullish + SPX/NDX/BTC bearish (R4). Categories: war, sanctions, election, trade, china, emerging_markets. Schema per entry: { headline, summary, affected_assets, sentiment, impact, category, key_levels (optional) }."
+    }
+  },
+
+  "tier_groups": {
+    "core": ["coindesk", "theblock", "reuters_markets", "reuters_world", "kitco", "oilprice", "barchart"],
+    "fallback": ["reuters_commodities"],
+    "backup": ["fed", "bbc_world"]
+  },
+
+  "base_assets": {
+    "BTC": {
+      "name": "Bitcoin",
+      "aliases": ["Bitcoin", "BTC", "XBT", "BTCUSD", "BTCUSDT"],
+      "category": "crypto",
+      "tv_symbol": "BINANCE:BTCUSDT",
+      "primary_sources": ["coindesk", "theblock"],
+      "signals": ["x_sentiment", "fear_greed", "cot", "polymarket", "oi"],
+      "geo_sensitive": true,
+      "fed_sensitive": true
+    },
+    "ETH": {
+      "name": "Ethereum",
+      "aliases": ["Ethereum", "Ether", "ETH", "ETHUSD"],
+      "category": "crypto",
+      "tv_symbol": "COINBASE:ETHUSD",
+      "primary_sources": ["coindesk", "theblock"],
+      "signals": ["x_sentiment", "fear_greed", "cot", "oi"],
+      "geo_sensitive": true,
+      "fed_sensitive": true
+    },
+    "SOL": {
+      "name": "Solana",
+      "aliases": ["Solana", "SOL", "SOLUSD"],
+      "category": "crypto",
+      "tv_symbol": "BINANCE:SOLUSDT",
+      "primary_sources": ["coindesk", "theblock"],
+      "signals": ["x_sentiment", "oi"],
+      "fed_sensitive": true
+    },
+    "HYPE": {
+      "name": "Hyperliquid",
+      "aliases": ["Hyperliquid", "HYPE", "HYPEUSD"],
+      "category": "crypto",
+      "tv_symbol": "HYPERLIQUID:HYPE",
+      "primary_sources": ["theblock", "coindesk"],
+      "signals": ["x_sentiment", "oi"]
+    },
+    "LINK": {
+      "name": "Chainlink",
+      "aliases": ["Chainlink", "LINK", "LINKUSD"],
+      "category": "crypto",
+      "tv_symbol": "BINANCE:LINKUSDT",
+      "primary_sources": ["coindesk", "theblock"],
+      "signals": ["x_sentiment", "oi"]
+    },
+
+    "DXY": {
+      "name": "US Dollar Index",
+      "aliases": ["DXY", "Dollar Index", "USD Index", "US Dollar"],
+      "category": "fx_index",
+      "tv_symbol": "TVC:DXY",
+      "primary_sources": ["reuters_markets", "fed"],
+      "signals": ["cot"],
+      "fed_sensitive": true,
+      "note": "Inversely correlated with most risk assets (BTC, GOLD, equities)"
+    },
+    "US10Y": {
+      "name": "US 10-Year Treasury Yield",
+      "aliases": ["US10Y", "10Y", "10-year yield", "Treasury", "Tnote"],
+      "category": "bond_yield",
+      "tv_symbol": "TVC:US10Y",
+      "primary_sources": ["reuters_markets", "fed"],
+      "signals": ["cot"],
+      "fed_sensitive": true,
+      "note": "Real yields drive gold/silver. Above 4.5% = panic mode for risk."
+    },
+    "VIX": {
+      "name": "CBOE Volatility Index",
+      "aliases": ["VIX", "Vix", "Fear Gauge", "Volatility Index"],
+      "category": "volatility",
+      "tv_symbol": "TVC:VIX",
+      "primary_sources": ["reuters_markets"],
+      "signals": [],
+      "fed_sensitive": true,
+      "note": "VIX > 25 = risk-off across all assets"
+    },
+    "BTC.D": {
+      "name": "Bitcoin Dominance",
+      "aliases": ["BTC.D", "BTC Dominance", "Bitcoin Dominance", "BTCD"],
+      "category": "crypto_meta",
+      "tv_symbol": "CRYPTOCAP:BTC.D",
+      "primary_sources": ["coindesk", "theblock"],
+      "signals": ["x_sentiment"],
+      "note": "Rising = alts bleeding. Falling = alt season setup."
+    },
+
+    "GOLD": {
+      "name": "Gold",
+      "aliases": ["Gold", "XAU", "XAUUSD", "Złoto"],
+      "category": "commodity",
+      "tv_symbol": "OANDA:XAUUSD",
+      "primary_sources": ["kitco", "reuters_markets"],
+      "signals": ["cot", "fear_greed"],
+      "geo_sensitive": true,
+      "fed_sensitive": true,
+      "safe_haven": true
+    },
+    "SILVER": {
+      "name": "Silver",
+      "aliases": ["Silver", "XAG", "XAGUSD", "Srebro"],
+      "category": "commodity",
+      "tv_symbol": "TVC:SILVER",
+      "primary_sources": ["kitco", "reuters_markets"],
+      "signals": ["cot", "fear_greed"],
+      "geo_sensitive": true,
+      "fed_sensitive": true,
+      "safe_haven": true,
+      "industrial": true
+    },
+    "OIL": {
+      "name": "Crude Oil (WTI)",
+      "aliases": ["Oil", "Crude", "USOIL", "WTI", "Brent", "Ropa"],
+      "category": "commodity",
+      "tv_symbol": "TVC:USOIL",
+      "primary_sources": ["oilprice", "reuters_world"],
+      "signals": ["cot"],
+      "geo_sensitive": true
+    },
+    "NATGAS": {
+      "name": "Natural Gas",
+      "aliases": ["NatGas", "Natural Gas", "NG", "Henry Hub", "Gaz"],
+      "category": "commodity",
+      "tv_symbol": "NYMEX:NG1!",
+      "primary_sources": ["oilprice", "reuters_world", "barchart"],
+      "signals": ["cot"],
+      "geo_sensitive": true,
+      "weather_sensitive": true
+    },
+
+    "NDX": {
+      "name": "Nasdaq 100",
+      "aliases": ["Nasdaq", "NDX", "NQ", "TECH100", "TECH100m", "Nasdaq 100"],
+      "category": "equity_index",
+      "tv_symbol": "NASDAQ:NDX",
+      "primary_sources": ["reuters_markets", "fed"],
+      "signals": ["cot"],
+      "fed_sensitive": true
+    },
+    "SPX": {
+      "name": "S&P 500",
+      "aliases": ["S&P", "SPX", "SP500", "SPY", "ES"],
+      "category": "equity_index",
+      "tv_symbol": "SP:SPX",
+      "primary_sources": ["reuters_markets", "fed"],
+      "signals": ["cot"],
+      "fed_sensitive": true
+    },
+
+    "CORN": {
+      "name": "Corn",
+      "aliases": ["Corn", "Kukurydza", "Korn", "ZC", "Maize", "Z@C"],
+      "category": "agriculture",
+      "tv_symbol": "CBOT:ZC1!",
+      "primary_sources": ["barchart", "reuters_commodities"],
+      "signals": ["cot"],
+      "geo_sensitive": true,
+      "weather_sensitive": true
+    },
+    "COFFEE": {
+      "name": "Coffee",
+      "aliases": ["Coffee", "Kawa", "KC", "Arabica"],
+      "category": "agriculture",
+      "tv_symbol": "ICEUS:KC1!",
+      "primary_sources": ["barchart", "reuters_commodities"],
+      "signals": ["cot"],
+      "weather_sensitive": true
+    },
+    "COCOA": {
+      "name": "Cocoa",
+      "aliases": ["Cocoa", "Kakao", "CC"],
+      "category": "agriculture",
+      "tv_symbol": "ICEUS:CC1!",
+      "primary_sources": ["barchart", "reuters_commodities"],
+      "signals": ["cot"],
+      "weather_sensitive": true,
+      "geo_sensitive": true
+    }
+  }
+}
