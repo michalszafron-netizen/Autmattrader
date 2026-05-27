@@ -5,6 +5,88 @@ Kolejność wg trudności — od najłatwiejszego.
 
 ---
 
+## 🔴 AKTYWNE BUGI — naprawić w pierwszej kolejności
+
+### BUG-01: TradingView → Alpaca webhook — sygnał bez transakcji
+
+**Symptom:** Sygnał z Pine Script dociera przez WebHook (widać alert w TV), ale zlecenie **nie jest składane** na Alpaca paper. Rozjazd gdzieś między alertem TV a egzekucją przez Alpaca MCP/executor.
+
+**Gdzie szukać:**
+- Sprawdzić czy WebHook URL jest poprawnie skonfigurowany w TV (alert → webhook → endpoint)
+- Sprawdzić czy skrypt/handler odbiera POST z TV i poprawnie parsuje JSON payload
+- Sprawdzić logi — czy executor dostaje sygnał i co odpowiada Alpaca API
+- `ALPACA_PAPER=true` w .env — upewnić się że nie ma konfliktu z live mode
+
+**Priorytet:** ⭐⭐⭐⭐ — blokuje automatyczne strategie akcyjne
+
+---
+
+## ✅ PEŁNA LISTA SKRYPTÓW (stan 2026-05-28)
+
+### Wykonawcy / giełdy
+| Skrypt | Co robi | Tryb |
+|--------|---------|------|
+| `hl_executor.py` | Zlecenia Hyperliquid perps + xyz TradFi | **LIVE** (ostrożnie!) |
+| `hl_order_live.py` | HL live order helper | **LIVE** |
+| `extended_executor.py` | Extended Exchange pozycje i zlecenia | **LIVE** |
+| `alpaca_executor.py` | Alpaca US stocks egzekucja | paper only |
+| `solana_executor.py` | Jupiter DEX swaps na Solana | live |
+| `position_calc.py` | Kalkulator pozycji 2% risk → gotowa komenda order | helper |
+| `tv_webhook.py` | Handler WebHook z TradingView → egzekucja | **BUG — patrz BUG-01** |
+
+### Dane rynkowe / analityka
+| Skrypt | Co robi |
+|--------|---------|
+| `hl_whale_tracker.py` | Top 20 wielorybów Hyperliquid (weekly/daily divergence) |
+| `x_sentiment.py` | X/Twitter sentiment via Grok live search + trending tokens |
+| `fear_greed.py` | Crypto Fear & Greed Index (alternative.me, bezpłatny) |
+| `cot_tracker.py` | COT Report CFTC — instytucje na Gold/Silver/Oil/SP500/Nasdaq |
+| `oi_tracker.py` | Open Interest Binance/Bybit |
+| `macro_news.py` | Firecrawl 10 źródeł: coindesk, theblock, reuters, fed, kitco itd. |
+| `econ_calendar.py` | Kalendarz ekonomiczny FinnHub + impact analyzer |
+| `quotes.py` | Live quotes TradFi |
+| `polymarket.py` | Prediction markets — prawdopodobieństwa eventów |
+| `token_dashboard.py` | Composite score tokenów (0-10) |
+| `token_research.py` | Deep research tokena — EVM (10 chain) + Solana (6-7 źródeł + Grok) |
+| `stock_research.py` | **NOWY** — Analiza US i polskich akcji (Yahoo Finance + SSL fix) |
+
+### Insider Intelligence (NOWE — sesja 2026-05-28)
+| Skrypt | Co robi | Harmonogram |
+|--------|---------|-------------|
+| `insider_tracker.py form4` | **Eddie** — SEC Form 4 insider buys ≥$100k C-suite | codziennie 06:00 |
+| `insider_tracker.py institutional` | **Maggie** — 13F Berkshire/Bridgewater/Renaissance/Citadel/TwoSigma | niedziela 19:00 |
+| `insider_tracker.py fed` | **Frank** — sentyment mów Fed (RSS) | poniedziałek 08:00 |
+| `install_insider_cron.sh` | Instalacja crontab Eddie/Maggie/Frank na VPS | jednorazowo |
+
+**Insider signals:** BULL/BEAR/NEUTRAL → Telegram + SQLite (`trading.db` tabela `insider_signals`)
+**LLM:** DeepSeek V4 Flash via `DEEPSEEK_API_KEY` (nie Anthropic)
+**Windows:** `start_daemons.ps1` → Windows Task Scheduler dla Eddie/Maggie/Frank
+
+### Orchestracja / raporty
+| Skrypt | Co robi |
+|--------|---------|
+| `hermes.py` | Daily Alpha Brief orchestrator — zbiera wszystkie moduły, LLM synthesis |
+| `blogwatcher.py` | News intelligence 7 źródeł, 18 aktywów, asset-impact table |
+| `fetch_positions.py` | Live pozycje z 4 venue: HL perps + xyz, Extended, Solana, Alpaca |
+| `edge_journal.py` | Personal edge journal — obserwacje + AI weryfikacja Grok |
+| `volume_scanner.py` | Anomalie wolumenowe Binance (daemon, chunking 10+10+4) |
+| `smart_money_tracker.py` | Smart money flow tracker (daemon) |
+| `listings_scanner.py` | Nowe listingi (daemon, co 6h) |
+| `db.py` | SQLite helper — historia briefów, pozycji, sygnałów |
+
+### Dwa osobne Telegramy
+| | **Telegram #1 — Claude Code** | **Telegram #2 — Hermes Gateway** |
+|-|-------------------------------|----------------------------------|
+| Uruchomienie | `tgtrade` / `tg` w PS | Windows Task Scheduler (24/7) |
+| Restart | otwórz nowe okno PS | `hermes-restart` w PS |
+| Zależy od sesji | **TAK** — wymaga otwartego PS | **NIE** — autonomiczny |
+| Config | `~/.claude/channels/telegram/` | `AppData\Local\hermes\hermes-agent\` |
+| Rozwiązanie 24/7 | VPS deploy (TODO) | już działa |
+
+---
+
+---
+
 ## POZIOM 0 — Najwyższy priorytet (dodać ASAP do daily brief)
 
 ### 0.1 Kalendarz ekonomiczny — Forex Factory + analiza wpływu

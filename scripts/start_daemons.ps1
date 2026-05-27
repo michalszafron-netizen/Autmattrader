@@ -25,6 +25,13 @@ Start-Process powershell -ArgumentList @(
     "& '$py' '$base\listings_scanner.py' --daemon --interval 21600"
 )
 
+# TV Webhook — TradingView alert receiver (port 5005)
+Start-Process powershell -ArgumentList @(
+    "-NoExit",
+    "-Command",
+    "& '$py' '$base\tv_webhook.py' --port 5005"
+)
+
 # ── Insider Tracker — Windows Task Scheduler (nie daemon, cron-style) ─────────
 # Eddie   — daily 06:00   (SEC Form 4 insider buys)
 # Maggie  — Sunday 19:00  (13F institutional filings)
