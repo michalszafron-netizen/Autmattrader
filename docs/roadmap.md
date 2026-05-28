@@ -1,23 +1,39 @@
 # Roadmap — Planowane funkcjonalności
 
-Status: backlog. Nie wdrażamy dopóki nie skończymy tutorialu + VPS deploy.
+Status: aktywny development. VPS wdrożony ✅
 Kolejność wg trudności — od najłatwiejszego.
 
 ---
 
-## 🔴 AKTYWNE BUGI — naprawić w pierwszej kolejności
+## ✅ ROZWIĄZANE BUGI
 
-### BUG-01: TradingView → Alpaca webhook — sygnał bez transakcji
+### ~~BUG-02: Extended Exchange — brak składania zleceń~~ ✅ DONE (2026-05-28)
 
-**Symptom:** Sygnał z Pine Script dociera przez WebHook (widać alert w TV), ale zlecenie **nie jest składane** na Alpaca paper. Rozjazd gdzieś między alertem TV a egzekucją przez Alpaca MCP/executor.
+~~`extended_executor.py` był READ-ONLY.~~
 
-**Gdzie szukać:**
-- Sprawdzić czy WebHook URL jest poprawnie skonfigurowany w TV (alert → webhook → endpoint)
-- Sprawdzić czy skrypt/handler odbiera POST z TV i poprawnie parsuje JSON payload
-- Sprawdzić logi — czy executor dostaje sygnał i co odpowiada Alpaca API
-- `ALPACA_PAPER=true` w .env — upewnić się że nie ma konfliktu z live mode
+**Rozwiązanie:** `scripts/extended_order.py` — pełne CLI do składania zleceń via x10 SDK v2.0.0 (STARK signing). Obsługuje: limit orders, SL/TP, cancel, cancel-all. Zlecenie testowe BTC-USD LONG $68k/SL$65k złożone i potwierdzone.
+
+---
+
+### BUG-01: TradingView → Alpaca webhook ⚠️ CZEKA NA DEPLOYMENT VPS
+
+**Diagnoza (2026-05-28):** Kod `tv_webhook.py` jest poprawny. Problem: TV (zewnętrzny serwis) nie może dosięgnąć `localhost:5005`. Serwer musi działać na VPS z publicznym IP.
+
+**Do zrobienia — 1 krok:**
+Uruchomić `trading-webhook` jako systemd service na VPS. Komendy w `SERWER.md` → sekcja "PIERWSZE WDROŻENIE — trading-webhook".
+
+**Po wdrożeniu:** zaktualizować URL w TradingView na `http://VPS_IP:5005/tv?secret=TV_SECRET`
 
 **Priorytet:** ⭐⭐⭐⭐ — blokuje automatyczne strategie akcyjne
+
+---
+
+## ⏳ DO WDROŻENIA NA VPS (gotowe w repo, tylko deploy)
+
+| Co | Jak | Gdzie |
+|----|-----|-------|
+| `trading-webhook` (tv_webhook.py) | `SERWER.md` → "PIERWSZE WDROŻENIE — trading-webhook" | VPS |
+| Eddie/Maggie/Frank (insider_tracker.py) | `bash scripts/install_insider_cron.sh` na VPS | VPS cron |
 
 ---
 
@@ -32,7 +48,8 @@ Kolejność wg trudności — od najłatwiejszego.
 | `alpaca_executor.py` | Alpaca US stocks egzekucja | paper only |
 | `solana_executor.py` | Jupiter DEX swaps na Solana | live |
 | `position_calc.py` | Kalkulator pozycji 2% risk → gotowa komenda order | helper |
-| `tv_webhook.py` | Handler WebHook z TradingView → egzekucja | **BUG — patrz BUG-01** |
+| `tv_webhook.py` | Handler WebHook z TradingView → egzekucja | czeka na deploy VPS (patrz wyżej) |
+| `extended_order.py` | Extended Exchange — składanie zleceń (x10 SDK) | **LIVE** |
 
 ### Dane rynkowe / analityka
 | Skrypt | Co robi |
