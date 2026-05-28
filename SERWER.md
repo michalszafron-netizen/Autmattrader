@@ -12,6 +12,7 @@
 | `trading-listings` | `listings_scanner.py` | Skanuje nowe listingi na Binance, Coinbase, Bybit, OKX, Kraken | co 5 min |
 | `trading-volume` | `volume_scanner.py` | Anomalie wolumenowe Binance Futures+Spot (próg 3x). Alert na Telegram | co ~1 min |
 | `trading-webhook` | `tv_webhook.py` | TradingView alerty → Alpaca/HL executor. POST /tv na porcie 5005 | zawsze online |
+| `trading-ngrok` | ngrok (snap) | Tunel HTTPS → port 5005. Publiczny URL dla TradingView webhooków | zawsze online |
 
 ### Cron (Eddie / Maggie / Frank — Insider Intelligence)
 
@@ -35,6 +36,7 @@ systemctl status trading-smart-money trading-listings trading-volume --no-pager
 tail -f /trading-ai/logs/smart_money.log
 tail -f /trading-ai/logs/listings.log
 tail -f /trading-ai/logs/volume.log
+tail -f /trading-ai/logs/webhook.log
 ```
 
 ### Restart pojedynczego demona
@@ -42,6 +44,8 @@ tail -f /trading-ai/logs/volume.log
 systemctl restart trading-smart-money
 systemctl restart trading-listings
 systemctl restart trading-volume
+systemctl restart trading-webhook
+systemctl restart trading-ngrok
 ```
 
 ### Stop / Start
@@ -50,12 +54,18 @@ systemctl stop trading-smart-money
 systemctl start trading-smart-money
 ```
 
+### Restart wszystkich demonów
+```bash
+systemctl restart trading-smart-money trading-listings trading-volume trading-webhook trading-ngrok
+systemctl status trading-smart-money trading-listings trading-volume trading-webhook trading-ngrok --no-pager
+```
+
 ### Aktualizacja kodu (po git push z laptopa)
 ```bash
 cd /trading-ai
 git pull
 systemctl restart trading-smart-money trading-listings trading-volume trading-webhook
-systemctl status trading-smart-money trading-listings trading-volume trading-webhook --no-pager
+systemctl status trading-smart-money trading-listings trading-volume trading-webhook trading-ngrok --no-pager
 ```
 
 ---
@@ -217,6 +227,75 @@ tail -100 /trading-ai/logs/webhook.log | grep -i "error\|failed\|executed"
 # Ostatnie 20 alertów przez API (gdy serwer działa)
 curl http://localhost:5005/alerts
 ```
+
+---
+
+## 🚀 PIERWSZE WDROŻENIE — ngrok (tunel HTTPS dla TradingView)
+
+### Dlaczego ngrok?
+
+TradingView akceptuje tylko port 80 (HTTP) lub 443 (HTTPS z ważnym certyfikatem).
+VPS używa Traefika z Dockerem na portach 80/443 (inne projekty: n8n, kryptopit itd.).
+Let's Encrypt jest zablokowany przez limit certyfikatów dla domeny `hstgr.cloud` (Hostinger shared domain, 50k cert/tydzień).
+**Rozwiązanie:** ngrok jako tunel — Flask działa lokalnie na porcie 5005, ngrok wystawia publiczny URL HTTPS.
+
+### Instalacja (raz)
+
+```bash
+snap install ngrok
+ngrok config add-authtoken TWÓJ_AUTHTOKEN
+# authtoken znajdziesz na: https://dashboard.ngrok.com/authtokens
+```
+
+### Plik service
+
+```bash
+sudo nano /etc/systemd/system/trading-ngrok.service
+```
+
+Wklej:
+
+```ini
+[Unit]
+Description=ngrok tunnel — trading webhook
+After=network.target trading-webhook.service
+
+[Service]
+Environment=HOME=/root
+ExecStart=/snap/bin/ngrok http --url=gladiator-doorbell-handwoven.ngrok-free.dev 5005
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable trading-ngrok
+sudo systemctl start trading-ngrok
+```
+
+### Weryfikacja
+
+```bash
+curl https://gladiator-doorbell-handwoven.ngrok-free.dev/health
+# Powinno zwrócić: {"status":"ok","trading_mode":"live",...}
+```
+
+### TradingView Webhook URL
+
+```
+https://gladiator-doorbell-handwoven.ngrok-free.dev/tv?secret=tvhook_markowyy_2026
+```
+
+### Ważne uwagi
+
+- Domena `gladiator-doorbell-handwoven.ngrok-free.dev` jest przypisana do konta **KebabRank** na ngrok
+- `Environment=HOME=/root` jest wymagane — snap instaluje ngrok do `/root/snap/ngrok/` i bez HOME service nie znajdzie configu
+- ngrok zajmuje 1 połączenie z free planu (wystarczy dla webhook)
+- Po zmianie authtoken: `ngrok config add-authtoken NOWY_TOKEN` + `systemctl restart trading-ngrok`
+- Traefik + Docker na portach 80/443 NIE są ruszane — inne projekty działają normalnie
 
 ---
 
