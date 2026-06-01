@@ -456,6 +456,14 @@ def run_once(dry_run: bool, interval_s: int = 21600) -> int:
     print(f"| Total new: {len(all_alerts)}")
     _save_heartbeat(db, len(all_alerts))
 
+    # Flood protection: >10 "new" items in one run = scope expansion / re-baseline, not real listings
+    # Save them as seen (already done above) but DON'T send Telegram alerts.
+    if len(all_alerts) > 10:
+        print(f"[WARN] {len(all_alerts)} alerts in one run — baseline expansion detected, suppressing Telegram flood.")
+        for a in all_alerts:
+            print(f"  [BASELINE] {a['exchange']} {a.get('ticker','?')}")
+        all_alerts = []
+
     for alert in all_alerts:
         msg = format_listing_alert(alert, ts)
         send_telegram(msg, dry_run=dry_run)
