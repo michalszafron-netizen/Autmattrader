@@ -871,32 +871,40 @@ async function loadPrices() {
 
   const mkChip = (label, price, color) =>
     `<span style="display:inline-flex;align-items:baseline;gap:3px;background:var(--bg3);border-radius:5px;padding:3px 7px;margin:2px">
-      <span style="font-size:10px;color:var(--txt3)">${escHtml(label)}</span>
-      <span style="font-size:12px;font-weight:700;color:${color}">${escHtml(price)}</span>
+      <span style="font-size:11px;font-weight:600;color:#a8c0d6">${escHtml(label)}</span>
+      <span style="font-size:13px;font-weight:700;color:${color}">${escHtml(price)}</span>
     </span>`;
 
-  let html = '<div style="padding:2px 0">';
+  let html = '<div style="padding:4px 0">';
 
-  // Crypto row
+  // ── Crypto row ──
   const cryptoChips = CRYPTO_ORDER.map(c => {
     const p = fmtP(crypto[c.sym], c.dec);
     return p ? mkChip(c.sym, p, 'var(--cyan)') : '';
   }).join('');
-  if (cryptoChips) html += `<div style="margin-bottom:4px"><span style="font-size:9px;color:var(--txt3);font-weight:700;letter-spacing:.5px;margin-right:4px">₿ CRYPTO</span>${cryptoChips}</div>`;
+  if (cryptoChips) {
+    html += `<div style="margin-bottom:6px;display:flex;align-items:center;flex-wrap:wrap;gap:0">
+      <span style="font-size:10px;color:#a8c0d6;font-weight:700;letter-spacing:.6px;margin-right:6px;flex-shrink:0">₿ CRYPTO</span>${cryptoChips}</div>`;
+  }
 
-  // TradFi row
+  // ── TradFi chips ──
   const tradfiChips = TRADFI_ORDER.map(t => {
     const p = fmtP(tradfi[t.sym], t.dec);
     return p ? mkChip(t.label, p, '#f5c542') : '';
   }).join('');
-  if (tradfiChips) html += `<div style="margin-bottom:4px"><span style="font-size:9px;color:var(--txt3);font-weight:700;letter-spacing:.5px;margin-right:4px">📊 TRADFI</span>${tradfiChips}</div>`;
+  if (tradfiChips) {
+    html += `<div style="margin-bottom:6px;display:flex;align-items:center;flex-wrap:wrap;gap:0">
+      <span style="font-size:10px;color:#a8c0d6;font-weight:700;letter-spacing:.6px;margin-right:6px;flex-shrink:0">📊 TRADFI</span>${tradfiChips}</div>`;
+  }
 
-  // Stocks from raw text
-  const stockLine = (out||'').split('\n').find(l => l.includes('Stocks:') || l.includes('NVDA') || l.includes('TSLA'));
-  if (stockLine) html += `<div style="font-size:10px;color:var(--txt3);margin-top:2px;padding:2px 0">${escHtml(stockLine.trim())}</div>`;
+  // ── Full raw output (Metals, Energy, Indices, Agri, Stocks) ──
+  if (out && out.trim() && out !== 'Brak danych') {
+    html += `<div style="border-top:1px solid var(--border);margin-top:4px;padding-top:6px;font-family:'Space Mono',monospace;font-size:10px;color:#c8d8e8;line-height:1.7;white-space:pre-wrap">${escHtml(out.trim())}</div>`;
+  }
 
-  // Fallback
-  if (!cryptoChips && !tradfiChips) html += `<pre style="font-size:10px;white-space:pre-wrap;margin:0">${escHtml(out)}</pre>`;
+  if (!cryptoChips && !tradfiChips && (!out || out === 'Brak danych')) {
+    html += `<div style="color:var(--txt3);font-size:11px">Brak danych — kliknij ↻</div>`;
+  }
 
   html += '</div>';
   if (el) el.innerHTML = html;
@@ -1223,74 +1231,128 @@ async function loadOI() {
 }
 
 // ── Econ ───────────────────────────────────────────────────────────────────
-async function loadEcon() {
-  const el = document.getElementById('econOutput');
-  el.innerHTML = '<div style="padding:12px;color:var(--txt3)">Ładuję kalendarz...</div>';
-  const data = await api('/econ');
+let _econFilter = null;   // null = wszystkie | 'KRYTYCZNY'|'WYSOKI'|'SREDNI'|'NISKI'
+let _econData   = null;
 
-  if (!data.ok || !data.events || !data.events.length) {
-    el.innerHTML = `<div style="padding:12px;color:var(--txt3)">
-      <div style="font-size:20px;margin-bottom:6px">📅</div>
-      <div>Brak danych ekonomicznych na dziś</div>
-      ${data.error ? `<div style="font-size:10px;color:var(--red);margin-top:4px">${escHtml(data.error)}</div>` : ''}
+function setEconFilter(level) {
+  _econFilter = (_econFilter === level) ? null : level;
+  // Podświetl aktywny filtr
+  ['KRYTYCZNY','WYSOKI','SREDNI','NISKI'].forEach(l => {
+    const btn = document.getElementById('econF-' + l);
+    if (btn) btn.style.outline = (_econFilter === l) ? '2px solid currentColor' : 'none';
+  });
+  if (_econData) renderEconCalendar(_econData);
+}
+
+function renderEconCalendar(data) {
+  const el = document.getElementById('econOutput');
+  if (!el) return;
+
+  const COLORS = {
+    KRYTYCZNY: {bg:'rgba(255,59,59,0.18)',  border:'#ff3b3b', text:'#ff5555'},
+    WYSOKI:    {bg:'rgba(255,160,0,0.15)',   border:'#ff9a00', text:'#ffaa20'},
+    SREDNI:    {bg:'rgba(255,210,0,0.12)',   border:'#ffd000', text:'#ffd800'},
+    NISKI:     {bg:'rgba(140,160,180,0.10)', border:'#6080a0', text:'#8aadcc'},
+  };
+  const IMP_LABEL = {KRYTYCZNY:'🔴 KRYTYCZNY', WYSOKI:'🟠 WYSOKI', SREDNI:'🟡 ŚREDNI', NISKI:'⚪ NISKI'};
+
+  const events = _econFilter
+    ? data.events.filter(e => e.importance === _econFilter)
+    : data.events;
+
+  if (!events.length) {
+    el.innerHTML = `<div style="padding:40px;text-align:center;color:#8aadcc">
+      <div style="font-size:24px;margin-bottom:8px">🔍</div>
+      <div>Brak wydarzeń dla filtra: <b>${_econFilter||'?'}</b></div>
+      <button onclick="setEconFilter(null)" style="margin-top:8px;padding:4px 12px;background:var(--bg3);border:1px solid var(--border);color:var(--cyan);border-radius:4px;cursor:pointer">✕ Pokaż wszystkie</button>
     </div>`;
     return;
   }
 
-  // Color + label mapping
-  const COLORS = {
-    KRYTYCZNY: {bg:'rgba(255,59,59,0.15)', border:'rgba(255,59,59,0.5)', text:'#ff3b3b', dot:'#ff3b3b'},
-    WYSOKI:    {bg:'rgba(255,140,0,0.12)',  border:'rgba(255,140,0,0.4)',  text:'#ff8c00', dot:'#ff8c00'},
-    SREDNI:    {bg:'rgba(255,200,0,0.10)',  border:'rgba(255,200,0,0.3)',  text:'#ffc800', dot:'#ffc800'},
-    NISKI:     {bg:'rgba(100,120,140,0.08)',border:'rgba(100,120,140,0.2)',text:'#5a6a7a', dot:'#5a6a7a'},
-  };
-  const IMPORTANCE_PL = {KRYTYCZNY:'🔴 KRYTYCZNY', WYSOKI:'🟠 WYSOKI', SREDNI:'🟡 ŚREDNI', NISKI:'⚪ NISKI'};
+  // ── Legenda / Filtry ──
+  const filterCounts = {};
+  data.events.forEach(e => { filterCounts[e.importance] = (filterCounts[e.importance]||0)+1; });
 
-  // Legend
-  let html = `<div style="padding:8px 12px 4px;border-bottom:1px solid var(--border);display:flex;gap:12px;flex-wrap:wrap;font-size:10px">
-    <span style="color:var(--txt3);font-weight:600">WAŻNOŚĆ:</span>
-    <span style="color:#ff3b3b">🔴 KRYTYCZNY — CPI, NFP, FOMC, PKB</span>
-    <span style="color:#ff8c00">🟠 WYSOKI — Fed, Powell, Bezrobocie</span>
-    <span style="color:#ffc800">🟡 ŚREDNI — PMI, PPI, Sprzedaż detaliczna</span>
-    <span style="color:#5a6a7a">⚪ NISKI — Pozostałe dane</span>
-  </div>`;
+  let html = `<div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--bg3)">
+    <span style="font-size:10px;color:#a8c0d6;font-weight:700;margin-right:2px">FILTR:</span>`;
+  const filters = [
+    {k:'KRYTYCZNY', col:'#ff5555', label:'🔴 Krytyczny'},
+    {k:'WYSOKI',    col:'#ffaa20', label:'🟠 Wysoki'},
+    {k:'SREDNI',    col:'#ffd800', label:'🟡 Średni'},
+    {k:'NISKI',     col:'#8aadcc', label:'⚪ Niski'},
+  ];
+  for (const {k, col, label} of filters) {
+    const cnt = filterCounts[k] || 0;
+    const active = _econFilter === k;
+    html += `<button id="econF-${k}" onclick="setEconFilter('${k}')"
+      style="font-size:10px;font-weight:600;color:${col};background:${active?'rgba(255,255,255,0.08)':'transparent'};border:1px solid ${active?col:'rgba(255,255,255,0.12)'};border-radius:4px;padding:2px 8px;cursor:pointer;outline:${active?'2px solid '+col:'none'}"
+      title="${escHtml(label)} — kliknij aby filtrować">${escHtml(label)} <span style="opacity:.7">(${cnt})</span></button>`;
+  }
+  if (_econFilter) {
+    html += `<button onclick="setEconFilter(null)" style="font-size:10px;color:var(--cyan);background:transparent;border:1px solid var(--cyan);border-radius:4px;padding:2px 8px;cursor:pointer">✕ Wszystkie</button>`;
+  }
+  html += `</div>`;
 
   const now = Date.now() / 1000;
   let hasPast = false, hasFuture = false;
 
-  for (const e of data.events) {
+  for (const e of events) {
     const isPast = e.past || e.ts < now;
     const c = COLORS[e.importance] || COLORS.NISKI;
-    const opacity = isPast ? '0.55' : '1';
+    const opacity = isPast ? '0.6' : '1';
 
-    if (!hasPast && isPast)    { html += `<div style="padding:6px 12px;font-size:10px;color:var(--txt3);background:var(--bg3);font-weight:600">── Już opublikowane ──</div>`; hasPast = true; }
-    if (!hasFuture && !isPast) { html += `<div style="padding:6px 12px;font-size:10px;color:var(--cyan);background:rgba(0,200,255,0.05);font-weight:600">── Nadchodzące ──</div>`; hasFuture = true; }
+    if (!hasPast && isPast) {
+      html += `<div style="padding:5px 12px;font-size:10px;color:#a8c0d6;background:var(--bg3);font-weight:700;letter-spacing:.4px;border-bottom:1px solid var(--border)">── JUŻ OPUBLIKOWANE ──</div>`;
+      hasPast = true;
+    }
+    if (!hasFuture && !isPast) {
+      html += `<div style="padding:5px 12px;font-size:10px;color:var(--cyan);background:rgba(0,200,255,0.06);font-weight:700;letter-spacing:.4px;border-bottom:1px solid var(--border)">── NADCHODZĄCE ──</div>`;
+      hasFuture = true;
+    }
 
-    // Value pill: actual (green if beats est, red if misses), estimate, prev
+    // Wartości
     let valHtml = '';
     if (e.actual != null) {
-      valHtml += `<span style="background:rgba(0,255,136,0.15);color:#00ff88;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700">✓ ${escHtml(e.actual)}</span> `;
+      valHtml += `<span style="background:rgba(0,255,136,0.2);color:#00ff88;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700">✓ ${escHtml(e.actual)}</span> `;
     }
     if (e.estimate != null) {
-      valHtml += `<span style="color:var(--txt3);font-size:10px">oczek: ${escHtml(e.estimate)}</span> `;
+      valHtml += `<span style="color:#c8d8e8;font-size:10px">oczek: <b>${escHtml(e.estimate)}</b></span>  `;
     }
     if (e.prev != null) {
-      valHtml += `<span style="color:var(--txt3);font-size:10px">poprz: ${escHtml(e.prev)}</span>`;
+      valHtml += `<span style="color:#8aadcc;font-size:10px">poprz: ${escHtml(e.prev)}</span>`;
     }
 
-    html += `<div style="padding:8px 12px;border-bottom:1px solid var(--border);opacity:${opacity};border-left:3px solid ${c.border}">
-      <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
-        <span style="font-size:10px;font-family:'Space Mono',monospace;color:var(--txt3);flex-shrink:0">${escHtml(e.time_utc)}</span>
-        <span style="font-size:10px;font-weight:700;color:${c.text};background:${c.bg};border-radius:3px;padding:1px 5px;flex-shrink:0">${escHtml(IMPORTANCE_PL[e.importance]||e.importance)}</span>
-        <span style="font-size:10px;color:var(--txt3);flex-shrink:0">${escHtml(e.country)}</span>
-        <span style="font-size:12px;font-weight:600;color:var(--txt1)">${escHtml(e.name)}</span>
+    html += `<div style="padding:9px 12px;border-bottom:1px solid var(--border);opacity:${opacity};border-left:3px solid ${c.border}">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px">
+        <span style="font-size:11px;font-family:'Space Mono',monospace;color:#c0d4e8;flex-shrink:0;min-width:105px">${escHtml(e.time_utc)}</span>
+        <span style="font-size:10px;font-weight:700;color:${c.text};background:${c.bg};border-radius:3px;padding:2px 6px;flex-shrink:0">${escHtml(IMP_LABEL[e.importance]||e.importance)}</span>
+        <span style="font-size:11px;font-weight:700;color:#d0e4f4;flex-shrink:0">${escHtml(e.country)}</span>
+        <span style="font-size:13px;font-weight:600;color:#eaf2ff">${escHtml(e.name)}</span>
       </div>
-      ${valHtml ? `<div style="margin-top:4px;padding-left:2px;display:flex;gap:8px;flex-wrap:wrap">${valHtml}</div>` : ''}
-      ${e.tip ? `<div style="margin-top:4px;padding-left:2px;font-size:10px;color:var(--txt2);font-style:italic">💡 ${escHtml(e.tip)}</div>` : ''}
+      ${valHtml ? `<div style="margin:4px 0 3px 2px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">${valHtml}</div>` : ''}
+      ${e.tip ? `<div style="margin-top:4px;font-size:11px;color:#b8ccde;line-height:1.5">💡 ${escHtml(e.tip)}</div>` : ''}
     </div>`;
   }
 
   el.innerHTML = html;
+}
+
+async function loadEcon() {
+  const el = document.getElementById('econOutput');
+  el.innerHTML = '<div style="padding:20px;color:#a8c0d6;text-align:center"><div class="spinner" style="margin:0 auto 8px"></div>Ładuję kalendarz ekonomiczny...</div>';
+  const data = await api('/econ');
+  _econData = data;
+
+  if (!data.ok || !data.events || !data.events.length) {
+    el.innerHTML = `<div style="padding:24px;color:#8aadcc;text-align:center">
+      <div style="font-size:24px;margin-bottom:8px">📅</div>
+      <div style="font-size:13px">Brak danych ekonomicznych na dziś</div>
+      ${data.error ? `<div style="font-size:10px;color:#ff5555;margin-top:8px">${escHtml(data.error)}</div>` : ''}
+    </div>`;
+    return;
+  }
+
+  renderEconCalendar(data);
 }
 
 // ── Fear & Greed output strip ─────────────────────────────────────────────

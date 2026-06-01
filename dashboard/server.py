@@ -358,28 +358,58 @@ def econ():
             try:
                 dt = datetime.fromisoformat(e['time'].replace('Z', '+00:00'))
                 ts = dt.timestamp()
-                time_utc = dt.strftime('%H:%M UTC')
+                time_utc  = dt.strftime('%d.%m  %H:%M UTC')   # data + godzina
+                date_only = dt.strftime('%Y-%m-%d')
             except Exception:
                 ts = 0
-                time_utc = e.get('time', '')
+                time_utc  = e.get('time', '')
+                date_only = today
 
             actual  = e.get('actual')
             est     = e.get('estimate')
             prev    = e.get('previous') or e.get('prev')
-            past    = bool(actual is not None and str(actual).strip() not in ('', 'null'))
+            past    = bool(actual is not None and str(actual).strip() not in ('', 'null', 'None'))
+
+            # Rozszerzone opisy wydarzeń
+            EXTENDED_TIPS = {
+                'nonfarm':        'Liczba nowych miejsc pracy poza rolnictwem w USA. Najważniejszy miesięczny raport rynku pracy. >200k = dobra gospodarka = Fed nie tnie stóp = presja na BTC/Złoto. <100k = słabość = Fed może poluzować = wzrostowe dla BTC.',
+                'cpi':            'Wskaźnik cen konsumpcyjnych — główna miara inflacji w USA. Wyższy od oczekiwań = Fed ostrzejszy = dolar silniejszy = presja na BTC i akcje. Niższy = gołębi Fed = BTC i Złoto zyskują.',
+                'pce':            'Ulubiony wskaźnik inflacji Fed (Personal Consumption Expenditures). Podobny efekt jak CPI ale Fed przywiązuje do niego większą wagę przy decyzjach o stopach.',
+                'fomc':           'Posiedzenie Fed — decyzja o poziomie stóp procentowych w USA. Najważniejszy event miesiąca. Podwyżka = droższy kredyt = presja na ryzykowne aktywa. Obniżka = taniość pieniądza = wzrostowe dla BTC, akcji, Złota.',
+                'fed ':           'Wypowiedź przedstawiciela Fed. Rynek szuka sygnałów: "jastrzębi" (stopy w górę) vs "gołębi" (stopy w dół). Powell mówi = rynki drżą.',
+                'powell':         'Przemówienie Jerome Powella — przewodniczącego Fed. Każde słowo porusza rynki. Jastrzębi ton = dolary mocniejszy = BTC w dół. Gołębi ton = odwrotnie.',
+                'gdp':            'PKB USA — tempo wzrostu całej gospodarki. Wyższy od oczekiwań = silna gospodarka = Fed nie śpieszy się z cięciami = słabość BTC. Niższy = ryzyko recesji = Fed tnie = potencjalnie wzrostowe.',
+                'jobless':        'Tygodniowe wnioski o zasiłek dla bezrobotnych. Więcej wniosków = rynek pracy się ochładza = Fed może ciąć stopy. Mniej = zatrudnienie silne = Fed bez pośpiechu.',
+                'pmi':            'Purchasing Managers Index — "temperatura" gospodarki mierzona przez menadżerów zakupów. >50 = ekspansja, <50 = kontrakcja. Silne PMI = dobra gospodarka = Fed nie tnie.',
+                'ism ':           'ISM Manufacturing/Services — podobny do PMI, szeroko obserwowany przez rynek. Kluczowy dla oceny kondycji przemysłu i usług USA.',
+                'retail sales':   'Sprzedaż detaliczna = wydatki konsumentów w USA. Silna sprzedaż = dobra gospodarka = inflacja może trwać = Fed ostrzejszy. Słaba = konsumenci oszczędzają = wolniejszy wzrost.',
+                'ppi':            'Inflacja u producentów. Zwykle wyprzedza CPI o 1-2 miesiące. Wzrost PPI = producenci przeniosą koszty na konsumentów = CPI pójdzie w górę.',
+                'building':       'Liczba nowych pozwoleń budowlanych. Wskaźnik siły rynku nieruchomości i ogólnej aktywności gospodarczej.',
+                'housing':        'Dane z rynku nieruchomości (sprzedaż, ceny). Ważny dla oceny kondycji gospodarki i popytu kredytowego.',
+                'durable goods':  'Zamówienia na dobra trwałe (maszyny, samoloty, sprzęt). Miara inwestycji przemysłowych — silne zamówienia = firmy inwestują = dobra kondycja.',
+                'consumer confidence': 'Indeks zaufania konsumentów. Wysokie zaufanie = konsumenci skłonni wydawać = inflacja może trwać. Niskie = ostrożność wydatków = ochłodzenie gospodarcze.',
+                'trade balance':  'Bilans handlowy USA (eksport minus import). Duży deficyt = więcej dolarów wypływa za granicę. Wpływ na kursy walutowe i DXY.',
+            }
+            extended_tip = tip
+            name_lower = (e.get('event') or '').lower()
+            for kw, ext in EXTENDED_TIPS.items():
+                if kw.strip() in name_lower:
+                    extended_tip = ext
+                    break
 
             events.append({
-                'time_utc': time_utc,
-                'ts':       ts,
-                'name':     e.get('event', ''),
-                'country':  country,
-                'importance': label,    # KRYTYCZNY | WYSOKI | SREDNI | NISKI
-                'color':    color,      # red | yellow | green
-                'tip':      tip,
-                'actual':   str(actual) if actual is not None else None,
-                'estimate': str(est) if est is not None else None,
-                'prev':     str(prev) if prev is not None else None,
-                'past':     past,
+                'time_utc':   time_utc,
+                'date':       date_only,
+                'ts':         ts,
+                'name':       e.get('event', ''),
+                'country':    country,
+                'importance': label,
+                'color':      color,
+                'tip':        extended_tip,
+                'actual':     str(actual) if actual is not None else None,
+                'estimate':   str(est)    if est    is not None else None,
+                'prev':       str(prev)   if prev   is not None else None,
+                'past':       past,
             })
 
         events.sort(key=lambda x: x['ts'])
