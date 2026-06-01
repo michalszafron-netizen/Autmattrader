@@ -57,6 +57,24 @@ def check_table(table: str, window_h: int = 25) -> dict:
     """Return health dict for a table based on MAX(ts) recency."""
     rows = db_query(f'SELECT MAX(ts) AS last FROM {table}')
     last_val = rows[0]['last'] if rows and rows[0] else None
+    return _parse_health(last_val, window_h)
+
+
+# ── Response builders ─────────────────────────────────────────────────────────
+
+def check_listings_health() -> dict:
+    """Check listings scanner health via scanner_runs heartbeat (written every scan)."""
+    # Prefer scanner_runs (written every scan) over listing_announcements (only on finds)
+    rows = db_query("SELECT MAX(ts) AS last FROM scanner_runs WHERE scanner='listings'")
+    last_val = rows[0]['last'] if rows and rows[0] else None
+    if not last_val:
+        # Fall back to listing_announcements if scanner_runs table doesn't exist yet
+        return check_table('listing_announcements', window_h=168)
+    return _parse_health(last_val, window_h=2)  # active if ran within 2h
+
+
+def _parse_health(last_val, window_h: int) -> dict:
+    """Convert a timestamp to a health dict."""
     if not last_val:
         return {'active': False, 'last': None, 'ago': 'Brak danych w DB'}
     dt = _parse_ts(last_val)
@@ -67,21 +85,15 @@ def check_table(table: str, window_h: int = 25) -> dict:
     elif ago_s < 3600:  ago = f'{int(ago_s / 60)}m temu'
     elif ago_s < 86400: ago = f'{ago_s / 3600:.1f}h temu'
     else:               ago = f'{ago_s / 86400:.1f}d temu'
-    return {
-        'active': ago_s < window_h * 3600,
-        'last': str(last_val)[:16],
-        'ago': ago,
-    }
+    return {'active': ago_s < window_h * 3600, 'last': str(last_val)[:16], 'ago': ago}
 
-
-# ── Response builders ─────────────────────────────────────────────────────────
 
 def get_health() -> dict:
     return {
-        'smart_money': check_table('sm_snapshots',          window_h=25),
-        'volume':      check_table('volume_anomalies',      window_h=168),
-        'listings':    check_table('listing_announcements', window_h=168),
-        'insider':     check_table('insider_signals',       window_h=168),
+        'smart_money': check_table('sm_snapshots',     window_h=25),
+        'volume':      check_table('volume_anomalies', window_h=168),
+        'listings':    check_listings_health(),
+        'insider':     check_table('insider_signals',  window_h=168),
     }
 
 
@@ -92,7 +104,7 @@ def get_alerts() -> dict:
             'FROM sm_alerts ORDER BY ts DESC LIMIT 30'
         ),
         'listings': db_query(
-            'SELECT ts, symbol, exchange, announce_url '
+            'SELECT ts, ticker AS symbol, exchange, url AS announce_url, title, ann_type '
             'FROM listing_announcements ORDER BY ts DESC LIMIT 20'
         ),
         'insider': db_query(

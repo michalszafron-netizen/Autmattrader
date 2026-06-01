@@ -151,44 +151,57 @@ def extract_ticker(text: str) -> str | None:
 
 # ── Exchange scrapers ─────────────────────────────────────────────────────────
 
-def scan_binance(db, dry_run: bool) -> list[dict]:
-    """Binance announcement CMS API — new listing announcements."""
+def _scan_binance_catalog(db, catalog_id: str, exchange_name: str,
+                          id_prefix: str, kw_filter: list[str]) -> list[dict]:
+    """Generic Binance CMS scanner for any catalog ID."""
     alerts = []
-    is_first_run = not exchange_initialized(db, "Binance")
+    is_first_run = not exchange_initialized(db, exchange_name)
     try:
         with httpx.Client(verify=_SSL, timeout=12) as c:
             r = c.get(
                 "https://www.binance.com/bapi/composite/v1/public/cms/article/list/query",
-                params={"type": "1", "catalogId": "48", "pageSize": "20", "pageNo": "1"},
+                params={"type": "1", "catalogId": catalog_id, "pageSize": "20", "pageNo": "1"},
                 headers={"User-Agent": "Mozilla/5.0"},
             )
         items = r.json().get("data", {}).get("articles", [])
         for item in items:
-            ann_id = f"binance_{item.get('id', '')}"
+            ann_id = f"{id_prefix}_{item.get('id', '')}"
             title  = item.get("title", "")
             url    = f"https://www.binance.com/en/support/announcement/{item.get('code', '')}"
 
             if not title or is_seen(db, ann_id):
                 continue
-            if not any(kw in title.lower() for kw in
-                       ["will list", "lists", "adds", "new listing", "spot listing"]):
+            if kw_filter and not any(kw in title.lower() for kw in kw_filter):
                 continue
 
             ticker = extract_ticker(title)
-            mark_seen(db, "Binance", ann_id, title, ticker or "", url)
+            mark_seen(db, exchange_name, ann_id, title, ticker or "", url)
             if not is_first_run:
                 alerts.append({
-                    "exchange": "Binance",
+                    "exchange": exchange_name,
                     "title":    title,
                     "ticker":   ticker,
                     "url":      url,
                     "type":     "announcement",
                 })
         if is_first_run and items:
-            print(f"[Binance] baseline saved", end=" ")
+            print(f"[{exchange_name}] baseline saved", end=" ")
     except Exception as e:
-        print(f"[Binance] Error: {e}")
+        print(f"[{exchange_name}] Error: {e}")
     return alerts
+
+
+def scan_binance(db, dry_run: bool) -> list[dict]:
+    """Binance Spot (catalogId 48) + Futures (catalogId 161)."""
+    spot = _scan_binance_catalog(
+        db, "48", "Binance", "binance_spot",
+        ["will list", "lists", "adds", "new listing", "spot listing"]
+    )
+    futures = _scan_binance_catalog(
+        db, "161", "Binance Futures", "binance_fut",
+        ["will launch", "launch", "futures", "perpetual", "will list", "usdt-m"]
+    )
+    return spot + futures
 
 
 def scan_bybit(db, dry_run: bool) -> list[dict]:
@@ -265,7 +278,9 @@ def scan_coinbase(db, dry_run: bool) -> list[dict]:
 
 
 def scan_upbit(db, dry_run: bool) -> list[dict]:
-    """Upbit (Korea) — new KRW markets. Upbit listings often = biggest pumps."""
+    """Upbit — new token listings across ALL markets (KRW, USDT, BTC).
+    Deduplicates by base ticker so SLX from KRW-SLX/USDT-SLX/BTC-SLX = one alert.
+    """
     alerts = []
     is_first_run = not exchange_initialized(db, "Upbit")
     try:
@@ -273,33 +288,46 @@ def scan_upbit(db, dry_run: bool) -> list[dict]:
             r = c.get("https://api.upbit.com/v1/market/all",
                       headers={"User-Agent": "Mozilla/5.0"})
         markets = r.json()
-        krw = [m for m in markets if m.get("market", "").startswith("KRW-")]
-        new_count = 0
-        for m in krw:
-            ticker = m.get("market", "").replace("KRW-", "")
-            if ticker in IGNORE_TICKERS:
+
+        # Deduplicate by base ticker (SLX from KRW-SLX, USDT-SLX, BTC-SLX → one entry)
+        # Priority: KRW > USDT > BTC (KRW listing = bigger pump signal)
+        priority = {"KRW": 0, "USDT": 1, "BTC": 2}
+        best: dict[str, tuple] = {}  # ticker → (priority, market_str, market_obj)
+        for m in markets:
+            mkt = m.get("market", "")
+            parts = mkt.split("-")
+            if len(parts) != 2:
                 continue
+            quote, base = parts[0], parts[1]
+            if base in IGNORE_TICKERS:
+                continue
+            p = priority.get(quote, 99)
+            if base not in best or p < best[base][0]:
+                best[base] = (p, mkt, m)
+
+        new_count = 0
+        for ticker, (_, market_str, m) in best.items():
             ann_id = f"upbit_{ticker}"
             if is_seen(db, ann_id):
                 continue
 
-            name = m.get("korean_name", ticker)
-            url  = f"https://upbit.com/exchange?code=CRIX.UPBIT.KRW-{ticker}"
-            mark_seen(db, "Upbit", ann_id, f"Upbit KRW listing: {ticker} ({name})",
-                      ticker, url, "live")
+            name  = m.get("korean_name", ticker)
+            quote = market_str.split("-")[0]
+            url   = f"https://upbit.com/exchange?code=CRIX.UPBIT.{market_str}"
+            mark_seen(db, "Upbit", ann_id,
+                      f"Upbit {quote} listing: {ticker} ({name})", ticker, url, "live")
             new_count += 1
 
-            # First run = baseline only, no spam
             if not is_first_run:
                 alerts.append({
                     "exchange": "Upbit",
-                    "title":    f"Upbit KRW: {ticker} ({name})",
+                    "title":    f"Upbit {quote}: {ticker} ({name})",
                     "ticker":   ticker,
                     "url":      url,
                     "type":     "live",
                 })
         if is_first_run:
-            print(f"[Upbit] baseline saved ({new_count} tokens)", end=" ")
+            print(f"[Upbit] baseline saved ({new_count} unique tickers)", end=" ")
     except Exception as e:
         print(f"[Upbit] Error: {e}")
     return alerts
@@ -384,7 +412,25 @@ def format_listing_alert(alert: dict, ts: str) -> str:
 
 # ── Main scan ─────────────────────────────────────────────────────────────────
 
-def run_once(dry_run: bool) -> int:
+def _save_heartbeat(db, count: int) -> None:
+    """Save scan run timestamp to DB — lets dashboard show when scanner last ran."""
+    try:
+        ts_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        db._sqlite.execute("""CREATE TABLE IF NOT EXISTS scanner_runs (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts       TEXT NOT NULL,
+            scanner  TEXT NOT NULL,
+            count    INTEGER DEFAULT 0
+        )""")
+        db._sqlite.execute(
+            "INSERT INTO scanner_runs (ts, scanner, count) VALUES (?,?,?)",
+            (ts_iso, "listings", count),
+        )
+    except Exception:
+        pass
+
+
+def run_once(dry_run: bool, interval_s: int = 21600) -> int:
     ts  = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     db  = _get_db()
     all_alerts = []
@@ -408,6 +454,7 @@ def run_once(dry_run: bool) -> int:
             print(f"{name}:ERR({e})", end=" ", flush=True)
 
     print(f"| Total new: {len(all_alerts)}")
+    _save_heartbeat(db, len(all_alerts))
 
     for alert in all_alerts:
         msg = format_listing_alert(alert, ts)
@@ -416,13 +463,14 @@ def run_once(dry_run: bool) -> int:
 
     # Heartbeat — always send status even when no new listings
     if not all_alerts:
+        interval_h = max(1, interval_s // 3600)
         hb = (
             f"📡 <b>Listings Scanner</b> — {ts}\n"
             f"\n"
-            f"✅ Brak nowych listingów w ostatnich 6h\n"
-            f"Monitorowane: Binance | Coinbase | Upbit | OKX\n"
+            f"✅ Brak nowych listingów\n"
+            f"Monitorowane: Binance | Binance Futures | Coinbase | Upbit | OKX\n"
             f"\n"
-            f"<i>Nastepne sprawdzenie za 6h</i>"
+            f"<i>Następne sprawdzenie za {interval_h}h</i>"
         )
         send_telegram(hb, dry_run=dry_run)
         print(f"[{ts}] Heartbeat sent — no new listings.")
@@ -444,11 +492,11 @@ def main() -> None:
         print(f"Listings Scanner daemon — interval: {args.interval}s | "
               f"Telegram: {'DRY-RUN' if args.dry_run else 'LIVE'}")
         while True:
-            run_once(args.dry_run)
+            run_once(args.dry_run, args.interval)
             print(f"Sleeping {args.interval}s ({args.interval//60}min)...")
             time.sleep(args.interval)
     else:
-        run_once(args.dry_run)
+        run_once(args.dry_run, args.interval)
 
 
 if __name__ == "__main__":

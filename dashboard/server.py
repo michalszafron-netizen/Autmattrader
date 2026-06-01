@@ -357,8 +357,8 @@ def alerts():
         "ORDER BY ts DESC LIMIT 20"
     ) or []
     listings = vps.get('listings') or db_query(
-        "SELECT ts, symbol, exchange, announce_url FROM listing_announcements "
-        "ORDER BY ts DESC LIMIT 20"
+        "SELECT ts, ticker AS symbol, exchange, url AS announce_url, title, ann_type "
+        "FROM listing_announcements ORDER BY ts DESC LIMIT 20"
     ) or []
     insider = vps.get('insider') or db_query(
         "SELECT ts, scout, ticker, direction, confidence, reason FROM insider_signals "
