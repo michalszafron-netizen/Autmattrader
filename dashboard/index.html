@@ -1398,7 +1398,20 @@ function renderAlertTab(tab) {
   if (tab === 'insider') items = (currentAlerts.insider || []);
   if (tab === 'tv') items = (currentAlerts.tv_alerts || []);
   if (!items.length) {
-    el.innerHTML = '<div class="empty"><div class="icon">🔕</div><p>Brak alertów</p></div>';
+    // For listing/vol/insider: show scanner status instead of generic "brak alertów"
+    const emptyLabels = {
+      listing: { icon: '📋', msg: 'Brak nowych listingów', sub: 'Skaner aktywny — nic nowego od ostatniego skanu' },
+      vol:     { icon: '⚡', msg: 'Brak anomalii wolumenu', sub: 'Skaner działa, próg nie przekroczony' },
+      insider: { icon: '🕵️', msg: 'Brak sygnałów insider', sub: 'Eddie/Maggie/Frank — wg harmonogramu' },
+      sm:      { icon: '🐋', msg: 'Brak alertów smart money', sub: '' },
+      tv:      { icon: '📡', msg: 'Brak sygnałów TV Webhook', sub: '' },
+    };
+    const lbl = emptyLabels[tab] || { icon: '🔕', msg: 'Brak alertów', sub: '' };
+    el.innerHTML = `<div class="empty">
+      <div class="icon">${lbl.icon}</div>
+      <p>${lbl.msg}</p>
+      ${lbl.sub ? `<p style="font-size:11px;color:var(--txt3);margin-top:4px">${lbl.sub}</p>` : ''}
+    </div>`;
     return;
   }
   el.innerHTML = '<div class="alert-list">' + items.map(a => {
