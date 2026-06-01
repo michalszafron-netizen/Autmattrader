@@ -326,10 +326,29 @@ def fear_greed():
 
 # ── Routes — Alerts ───────────────────────────────────────────────────────────
 
+_VPS_API = 'http://92.112.181.37:5008'
+
+
+def _fetch_vps(endpoint: str, timeout: float = 2.5) -> dict:
+    """Try fetching JSON from VPS health API. Returns {} on any failure."""
+    try:
+        with httpx.Client(timeout=timeout) as c:
+            r = c.get(f'{_VPS_API}{endpoint}')
+            if r.status_code == 200:
+                return r.json()
+    except Exception:
+        pass
+    return {}
+
+
 @app.route('/api/alerts')
 def alerts():
-    """Recent alerts: smart money, volume anomalies, listings."""
-    sm = db_query(
+    """Recent alerts: smart money, volume anomalies, listings, insider.
+    Prefers VPS data (fresher) — falls back to local DB if VPS unreachable.
+    """
+    vps = _fetch_vps('/alerts')
+
+    sm = vps.get('smart_money') or db_query(
         "SELECT ts, alert_type, coin, side, wallet, notional, details FROM sm_alerts "
         "ORDER BY ts DESC LIMIT 20"
     ) or []
@@ -337,11 +356,16 @@ def alerts():
         "SELECT ts, symbol, exchange, volume_usd, ratio, direction FROM volume_anomalies "
         "ORDER BY ts DESC LIMIT 20"
     ) or []
-    listings = db_query(
+    listings = vps.get('listings') or db_query(
         "SELECT ts, symbol, exchange, announce_url FROM listing_announcements "
         "ORDER BY ts DESC LIMIT 20"
     ) or []
-    # Also read alerts.jsonl (TV webhook signals)
+    insider = vps.get('insider') or db_query(
+        "SELECT ts, scout, ticker, direction, confidence, reason FROM insider_signals "
+        "ORDER BY ts DESC LIMIT 20"
+    ) or []
+
+    # TV webhook signals from local alerts.jsonl
     tv_alerts = []
     if ALERTS_FILE.exists():
         try:
@@ -350,11 +374,9 @@ def alerts():
                 tv_alerts.append(json.loads(line))
         except Exception:
             pass
-    insider = db_query(
-        "SELECT ts, scout, ticker, direction, confidence, reason FROM insider_signals "
-        "ORDER BY ts DESC LIMIT 20"
-    ) or []
-    return jsonify({'smart_money': sm, 'volume': vol, 'listings': listings, 'tv_alerts': tv_alerts, 'insider': insider})
+
+    return jsonify({'smart_money': sm, 'volume': vol, 'listings': listings,
+                    'tv_alerts': tv_alerts, 'insider': insider})
 
 
 # ── Routes — Reports ─────────────────────────────────────────────────────────
@@ -649,11 +671,13 @@ def health_extended():
         except Exception:
             return {'active': False, 'last': str(last_val), 'ago': '?'}
 
+    # Prefer VPS data (fresher) over local Windows DB
+    vps = _fetch_vps('/health')
     return jsonify({
-        'smart_money': check_table('sm_snapshots',           window_h=25),   # every run, not just alerts
-        'volume':      check_table('volume_anomalies',       window_h=168),  # anomaly w ciągu 7 dni
-        'listings':    check_table('listing_announcements',  window_h=168),  # listing w ciągu 7 dni
-        'insider':     check_table('insider_signals',        window_h=168),  # weekly schedule
+        'smart_money': vps.get('smart_money') or check_table('sm_snapshots',           window_h=25),
+        'volume':      vps.get('volume')      or check_table('volume_anomalies',       window_h=168),
+        'listings':    vps.get('listings')    or check_table('listing_announcements',  window_h=168),
+        'insider':     vps.get('insider')     or check_table('insider_signals',        window_h=168),
         'ts': utc_now(),
     })
 

@@ -1405,10 +1405,13 @@ function renderAlertTab(tab) {
     const icon = tab === 'sm' ? '🐋' : tab === 'vol' ? '⚡' : tab === 'listing' ? '📋' : tab === 'insider' ? '🕵️' : '📡';
     const title = tab === 'insider'
       ? `${a.ticker||'?'} — ${a.reason||a.direction||''}`
-      : (a.details || a.symbol || a.coin || a.ticker || JSON.stringify(a).substring(0,60));
+      : tab === 'sm'
+      ? `[${(a.alert_type||'?').replace('_',' ')}] ${a.coin||''} ${a.side||''}`.trim()
+      : (a.symbol || a.coin || a.ticker || JSON.stringify(a).substring(0,60));
     const meta = tab === 'insider'
       ? `${a.direction||''} • ${a.scout||''} • pewność: ${a.confidence||''}`
-      : a.notional ? `$${Number(a.notional).toLocaleString()}`
+      : tab === 'sm'
+      ? [a.notional ? `$${Number(a.notional).toLocaleString()}` : '', a.wallet ? (a.wallet.substring(0,8)+'…') : ''].filter(Boolean).join(' • ')
       : a.volume_usd ? `Vol: $${Number(a.volume_usd).toLocaleString()}`
       : a.exchange || a.venue || '';
     const time = (a.ts || a.received_at || '').substring(0,16).replace('T',' ');
