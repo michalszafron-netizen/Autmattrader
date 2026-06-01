@@ -433,6 +433,15 @@ def run_once(top_n: int, dry_run: bool, send_heartbeat: bool = True) -> None:
         db = _get_db()
         prev_snapshot = load_prev_snapshot(db)
 
+        if not prev_snapshot:
+            # First run or snapshot lost (restart/crash) — establish baseline without alerting
+            # to avoid false NEW_POSITION spam for all currently-open positions.
+            save_snapshot(db, ts, curr_snapshot)
+            hb = format_heartbeat(curr_snapshot, ts)
+            send_telegram(hb, dry_run=dry_run)
+            print(f"[{ts}] Snapshot saved. Alerts: 0 (baseline — brak poprzedniego snapshotu)")
+            return
+
         alerts = detect_changes(prev_snapshot, curr_snapshot, traders)
 
         alert_msg = format_alerts(alerts, ts)
@@ -441,7 +450,7 @@ def run_once(top_n: int, dry_run: bool, send_heartbeat: bool = True) -> None:
             send_telegram(alert_msg, dry_run=dry_run)
             for a in alerts:
                 save_alert(db, ts, a["type"], **a)
-        elif send_heartbeat and prev_snapshot:
+        elif send_heartbeat:
             hb = format_heartbeat(curr_snapshot, ts)
             send_telegram(hb, dry_run=dry_run)
 
