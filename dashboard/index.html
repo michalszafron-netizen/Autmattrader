@@ -1428,14 +1428,27 @@ function renderAlertTab(tab) {
 
 function renderMiniAlerts(data) {
   const el = document.getElementById('miniAlerts');
+  const fmtVal = v => { v = Number(v); if (!v) return ''; if (v>=1e6) return '$'+(v/1e6).toFixed(1)+'M'; if (v>=1e3) return '$'+(v/1e3).toFixed(0)+'K'; return '$'+v.toFixed(0); };
   const all = [
-    ...(data.smart_money||[]).map(a => ({icon:'🐋', text: a.details || a.coin || '—', time: a.ts})),
-    ...(data.volume||[]).map(a => ({icon:'⚡', text: `${a.symbol||''} ${a.ratio||''}x`, time: a.ts})),
-    ...(data.listings||[]).map(a => ({icon:'📋', text: `${a.symbol||''} on ${a.exchange||''}`, time: a.ts})),
-    ...(data.insider||[]).map(a => ({icon:'🕵️', text: `${a.ticker||''} ${a.direction||''} — ${a.scout||''}`, time: a.ts})),
-  ].sort((a,b) => (b.time||'').localeCompare(a.time||'')).slice(0,8);
+    ...(data.smart_money||[]).map(a => ({
+      icon:'🐋', badge:(a.alert_type||'SM').replace(/_/g,' '),
+      coin: a.coin||'?', side: a.side||'', value: fmtVal(a.notional), time: a.ts
+    })),
+    ...(data.volume||[]).map(a => ({
+      icon:'⚡', badge:'VOL',
+      coin: a.symbol||'?', side: a.direction||'', value: a.ratio ? a.ratio+'x vol' : '', time: a.ts
+    })),
+    ...(data.listings||[]).map(a => ({
+      icon:'📋', badge:'LISTING',
+      coin: a.symbol||'?', side: a.exchange||'', value: '', time: a.ts
+    })),
+    ...(data.insider||[]).map(a => ({
+      icon:'🕵️', badge: a.scout||'INSIDER',
+      coin: a.ticker||'?', side: a.direction||'', value: a.confidence ? 'conf: '+a.confidence : '', time: a.ts
+    })),
+  ].sort((a,b) => (b.time||'').localeCompare(a.time||'')).slice(0,10);
+
   document.getElementById('alertCount').textContent = all.length;
-  // 2E — sidebar badge
   const badge = document.getElementById('navAlertBadge');
   if (badge) {
     if (all.length > 0) { badge.textContent = all.length; badge.style.display = 'flex'; }
@@ -1445,15 +1458,21 @@ function renderMiniAlerts(data) {
     el.innerHTML = '<div class="empty"><div class="icon">🔕</div><p>Brak alertów</p></div>';
     return;
   }
-  el.innerHTML = all.map(a => `
-    <div class="alert-item" style="padding:7px 10px">
-      <div class="alert-icon" style="font-size:14px">${a.icon}</div>
-      <div class="alert-body">
-        <div class="alert-title" style="font-size:11px">${escHtml(String(a.text).substring(0,60))}</div>
-        <div class="alert-meta">${escHtml((a.time||'').substring(0,16).replace('T',' '))}</div>
+  el.innerHTML = all.map(a => {
+    const sideClr = a.side==='LONG'?'var(--green)':a.side==='SHORT'?'var(--red)':'var(--txt2)';
+    return `<div style="padding:8px 10px;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
+        <span style="font-size:13px">${a.icon}</span>
+        <span style="font-size:10px;color:var(--txt3);background:var(--bg3);padding:1px 5px;border-radius:3px;text-transform:uppercase;letter-spacing:.3px">${escHtml(a.badge)}</span>
+        <span style="font-size:14px;font-weight:700;color:var(--txt1)">${escHtml(a.coin)}</span>
+        ${a.side ? `<span style="font-size:12px;font-weight:700;color:${sideClr}">${escHtml(a.side)}</span>` : ''}
       </div>
-    </div>
-  `).join('');
+      <div style="display:flex;justify-content:space-between;padding-left:19px">
+        <span style="font-size:11px;color:var(--cyan);font-family:'Space Mono',monospace">${escHtml(a.value)}</span>
+        <span style="font-size:10px;color:var(--txt3)">${escHtml((a.time||'').substring(0,16).replace('T',' '))}</span>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 // ── Strategies ─────────────────────────────────────────────────────────────
