@@ -1403,13 +1403,24 @@ function renderAlertTab(tab) {
   }
   el.innerHTML = '<div class="alert-list">' + items.map(a => {
     const icon = tab === 'sm' ? '🐋' : tab === 'vol' ? '⚡' : tab === 'listing' ? '📋' : tab === 'insider' ? '🕵️' : '📡';
-    const title = tab === 'insider'
-      ? `${a.ticker||'?'} — ${a.reason||a.direction||''}`
-      : tab === 'sm'
-      ? `[${(a.alert_type||'?').replace('_',' ')}] ${a.coin||''} ${a.side||''}`.trim()
-      : (a.symbol || a.coin || a.ticker || JSON.stringify(a).substring(0,60));
+    const sideClr = a.side==='LONG'?'var(--green)':a.side==='SHORT'?'var(--red)':'var(--txt2)';
+
+    // Build title HTML — SM and Insider get rich colored markup, rest is plain escaped text
+    let titleHtml;
+    if (tab === 'sm') {
+      titleHtml = `<span style="color:var(--txt3);font-size:11px">[${escHtml((a.alert_type||'?').replace(/_/g,' '))}]</span> `
+               + `<strong style="font-size:14px">${escHtml(a.coin||'?')}</strong> `
+               + (a.side ? `<span style="color:${sideClr};font-weight:700;font-size:13px">${escHtml(a.side)}</span>` : '');
+    } else if (tab === 'insider') {
+      titleHtml = `<strong>${escHtml(a.ticker||'?')}</strong> `
+               + (a.direction ? `<span style="color:${sideClr};font-weight:700">${escHtml(a.direction)}</span> ` : '')
+               + `<span style="color:var(--txt3);font-size:11px">— ${escHtml(a.reason||'')}</span>`;
+    } else {
+      titleHtml = escHtml(String(a.symbol || a.coin || a.ticker || '—').substring(0,80));
+    }
+
     const meta = tab === 'insider'
-      ? `${a.direction||''} • ${a.scout||''} • pewność: ${a.confidence||''}`
+      ? `${escHtml(a.scout||'')} • pewność: ${escHtml(String(a.confidence||''))}`
       : tab === 'sm'
       ? [a.notional ? `$${Number(a.notional).toLocaleString()}` : '', a.wallet ? (a.wallet.substring(0,8)+'…') : ''].filter(Boolean).join(' • ')
       : a.volume_usd ? `Vol: $${Number(a.volume_usd).toLocaleString()}`
@@ -1418,7 +1429,7 @@ function renderAlertTab(tab) {
     return `<div class="alert-item">
       <div class="alert-icon">${icon}</div>
       <div class="alert-body">
-        <div class="alert-title">${escHtml(String(title).substring(0,100))}</div>
+        <div class="alert-title">${titleHtml}</div>
         <div class="alert-meta">${escHtml(String(meta))}</div>
       </div>
       <div class="alert-time">${escHtml(time)}</div>
@@ -1428,6 +1439,9 @@ function renderAlertTab(tab) {
 
 function renderMiniAlerts(data) {
   const el = document.getElementById('miniAlerts');
+  // CRITICAL: remove 'loading' class (display:flex) so items stack vertically
+  el.className = '';
+  el.style.cssText = 'overflow-y:auto;max-height:calc(100% - 48px)';
   const fmtVal = v => { v = Number(v); if (!v) return ''; if (v>=1e6) return '$'+(v/1e6).toFixed(1)+'M'; if (v>=1e3) return '$'+(v/1e3).toFixed(0)+'K'; return '$'+v.toFixed(0); };
   const all = [
     ...(data.smart_money||[]).map(a => ({
