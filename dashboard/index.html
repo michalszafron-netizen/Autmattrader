@@ -684,7 +684,10 @@ header{
   <div class="card">
     <div class="card-hdr">
       <span class="card-title" id="alertTabTitle">Smart Money Alerts</span>
-      <button class="btn btn-outline btn-sm" onclick="loadAlerts()">↻ Odśwież</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" onclick="clearAlertTab(currentAlertTab)" title="Ukryj wszystkie obecne alerty (nie usuwa z DB)">🗑 Wyczyść</button>
+        <button class="btn btn-outline btn-sm" onclick="loadAlerts()">↻ Odśwież</button>
+      </div>
     </div>
     <div id="alertContent" class="loading"><div class="spinner"></div> Ładuję...</div>
   </div>
@@ -1389,6 +1392,27 @@ function showAlertTab(tab) {
   renderAlertTab(tab);
 }
 
+// ── Alert clear (localStorage — hides without deleting from DB) ──────────────
+function _getClearedAt(tab) {
+  return localStorage.getItem(`alertCleared_${tab}`) || '';
+}
+function clearAlertTab(tab) {
+  // Store current UTC time as "cleared before" threshold
+  const now = new Date().toISOString().substring(0, 16).replace('T', ' ');
+  localStorage.setItem(`alertCleared_${tab}`, now);
+  renderAlertTab(tab);
+  // Recount visible alerts
+  const visibleTotal = ['sm','vol','listing','insider'].reduce((n, t) => {
+    const cleared = _getClearedAt(t);
+    const items = t==='sm' ? currentAlerts.smart_money : t==='vol' ? currentAlerts.volume :
+                  t==='listing' ? currentAlerts.listings : currentAlerts.insider;
+    return n + (items||[]).filter(a => !cleared || (a.ts||'').substring(0,16).replace('T',' ') > cleared).length;
+  }, 0);
+  document.getElementById('alertCount').textContent = visibleTotal;
+  const badge = document.getElementById('navAlertBadge');
+  if (badge) { if (visibleTotal>0){badge.textContent=visibleTotal;badge.style.display='flex';}else{badge.style.display='none';} }
+}
+
 function renderAlertTab(tab) {
   const el = document.getElementById('alertContent');
   let items = [];
@@ -1397,6 +1421,11 @@ function renderAlertTab(tab) {
   if (tab === 'listing') items = (currentAlerts.listings || []);
   if (tab === 'insider') items = (currentAlerts.insider || []);
   if (tab === 'tv') items = (currentAlerts.tv_alerts || []);
+  // Filter by "cleared before" threshold (localStorage)
+  const clearedAt = _getClearedAt(tab);
+  if (clearedAt) {
+    items = items.filter(a => (a.ts||'').substring(0,16).replace('T',' ') > clearedAt);
+  }
   if (!items.length) {
     // For listing/vol/insider: show scanner status instead of generic "brak alertów"
     const emptyLabels = {
@@ -1456,20 +1485,24 @@ function renderMiniAlerts(data) {
   el.className = '';
   el.style.cssText = 'overflow-y:auto;max-height:calc(100% - 48px)';
   const fmtVal = v => { v = Number(v); if (!v) return ''; if (v>=1e6) return '$'+(v/1e6).toFixed(1)+'M'; if (v>=1e3) return '$'+(v/1e3).toFixed(0)+'K'; return '$'+v.toFixed(0); };
+  const _filt = (arr, tab) => {
+    const c = _getClearedAt(tab);
+    return c ? (arr||[]).filter(a => (a.ts||'').substring(0,16).replace('T',' ') > c) : (arr||[]);
+  };
   const all = [
-    ...(data.smart_money||[]).map(a => ({
+    ..._filt(data.smart_money,'sm').map(a => ({
       icon:'🐋', badge:(a.alert_type||'SM').replace(/_/g,' '),
       coin: a.coin||'?', side: a.side||'', value: fmtVal(a.notional), time: a.ts
     })),
-    ...(data.volume||[]).map(a => ({
+    ..._filt(data.volume,'vol').map(a => ({
       icon:'⚡', badge:'VOL',
       coin: a.symbol||'?', side: a.direction||'', value: a.ratio ? a.ratio+'x vol' : '', time: a.ts
     })),
-    ...(data.listings||[]).map(a => ({
+    ..._filt(data.listings,'listing').map(a => ({
       icon:'📋', badge:'LISTING',
       coin: a.symbol||'?', side: a.exchange||'', value: '', time: a.ts
     })),
-    ...(data.insider||[]).map(a => ({
+    ..._filt(data.insider,'insider').map(a => ({
       icon:'🕵️', badge: a.scout||'INSIDER',
       coin: a.ticker||'?', side: a.direction||'', value: a.confidence ? 'conf: '+a.confidence : '', time: a.ts
     })),
