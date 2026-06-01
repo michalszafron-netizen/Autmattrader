@@ -247,7 +247,7 @@ header{
 .status-info{font-size:13px;color:var(--txt2);font-family:'Space Mono',monospace}
 
 /* ── CHART ── */
-.chart-wrap{position:relative;height:200px}
+.chart-wrap{position:relative;height:120px}
 
 /* ── SPINNER ── */
 .spinner{
@@ -854,73 +854,51 @@ async function loadPrices() {
   const data = await api('/prices');
   const out = stripAnsi(data.output || data.error || 'Brak danych');
 
-  // Build rich HTML output: Crypto first, then TradFi
-  const fmtP = (v, dec=2) => v != null ? '$' + Number(v).toLocaleString('en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec}) : '—';
+  // Compact single-view: all prices visible without scrolling
+  const fmtP = (v, dec=2) => v != null ? '$' + Number(v).toLocaleString('en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec}) : null;
 
-  let html = '';
-
-  // ── Crypto section ──
   const crypto = data.crypto || {};
+  const tradfi  = data.tradfi  || {};
+
   const CRYPTO_ORDER = [
-    {sym:'BTC',  label:'Bitcoin',  dec:0},
-    {sym:'ETH',  label:'Ethereum', dec:2},
-    {sym:'SOL',  label:'Solana',   dec:2},
-    {sym:'HYPE', label:'HYPE',     dec:3},
-    {sym:'LINK', label:'Chainlink',dec:3},
-    {sym:'AVAX', label:'Avalanche',dec:2},
-    {sym:'XRP',  label:'XRP',      dec:4},
+    {sym:'BTC',  dec:0}, {sym:'ETH',  dec:2}, {sym:'SOL',  dec:2},
+    {sym:'HYPE', dec:3}, {sym:'LINK', dec:3}, {sym:'AVAX', dec:2},
   ];
-  const cryptoRows = CRYPTO_ORDER.filter(c => crypto[c.sym] != null);
-  if (cryptoRows.length) {
-    html += `<div style="margin-bottom:10px">
-      <div style="font-size:10px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">₿ Crypto</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px">`;
-    for (const {sym, label, dec} of cryptoRows) {
-      const price = fmtP(crypto[sym], dec);
-      html += `<div style="background:var(--bg3);border-radius:6px;padding:6px 8px">
-        <div style="font-size:10px;color:var(--txt3)">${escHtml(sym)}</div>
-        <div style="font-size:13px;font-weight:700;color:var(--cyan)">${escHtml(price)}</div>
-      </div>`;
-    }
-    html += `</div></div>`;
-  }
-
-  // ── TradFi section (from quotes.py output) ──
-  const tradfi = data.tradfi || {};
   const TRADFI_ORDER = [
-    {sym:'GOLD',  label:'Gold',   dec:2},
-    {sym:'SILVER',label:'Silver', dec:3},
-    {sym:'OIL',   label:'Oil',    dec:2},
-    {sym:'SP500', label:'S&P500', dec:0},
+    {sym:'GOLD', label:'Gold', dec:2}, {sym:'SILVER', label:'Silver', dec:3},
+    {sym:'OIL',  label:'Oil',  dec:2}, {sym:'SP500',  label:'S&P500', dec:0},
   ];
-  const tradfiRows = TRADFI_ORDER.filter(t => tradfi[t.sym] != null);
-  if (tradfiRows.length) {
-    html += `<div style="margin-bottom:10px">
-      <div style="font-size:10px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">📊 TradFi</div>
-      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:4px">`;
-    for (const {sym, label, dec} of tradfiRows) {
-      const price = fmtP(tradfi[sym], dec);
-      html += `<div style="background:var(--bg3);border-radius:6px;padding:6px 8px">
-        <div style="font-size:10px;color:var(--txt3)">${escHtml(label)}</div>
-        <div style="font-size:13px;font-weight:700;color:var(--yellow)">${escHtml(price)}</div>
-      </div>`;
-    }
-    html += `</div></div>`;
-  }
 
-  // ── Fallback: raw text from quotes.py ──
-  if (!cryptoRows.length && !tradfiRows.length) {
-    html = `<pre style="font-size:10px;white-space:pre-wrap">${escHtml(out)}</pre>`;
-  } else if (out && out.trim() && out !== 'Brak danych') {
-    // Extra lines (Stocks, Energy detail etc)
-    const extraLines = out.split('\n').filter(l =>
-      l.trim() && (l.includes('Stocks') || l.includes('Agri') || l.includes('Energy'))
-    );
-    if (extraLines.length) {
-      html += `<div style="font-size:10px;color:var(--txt3);margin-top:4px">${escHtml(extraLines.join(' | '))}</div>`;
-    }
-  }
+  const mkChip = (label, price, color) =>
+    `<span style="display:inline-flex;align-items:baseline;gap:3px;background:var(--bg3);border-radius:5px;padding:3px 7px;margin:2px">
+      <span style="font-size:10px;color:var(--txt3)">${escHtml(label)}</span>
+      <span style="font-size:12px;font-weight:700;color:${color}">${escHtml(price)}</span>
+    </span>`;
 
+  let html = '<div style="padding:2px 0">';
+
+  // Crypto row
+  const cryptoChips = CRYPTO_ORDER.map(c => {
+    const p = fmtP(crypto[c.sym], c.dec);
+    return p ? mkChip(c.sym, p, 'var(--cyan)') : '';
+  }).join('');
+  if (cryptoChips) html += `<div style="margin-bottom:4px"><span style="font-size:9px;color:var(--txt3);font-weight:700;letter-spacing:.5px;margin-right:4px">₿ CRYPTO</span>${cryptoChips}</div>`;
+
+  // TradFi row
+  const tradfiChips = TRADFI_ORDER.map(t => {
+    const p = fmtP(tradfi[t.sym], t.dec);
+    return p ? mkChip(t.label, p, '#f5c542') : '';
+  }).join('');
+  if (tradfiChips) html += `<div style="margin-bottom:4px"><span style="font-size:9px;color:var(--txt3);font-weight:700;letter-spacing:.5px;margin-right:4px">📊 TRADFI</span>${tradfiChips}</div>`;
+
+  // Stocks from raw text
+  const stockLine = (out||'').split('\n').find(l => l.includes('Stocks:') || l.includes('NVDA') || l.includes('TSLA'));
+  if (stockLine) html += `<div style="font-size:10px;color:var(--txt3);margin-top:2px;padding:2px 0">${escHtml(stockLine.trim())}</div>`;
+
+  // Fallback
+  if (!cryptoChips && !tradfiChips) html += `<pre style="font-size:10px;white-space:pre-wrap;margin:0">${escHtml(out)}</pre>`;
+
+  html += '</div>';
   if (el) el.innerHTML = html;
   parseTickerFromOutput(out);
   if (data.crypto) updateTickerFromCrypto(data.crypto);
