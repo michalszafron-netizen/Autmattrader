@@ -247,7 +247,7 @@ header{
 .status-info{font-size:13px;color:var(--txt2);font-family:'Space Mono',monospace}
 
 /* ── CHART ── */
-.chart-wrap{position:relative;height:140px}
+.chart-wrap{position:relative;height:200px}
 
 /* ── SPINNER ── */
 .spinner{
@@ -492,7 +492,7 @@ header{
       <div class="card-hdr"><span class="card-title">Fear & Greed</span><span class="card-badge badge-green" id="fgBadge">—</span></div>
       <div class="chart-wrap"><canvas id="fgChart"></canvas></div>
       <div style="margin-top:10px">
-        <div class="output-box" id="fgOutput" style="max-height:100px;font-size:10px">Kliknij ↻ aby załadować</div>
+        <div class="output-box" id="fgOutput" style="max-height:160px;font-size:10px">Kliknij ↻ aby załadować</div>
       </div>
       <button class="btn btn-outline btn-sm" style="margin-top:8px" onclick="loadFearGreed()">↻ Odśwież</button>
     </div>
@@ -508,7 +508,9 @@ header{
     </div>
     <div class="card">
       <div class="card-hdr"><span class="card-title">Econ Calendar</span><button class="btn btn-outline btn-sm" onclick="loadEcon()">↻</button></div>
-      <div class="output-box" id="econOutput" style="max-height:300px">Kliknij ↻ aby załadować</div>
+      <div id="econOutput" style="max-height:420px;overflow-y:auto;border-radius:8px;border:1px solid var(--border)">
+        <div style="padding:12px;color:var(--txt3)">Kliknij ↻ aby załadować</div>
+      </div>
     </div>
   </div>
   <!-- TradingView Mini Charts -->
@@ -523,7 +525,7 @@ header{
         <button class="btn btn-outline btn-sm" onclick="setTVSymbol('FOREXCOM:SPXUSD')" id="tvBtnSPX">SPX</button>
       </div>
     </div>
-    <div id="tvWidgetContainer" style="height:300px;background:var(--bg3);border-radius:8px;overflow:hidden"></div>
+    <div id="tvWidgetContainer" style="height:500px;background:var(--bg3);border-radius:8px;overflow:hidden"></div>
   </div>
 </div>
 
@@ -851,7 +853,75 @@ async function loadPrices() {
   if (el) el.textContent = 'Ładuję...';
   const data = await api('/prices');
   const out = stripAnsi(data.output || data.error || 'Brak danych');
-  if (el) el.textContent = out;
+
+  // Build rich HTML output: Crypto first, then TradFi
+  const fmtP = (v, dec=2) => v != null ? '$' + Number(v).toLocaleString('en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec}) : '—';
+
+  let html = '';
+
+  // ── Crypto section ──
+  const crypto = data.crypto || {};
+  const CRYPTO_ORDER = [
+    {sym:'BTC',  label:'Bitcoin',  dec:0},
+    {sym:'ETH',  label:'Ethereum', dec:2},
+    {sym:'SOL',  label:'Solana',   dec:2},
+    {sym:'HYPE', label:'HYPE',     dec:3},
+    {sym:'LINK', label:'Chainlink',dec:3},
+    {sym:'AVAX', label:'Avalanche',dec:2},
+    {sym:'XRP',  label:'XRP',      dec:4},
+  ];
+  const cryptoRows = CRYPTO_ORDER.filter(c => crypto[c.sym] != null);
+  if (cryptoRows.length) {
+    html += `<div style="margin-bottom:10px">
+      <div style="font-size:10px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">₿ Crypto</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px">`;
+    for (const {sym, label, dec} of cryptoRows) {
+      const price = fmtP(crypto[sym], dec);
+      html += `<div style="background:var(--bg3);border-radius:6px;padding:6px 8px">
+        <div style="font-size:10px;color:var(--txt3)">${escHtml(sym)}</div>
+        <div style="font-size:13px;font-weight:700;color:var(--cyan)">${escHtml(price)}</div>
+      </div>`;
+    }
+    html += `</div></div>`;
+  }
+
+  // ── TradFi section (from quotes.py output) ──
+  const tradfi = data.tradfi || {};
+  const TRADFI_ORDER = [
+    {sym:'GOLD',  label:'Gold',   dec:2},
+    {sym:'SILVER',label:'Silver', dec:3},
+    {sym:'OIL',   label:'Oil',    dec:2},
+    {sym:'SP500', label:'S&P500', dec:0},
+  ];
+  const tradfiRows = TRADFI_ORDER.filter(t => tradfi[t.sym] != null);
+  if (tradfiRows.length) {
+    html += `<div style="margin-bottom:10px">
+      <div style="font-size:10px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">📊 TradFi</div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:4px">`;
+    for (const {sym, label, dec} of tradfiRows) {
+      const price = fmtP(tradfi[sym], dec);
+      html += `<div style="background:var(--bg3);border-radius:6px;padding:6px 8px">
+        <div style="font-size:10px;color:var(--txt3)">${escHtml(label)}</div>
+        <div style="font-size:13px;font-weight:700;color:var(--yellow)">${escHtml(price)}</div>
+      </div>`;
+    }
+    html += `</div></div>`;
+  }
+
+  // ── Fallback: raw text from quotes.py ──
+  if (!cryptoRows.length && !tradfiRows.length) {
+    html = `<pre style="font-size:10px;white-space:pre-wrap">${escHtml(out)}</pre>`;
+  } else if (out && out.trim() && out !== 'Brak danych') {
+    // Extra lines (Stocks, Energy detail etc)
+    const extraLines = out.split('\n').filter(l =>
+      l.trim() && (l.includes('Stocks') || l.includes('Agri') || l.includes('Energy'))
+    );
+    if (extraLines.length) {
+      html += `<div style="font-size:10px;color:var(--txt3);margin-top:4px">${escHtml(extraLines.join(' | '))}</div>`;
+    }
+  }
+
+  if (el) el.innerHTML = html;
   parseTickerFromOutput(out);
   if (data.crypto) updateTickerFromCrypto(data.crypto);
   if (data.tradfi) updateTickerFromTradfi(data.tradfi);
@@ -1176,9 +1246,73 @@ async function loadOI() {
 
 // ── Econ ───────────────────────────────────────────────────────────────────
 async function loadEcon() {
-  document.getElementById('econOutput').textContent = 'Ładuję...';
-  const data = await api('/run', {method:'POST', body: JSON.stringify({script:'econ_calendar.py', args:['--upcoming']})});
-  document.getElementById('econOutput').textContent = stripAnsi(data.output || data.error || 'Brak danych');
+  const el = document.getElementById('econOutput');
+  el.innerHTML = '<div style="padding:12px;color:var(--txt3)">Ładuję kalendarz...</div>';
+  const data = await api('/econ');
+
+  if (!data.ok || !data.events || !data.events.length) {
+    el.innerHTML = `<div style="padding:12px;color:var(--txt3)">
+      <div style="font-size:20px;margin-bottom:6px">📅</div>
+      <div>Brak danych ekonomicznych na dziś</div>
+      ${data.error ? `<div style="font-size:10px;color:var(--red);margin-top:4px">${escHtml(data.error)}</div>` : ''}
+    </div>`;
+    return;
+  }
+
+  // Color + label mapping
+  const COLORS = {
+    KRYTYCZNY: {bg:'rgba(255,59,59,0.15)', border:'rgba(255,59,59,0.5)', text:'#ff3b3b', dot:'#ff3b3b'},
+    WYSOKI:    {bg:'rgba(255,140,0,0.12)',  border:'rgba(255,140,0,0.4)',  text:'#ff8c00', dot:'#ff8c00'},
+    SREDNI:    {bg:'rgba(255,200,0,0.10)',  border:'rgba(255,200,0,0.3)',  text:'#ffc800', dot:'#ffc800'},
+    NISKI:     {bg:'rgba(100,120,140,0.08)',border:'rgba(100,120,140,0.2)',text:'#5a6a7a', dot:'#5a6a7a'},
+  };
+  const IMPORTANCE_PL = {KRYTYCZNY:'🔴 KRYTYCZNY', WYSOKI:'🟠 WYSOKI', SREDNI:'🟡 ŚREDNI', NISKI:'⚪ NISKI'};
+
+  // Legend
+  let html = `<div style="padding:8px 12px 4px;border-bottom:1px solid var(--border);display:flex;gap:12px;flex-wrap:wrap;font-size:10px">
+    <span style="color:var(--txt3);font-weight:600">WAŻNOŚĆ:</span>
+    <span style="color:#ff3b3b">🔴 KRYTYCZNY — CPI, NFP, FOMC, PKB</span>
+    <span style="color:#ff8c00">🟠 WYSOKI — Fed, Powell, Bezrobocie</span>
+    <span style="color:#ffc800">🟡 ŚREDNI — PMI, PPI, Sprzedaż detaliczna</span>
+    <span style="color:#5a6a7a">⚪ NISKI — Pozostałe dane</span>
+  </div>`;
+
+  const now = Date.now() / 1000;
+  let hasPast = false, hasFuture = false;
+
+  for (const e of data.events) {
+    const isPast = e.past || e.ts < now;
+    const c = COLORS[e.importance] || COLORS.NISKI;
+    const opacity = isPast ? '0.55' : '1';
+
+    if (!hasPast && isPast)    { html += `<div style="padding:6px 12px;font-size:10px;color:var(--txt3);background:var(--bg3);font-weight:600">── Już opublikowane ──</div>`; hasPast = true; }
+    if (!hasFuture && !isPast) { html += `<div style="padding:6px 12px;font-size:10px;color:var(--cyan);background:rgba(0,200,255,0.05);font-weight:600">── Nadchodzące ──</div>`; hasFuture = true; }
+
+    // Value pill: actual (green if beats est, red if misses), estimate, prev
+    let valHtml = '';
+    if (e.actual != null) {
+      valHtml += `<span style="background:rgba(0,255,136,0.15);color:#00ff88;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700">✓ ${escHtml(e.actual)}</span> `;
+    }
+    if (e.estimate != null) {
+      valHtml += `<span style="color:var(--txt3);font-size:10px">oczek: ${escHtml(e.estimate)}</span> `;
+    }
+    if (e.prev != null) {
+      valHtml += `<span style="color:var(--txt3);font-size:10px">poprz: ${escHtml(e.prev)}</span>`;
+    }
+
+    html += `<div style="padding:8px 12px;border-bottom:1px solid var(--border);opacity:${opacity};border-left:3px solid ${c.border}">
+      <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+        <span style="font-size:10px;font-family:'Space Mono',monospace;color:var(--txt3);flex-shrink:0">${escHtml(e.time_utc)}</span>
+        <span style="font-size:10px;font-weight:700;color:${c.text};background:${c.bg};border-radius:3px;padding:1px 5px;flex-shrink:0">${escHtml(IMPORTANCE_PL[e.importance]||e.importance)}</span>
+        <span style="font-size:10px;color:var(--txt3);flex-shrink:0">${escHtml(e.country)}</span>
+        <span style="font-size:12px;font-weight:600;color:var(--txt1)">${escHtml(e.name)}</span>
+      </div>
+      ${valHtml ? `<div style="margin-top:4px;padding-left:2px;display:flex;gap:8px;flex-wrap:wrap">${valHtml}</div>` : ''}
+      ${e.tip ? `<div style="margin-top:4px;padding-left:2px;font-size:10px;color:var(--txt2);font-style:italic">💡 ${escHtml(e.tip)}</div>` : ''}
+    </div>`;
+  }
+
+  el.innerHTML = html;
 }
 
 // ── Fear & Greed output strip ─────────────────────────────────────────────

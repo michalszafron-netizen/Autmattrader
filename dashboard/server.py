@@ -324,6 +324,70 @@ def fear_greed():
     return jsonify({'ok': result['ok'], 'output': result['output'], 'history': history or []})
 
 
+# ── Routes — Econ Calendar ───────────────────────────────────────────────────
+
+@app.route('/api/econ')
+def econ():
+    """Economic calendar for today — structured JSON, all events (past + future)."""
+    import sys as _sys
+    _sys.path.insert(0, str(SCRIPTS))
+    try:
+        from datetime import datetime, timezone as _tz
+        today = datetime.now(_tz.utc).strftime('%Y-%m-%d')
+
+        # Import calendar helpers from econ_calendar.py
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'econ_calendar', str(SCRIPTS / 'econ_calendar.py'))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        raw = mod.fetch_calendar(today, today)
+
+        important_countries = {'US', 'GB', 'EU', 'DE', 'FR', 'JP', 'CN', 'CA', 'AU'}
+        now_ts = datetime.now(_tz.utc).timestamp()
+
+        events = []
+        for e in raw:
+            country = e.get('country', '')
+            if country not in important_countries and not mod.is_high_impact(e):
+                continue
+            label, color, style = mod.get_importance(e)
+            tip = mod.get_event_tip(e)
+
+            try:
+                dt = datetime.fromisoformat(e['time'].replace('Z', '+00:00'))
+                ts = dt.timestamp()
+                time_utc = dt.strftime('%H:%M UTC')
+            except Exception:
+                ts = 0
+                time_utc = e.get('time', '')
+
+            actual  = e.get('actual')
+            est     = e.get('estimate')
+            prev    = e.get('previous') or e.get('prev')
+            past    = bool(actual is not None and str(actual).strip() not in ('', 'null'))
+
+            events.append({
+                'time_utc': time_utc,
+                'ts':       ts,
+                'name':     e.get('event', ''),
+                'country':  country,
+                'importance': label,    # KRYTYCZNY | WYSOKI | SREDNI | NISKI
+                'color':    color,      # red | yellow | green
+                'tip':      tip,
+                'actual':   str(actual) if actual is not None else None,
+                'estimate': str(est) if est is not None else None,
+                'prev':     str(prev) if prev is not None else None,
+                'past':     past,
+            })
+
+        events.sort(key=lambda x: x['ts'])
+        return jsonify({'ok': True, 'events': events, 'date': today})
+    except Exception as ex:
+        return jsonify({'ok': False, 'events': [], 'error': str(ex)})
+
+
 # ── Routes — Alerts ───────────────────────────────────────────────────────────
 
 _VPS_API = 'http://92.112.181.37:5008'
