@@ -258,7 +258,7 @@ def detect_changes(
         prev_keys = {_pos_key(p): p for p in prev_positions}
         curr_keys = {_pos_key(p): p for p in curr_positions}
 
-        name = wallet_name.get(wallet, wallet[:10])
+        name = wallet_name.get(wallet, wallet)  # pełny adres jako fallback
 
         # NEW positions
         for key, pos in curr_keys.items():
