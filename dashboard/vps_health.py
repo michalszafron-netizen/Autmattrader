@@ -88,12 +88,22 @@ def _parse_health(last_val, window_h: int) -> dict:
     return {'active': ago_s < window_h * 3600, 'last': str(last_val)[:16], 'ago': ago}
 
 
+def check_kozaki_health() -> dict:
+    """Check kozaki monitor health via scanner_runs heartbeat."""
+    rows = db_query("SELECT MAX(ts) AS last FROM scanner_runs WHERE scanner='kozaki'")
+    last_val = rows[0]['last'] if rows and rows[0] else None
+    if not last_val:
+        return check_table('kozaki_snapshots', window_h=25)
+    return _parse_health(last_val, window_h=2)
+
+
 def get_health() -> dict:
     return {
         'smart_money': check_table('sm_snapshots',     window_h=25),
         'volume':      check_table('volume_anomalies', window_h=168),
         'listings':    check_listings_health(),
         'insider':     check_table('insider_signals',  window_h=168),
+        'kozaki':      check_kozaki_health(),
     }
 
 
@@ -110,6 +120,10 @@ def get_alerts() -> dict:
         'insider': db_query(
             'SELECT ts, scout, ticker, direction, confidence, reason '
             'FROM insider_signals ORDER BY ts DESC LIMIT 20'
+        ),
+        'kozaki': db_query(
+            'SELECT ts, alert_type, wallet, label, coin, side, notional, details '
+            'FROM kozaki_alerts ORDER BY ts DESC LIMIT 30'
         ),
     }
 

@@ -364,6 +364,10 @@ def alerts():
         "SELECT ts, scout, ticker, direction, confidence, reason FROM insider_signals "
         "ORDER BY ts DESC LIMIT 20"
     ) or []
+    kozaki = vps.get('kozaki') or db_query(
+        "SELECT ts, alert_type, wallet, label, coin, side, notional, details "
+        "FROM kozaki_alerts ORDER BY ts DESC LIMIT 30"
+    ) or []
 
     # TV webhook signals from local alerts.jsonl
     tv_alerts = []
@@ -376,7 +380,7 @@ def alerts():
             pass
 
     return jsonify({'smart_money': sm, 'volume': vol, 'listings': listings,
-                    'tv_alerts': tv_alerts, 'insider': insider})
+                    'tv_alerts': tv_alerts, 'insider': insider, 'kozaki': kozaki})
 
 
 # ── Routes — Reports ─────────────────────────────────────────────────────────
@@ -678,6 +682,7 @@ def health_extended():
         'volume':      vps.get('volume')      or check_table('volume_anomalies',       window_h=168),
         'listings':    vps.get('listings')    or check_table('listing_announcements',  window_h=168),
         'insider':     vps.get('insider')     or check_table('insider_signals',        window_h=168),
+        'kozaki':      vps.get('kozaki')      or check_table('kozaki_snapshots',       window_h=25),
         'ts': utc_now(),
     })
 

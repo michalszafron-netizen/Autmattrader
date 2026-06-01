@@ -238,11 +238,11 @@ def detect_changes(
     """Returns list of alert dicts."""
     alerts = []
 
-    # Build wallet → display_name map
+    # Build wallet → display_name map (full address — needed for Explorer links)
     wallet_name: dict[str, str] = {}
     for t in traders:
         w = t.get("ethAddress", "")
-        wallet_name[w] = w[:10] + "…"
+        wallet_name[w] = w  # pełny adres
 
     # Per-coin consensus tracker (current)
     coin_bias: dict[str, dict] = defaultdict(lambda: {"long": 0, "short": 0, "notional": 0.0})
@@ -356,29 +356,31 @@ def format_alerts(alerts: list[dict], ts: str) -> str | None:
         lines.append("🆕 <b>NOWE POZYCJE:</b>")
         for a in sorted(new_pos, key=lambda x: -x["notional"])[:5]:
             side_emoji = "🟢" if a["side"] == "LONG" else "🔴"
+            lev_str = f" ({a['lev']}x)" if a['lev'] != "?" else ""
             lines.append(
-                f"  {side_emoji} {a['wallet']} → {a['coin']} "
-                f"<b>{a['side']}</b> {_fmt_usd(a['notional'])} @ ${a['entry']:,.2f}"
-                + (f" ({a['lev']}x)" if a['lev'] != "?" else "")
+                f"  {side_emoji} <b>{a['coin']}</b> <b>{a['side']}</b> "
+                f"{_fmt_usd(a['notional'])} @ ${a['entry']:,.2f}{lev_str}"
             )
+            lines.append(f"  └ <code>{a['wallet']}</code>")
         lines.append("")
 
     if size_inc:
         lines.append("📈 <b>DOKUPUJE:</b>")
         for a in sorted(size_inc, key=lambda x: -x["notional"])[:3]:
             lines.append(
-                f"  {a['wallet']} dodał +{a['change_pct']:.0f}% "
-                f"do {a['coin']} {a['side']} → {_fmt_usd(a['notional'])}"
+                f"  <b>{a['coin']}</b> {a['side']} +{a['change_pct']:.0f}% "
+                f"→ {_fmt_usd(a['notional'])}"
             )
+            lines.append(f"  └ <code>{a['wallet']}</code>")
         lines.append("")
 
     if closed_pos:
         lines.append("✅ <b>ZAMKNIĘTE:</b>")
         for a in sorted(closed_pos, key=lambda x: -x["notional"])[:3]:
             lines.append(
-                f"  {a['wallet']} zamknął {a['coin']} {a['side']} "
-                f"({_fmt_usd(a['notional'])})"
+                f"  <b>{a['coin']}</b> {a['side']} {_fmt_usd(a['notional'])}"
             )
+            lines.append(f"  └ <code>{a['wallet']}</code>")
 
     if len(lines) <= 1:
         return None  # nothing worth sending

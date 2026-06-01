@@ -637,6 +637,11 @@ header{
           <span class="status-name">Insider (Eddie/Maggie/Frank)</span>
           <span class="status-info" id="sinfo-insider">Sprawdzam DB...</span>
         </div>
+        <div class="status-row">
+          <div class="status-dot" id="sdot-kozaki" style="background:var(--txt3)"></div>
+          <span class="status-name">Kozaki Monitor (20 wallets)</span>
+          <span class="status-info" id="sinfo-kozaki">Sprawdzam DB...</span>
+        </div>
       </div>
     </div>
     <div class="card">
@@ -676,6 +681,7 @@ header{
 <div id="panel-alerts" class="panel">
   <div class="tabs">
     <div class="tab active" onclick="showAlertTab('sm')">🐋 Smart Money</div>
+    <div class="tab" onclick="showAlertTab('kozaki')">🦅 Kozaki</div>
     <div class="tab" onclick="showAlertTab('vol')">⚡ Volume</div>
     <div class="tab" onclick="showAlertTab('listing')">📋 Listings</div>
     <div class="tab" onclick="showAlertTab('insider')">🕵️ Insider</div>
@@ -701,7 +707,7 @@ header{
 'use strict';
 
 // ── State ──────────────────────────────────────────────────────────────────
-let currentAlerts = {smart_money:[], volume:[], listings:[], tv_alerts:[], insider:[]};
+let currentAlerts = {smart_money:[], volume:[], listings:[], tv_alerts:[], insider:[], kozaki:[]};
 let currentAlertTab = 'sm';
 let fgChartInstance = null;
 let reportContent = '';
@@ -812,6 +818,7 @@ async function loadStatus() {
     setDaemon('volume',      'vol');
     setDaemon('listings',    'listings');
     setDaemon('insider',     'insider');
+    setDaemon('kozaki',      'kozaki');
   }
 }
 
@@ -1376,7 +1383,7 @@ async function loadAlerts() {
   el.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
   const data = await api('/alerts');
   currentAlerts = data;
-  const total = (data.smart_money||[]).length + (data.volume||[]).length + (data.listings||[]).length + (data.insider||[]).length;
+  const total = (data.smart_money||[]).length + (data.volume||[]).length + (data.listings||[]).length + (data.insider||[]).length + (data.kozaki||[]).length;
   document.getElementById('alertCount').textContent = total;
   renderAlertTab(currentAlertTab);
   // mini alerts in command center
@@ -1387,7 +1394,7 @@ function showAlertTab(tab) {
   currentAlertTab = tab;
   document.querySelectorAll('.tabs .tab').forEach(t => t.classList.remove('active'));
   event.target.classList.add('active');
-  const titles = {sm:'Smart Money Alerts', vol:'Volume Anomalies', listing:'New Listings', insider:'Insider Tracker (Eddie / Maggie / Frank)', tv:'TV Webhook Signals'};
+  const titles = {sm:'Smart Money Alerts', kozaki:'Kozaki — Elite HL Wallets', vol:'Volume Anomalies', listing:'New Listings', insider:'Insider Tracker (Eddie / Maggie / Frank)', tv:'TV Webhook Signals'};
   document.getElementById('alertTabTitle').textContent = titles[tab] || tab;
   renderAlertTab(tab);
 }
@@ -1402,10 +1409,10 @@ function clearAlertTab(tab) {
   localStorage.setItem(`alertCleared_${tab}`, now);
   renderAlertTab(tab);
   // Recount visible alerts
-  const visibleTotal = ['sm','vol','listing','insider'].reduce((n, t) => {
+  const visibleTotal = ['sm','vol','listing','insider','kozaki'].reduce((n, t) => {
     const cleared = _getClearedAt(t);
     const items = t==='sm' ? currentAlerts.smart_money : t==='vol' ? currentAlerts.volume :
-                  t==='listing' ? currentAlerts.listings : currentAlerts.insider;
+                  t==='listing' ? currentAlerts.listings : t==='kozaki' ? currentAlerts.kozaki : currentAlerts.insider;
     return n + (items||[]).filter(a => !cleared || (a.ts||'').substring(0,16).replace('T',' ') > cleared).length;
   }, 0);
   document.getElementById('alertCount').textContent = visibleTotal;
@@ -1416,24 +1423,25 @@ function clearAlertTab(tab) {
 function renderAlertTab(tab) {
   const el = document.getElementById('alertContent');
   let items = [];
-  if (tab === 'sm') items = (currentAlerts.smart_money || []);
-  if (tab === 'vol') items = (currentAlerts.volume || []);
+  if (tab === 'sm')     items = (currentAlerts.smart_money || []);
+  if (tab === 'vol')    items = (currentAlerts.volume || []);
   if (tab === 'listing') items = (currentAlerts.listings || []);
   if (tab === 'insider') items = (currentAlerts.insider || []);
-  if (tab === 'tv') items = (currentAlerts.tv_alerts || []);
+  if (tab === 'tv')     items = (currentAlerts.tv_alerts || []);
+  if (tab === 'kozaki') items = (currentAlerts.kozaki || []);
   // Filter by "cleared before" threshold (localStorage)
   const clearedAt = _getClearedAt(tab);
   if (clearedAt) {
     items = items.filter(a => (a.ts||'').substring(0,16).replace('T',' ') > clearedAt);
   }
   if (!items.length) {
-    // For listing/vol/insider: show scanner status instead of generic "brak alertów"
     const emptyLabels = {
       listing: { icon: '📋', msg: 'Brak nowych listingów', sub: 'Skaner aktywny — nic nowego od ostatniego skanu' },
       vol:     { icon: '⚡', msg: 'Brak anomalii wolumenu', sub: 'Skaner działa, próg nie przekroczony' },
       insider: { icon: '🕵️', msg: 'Brak sygnałów insider', sub: 'Eddie/Maggie/Frank — wg harmonogramu' },
       sm:      { icon: '🐋', msg: 'Brak alertów smart money', sub: '' },
       tv:      { icon: '📡', msg: 'Brak sygnałów TV Webhook', sub: '' },
+      kozaki:  { icon: '🦅', msg: 'Brak zmian kozaków', sub: 'Monitor aktywny — żaden z 20 portfeli nie zmienił pozycji od ostatniego skanu' },
     };
     const lbl = emptyLabels[tab] || { icon: '🔕', msg: 'Brak alertów', sub: '' };
     el.innerHTML = `<div class="empty">
@@ -1444,35 +1452,64 @@ function renderAlertTab(tab) {
     return;
   }
   el.innerHTML = '<div class="alert-list">' + items.map(a => {
-    const icon = tab === 'sm' ? '🐋' : tab === 'vol' ? '⚡' : tab === 'listing' ? '📋' : tab === 'insider' ? '🕵️' : '📡';
     const sideClr = a.side==='LONG'?'var(--green)':a.side==='SHORT'?'var(--red)':'var(--txt2)';
+    let icon, titleHtml, metaHtml;
 
-    // Build title HTML — SM and Insider get rich colored markup, rest is plain escaped text
-    let titleHtml;
     if (tab === 'sm') {
+      icon = '🐋';
       titleHtml = `<span style="color:var(--txt3);font-size:11px">[${escHtml((a.alert_type||'?').replace(/_/g,' '))}]</span> `
                + `<strong style="font-size:14px">${escHtml(a.coin||'?')}</strong> `
+               + (a.side ? `<span style="color:${sideClr};font-weight:700;font-size:13px"> ${escHtml(a.side)}</span>` : '');
+      // Pełny adres w monosapce — klikalny
+      const walletFull = a.wallet || '';
+      const walletHtml = walletFull
+        ? `<span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--cyan);word-break:break-all;cursor:pointer"
+             title="Kliknij aby skopiować" onclick="navigator.clipboard.writeText('${escHtml(walletFull)}')">${escHtml(walletFull)}</span>`
+        : '';
+      metaHtml = [
+        a.notional ? `<span style="color:var(--txt2)">$${Number(a.notional).toLocaleString()}</span>` : '',
+        walletHtml,
+      ].filter(Boolean).join('<span style="color:var(--txt3)"> • </span>');
+
+    } else if (tab === 'kozaki') {
+      icon = '🦅';
+      const atype = (a.alert_type||'?').replace(/_/g,' ');
+      const atypeColor = a.alert_type==='CLUSTER' ? 'var(--yellow)' : a.alert_type==='NEW_POSITION' ? 'var(--green)' : a.alert_type==='CLOSED_POSITION' ? 'var(--txt3)' : 'var(--cyan)';
+      titleHtml = `<span style="color:${atypeColor};font-size:11px;font-weight:600">[${escHtml(atype)}]</span> `
+               + (a.coin ? `<strong style="font-size:14px">${escHtml(a.coin)}</strong> ` : '')
                + (a.side ? `<span style="color:${sideClr};font-weight:700;font-size:13px">${escHtml(a.side)}</span>` : '');
+      const walletFull = a.wallet || '';
+      const walletHtml = walletFull
+        ? `<span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--cyan);word-break:break-all;cursor:pointer"
+             title="Kliknij aby skopiować" onclick="navigator.clipboard.writeText('${escHtml(walletFull)}')">${escHtml(walletFull)}</span>`
+        : '';
+      metaHtml = [
+        a.notional ? `<span style="color:var(--txt2)">$${Number(a.notional).toLocaleString()}</span>` : '',
+        a.label ? `<span style="color:var(--txt3);font-style:italic">${escHtml(a.label)}</span>` : '',
+        walletHtml,
+      ].filter(Boolean).join('<span style="color:var(--border)"> • </span>');
+
     } else if (tab === 'insider') {
+      icon = '🕵️';
       titleHtml = `<strong>${escHtml(a.ticker||'?')}</strong> `
                + (a.direction ? `<span style="color:${sideClr};font-weight:700">${escHtml(a.direction)}</span> ` : '')
                + `<span style="color:var(--txt3);font-size:11px">— ${escHtml(a.reason||'')}</span>`;
+      metaHtml = escHtml(`${a.scout||''} • pewność: ${a.confidence||''}`);
+
     } else {
+      icon = tab === 'vol' ? '⚡' : tab === 'listing' ? '📋' : '📡';
       titleHtml = escHtml(String(a.symbol || a.coin || a.ticker || '—').substring(0,80));
+      metaHtml = escHtml(
+        a.volume_usd ? `Vol: $${Number(a.volume_usd).toLocaleString()}` : a.exchange || a.venue || ''
+      );
     }
 
-    const meta = tab === 'insider'
-      ? `${escHtml(a.scout||'')} • pewność: ${escHtml(String(a.confidence||''))}`
-      : tab === 'sm'
-      ? [a.notional ? `$${Number(a.notional).toLocaleString()}` : '', a.wallet ? (a.wallet.substring(0,8)+'…') : ''].filter(Boolean).join(' • ')
-      : a.volume_usd ? `Vol: $${Number(a.volume_usd).toLocaleString()}`
-      : a.exchange || a.venue || '';
     const time = (a.ts || a.received_at || '').substring(0,16).replace('T',' ');
     return `<div class="alert-item">
       <div class="alert-icon">${icon}</div>
       <div class="alert-body">
         <div class="alert-title">${titleHtml}</div>
-        <div class="alert-meta">${escHtml(String(meta))}</div>
+        <div class="alert-meta">${metaHtml}</div>
       </div>
       <div class="alert-time">${escHtml(time)}</div>
     </div>`;
@@ -1505,6 +1542,10 @@ function renderMiniAlerts(data) {
     ..._filt(data.insider,'insider').map(a => ({
       icon:'🕵️', badge: a.scout||'INSIDER',
       coin: a.ticker||'?', side: a.direction||'', value: a.confidence ? 'conf: '+a.confidence : '', time: a.ts
+    })),
+    ..._filt(data.kozaki,'kozaki').map(a => ({
+      icon:'🦅', badge:(a.alert_type||'KOZAKI').replace(/_/g,' '),
+      coin: a.coin||'?', side: a.side||'', value: a.notional ? '$'+(a.notional>=1e6?(a.notional/1e6).toFixed(1)+'M':a.notional>=1e3?(a.notional/1e3).toFixed(0)+'K':a.notional.toFixed(0)) : '', time: a.ts
     })),
   ].sort((a,b) => (b.time||'').localeCompare(a.time||'')).slice(0,10);
 
