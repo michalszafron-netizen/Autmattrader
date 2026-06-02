@@ -62,6 +62,15 @@ XAI_API_KEY   = os.getenv("XAI_API_KEY", "")
 XAI_BASE      = "https://api.x.ai/v1"
 DEFAULT_MODEL = "grok-3-mini"
 
+try:
+    from scripts.cost_tracker import log_cost as _log_cost
+except ImportError:
+    try:
+        sys.path.insert(0, str(ROOT.parent))
+        from scripts.cost_tracker import log_cost as _log_cost
+    except ImportError:
+        def _log_cost(*a, **kw): return 0.0
+
 # Strip ANSI escape codes from subprocess output.
 # Two forms: with ESC prefix (\x1b[...m) or without (e.g. [1;36m captured by some terminals).
 _ANSI_RE = re.compile(
@@ -360,7 +369,9 @@ def llm_synthesize(ctx: dict, articles: list[dict], model: str = DEFAULT_MODEL) 
                 },
             )
             r.raise_for_status()
-            return r.json()["choices"][0]["message"]["content"].strip()
+            resp_json = r.json()
+            _log_cost("grok", model, resp_json, script="hermes", operation="llm_synthesize")
+            return resp_json["choices"][0]["message"]["content"].strip()
     except httpx.HTTPStatusError as e:
         return f"_[LLM HTTP error {e.response.status_code}: {e.response.text[:200]}]_"
     except Exception as e:

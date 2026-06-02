@@ -424,6 +424,7 @@ header{
   <button class="nav-btn" onclick="showPanel('strategies')" title="Strategies">📈<span class="tooltip">Strategies</span></button>
   <button class="nav-btn" onclick="showPanel('alerts')" title="Alerts" id="navAlerts">🔔<span class="tooltip">Alerts</span><span class="nav-badge" id="navAlertBadge" style="display:none">0</span></button>
   <button class="nav-btn" onclick="showPanel('history')" title="Historia Analiz">📚<span class="tooltip">Historia Analiz</span></button>
+  <button class="nav-btn" onclick="showPanel('costs')" title="Koszty API">💰<span class="tooltip">Koszty API</span></button>
 </nav>
 
 <!-- ── MAIN CONTENT ── -->
@@ -597,6 +598,73 @@ header{
         <span style="color:var(--txt3);font-family:Inter,sans-serif;font-size:12px">← Kliknij raport żeby zobaczyć pełną treść</span>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ═══ PANEL: KOSZTY API ═══ -->
+<div id="panel-costs" class="panel">
+  <div style="display:flex;flex-direction:column;gap:14px;height:calc(100vh - 120px);overflow-y:auto">
+
+    <!-- Totals row -->
+    <div class="card" style="flex-shrink:0">
+      <div class="card-hdr">
+        <span class="card-title">💰 Koszty API</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:11px;color:var(--txt3);font-family:'Space Mono',monospace" id="costsRefreshTime">—</span>
+          <button class="btn btn-outline btn-sm" onclick="loadCosts()">↻</button>
+        </div>
+      </div>
+      <div id="costsTotals" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:4px">
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 14px;text-align:center">
+          <div style="font-size:11px;color:var(--txt3);font-family:'Space Mono',monospace;margin-bottom:4px">DZIŚ</div>
+          <div style="font-size:22px;font-weight:700;font-family:'Space Mono',monospace;color:var(--green)" id="costToday">—</div>
+          <div style="font-size:11px;color:var(--txt3)" id="costTodayCalls">— calls</div>
+        </div>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 14px;text-align:center">
+          <div style="font-size:11px;color:var(--txt3);font-family:'Space Mono',monospace;margin-bottom:4px">7 DNI</div>
+          <div style="font-size:22px;font-weight:700;font-family:'Space Mono',monospace;color:var(--cyan)" id="costWeek">—</div>
+          <div style="font-size:11px;color:var(--txt3)" id="costWeekCalls">— calls</div>
+        </div>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 14px;text-align:center">
+          <div style="font-size:11px;color:var(--txt3);font-family:'Space Mono',monospace;margin-bottom:4px">30 DNI</div>
+          <div style="font-size:22px;font-weight:700;font-family:'Space Mono',monospace;color:var(--orange)" id="costMonth">—</div>
+          <div style="font-size:11px;color:var(--txt3)" id="costMonthCalls">— calls</div>
+        </div>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 14px;text-align:center">
+          <div style="font-size:11px;color:var(--txt3);font-family:'Space Mono',monospace;margin-bottom:4px">ALL TIME</div>
+          <div style="font-size:22px;font-weight:700;font-family:'Space Mono',monospace;color:var(--txt2)" id="costAllTime">—</div>
+          <div style="font-size:11px;color:var(--txt3)" id="costAllTimeCalls">— calls</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;flex:1;min-height:0">
+
+      <!-- Breakdown by script / service -->
+      <div class="card" style="overflow-y:auto">
+        <div class="card-hdr">
+          <span class="card-title">Zestawienie (30 dni)</span>
+          <div style="display:flex;gap:5px">
+            <button class="cat-btn active" id="cTabScript" onclick="setCostView('script')" style="font-size:11px;padding:3px 10px;height:auto">Skrypt</button>
+            <button class="cat-btn" id="cTabService" onclick="setCostView('service')" style="font-size:11px;padding:3px 10px;height:auto">Serwis</button>
+          </div>
+        </div>
+        <div id="costsBreakdown" style="font-size:12px">
+          <div style="color:var(--txt3);text-align:center;padding:30px">Kliknij ↻ aby załadować</div>
+        </div>
+      </div>
+
+      <!-- Recent calls log -->
+      <div class="card" style="overflow-y:auto">
+        <div class="card-hdr">
+          <span class="card-title">Ostatnie wywołania</span>
+        </div>
+        <div id="costsRecent" style="font-size:12px">
+          <div style="color:var(--txt3);text-align:center;padding:30px">Kliknij ↻ aby załadować</div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -781,12 +849,169 @@ function showPanel(id) {
   if (id === 'strategies') loadStrategies();
   if (id === 'market')     loadTVWidget();
   if (id === 'history')    loadHistory();
+  if (id === 'costs')      loadCosts();
   if (id === 'alerts') {
     loadAlerts();
     // Clear sidebar badge when user opens alerts panel
     const badge = document.getElementById('navAlertBadge');
     if (badge) badge.style.display = 'none';
   }
+}
+
+// ── Costs ──────────────────────────────────────────────────────────────────
+let _costsView = 'script';
+let _costsData = null;
+
+function setCostView(v) {
+  _costsView = v;
+  document.getElementById('cTabScript').classList.toggle('active', v === 'script');
+  document.getElementById('cTabService').classList.toggle('active', v === 'service');
+  if (_costsData) renderCostsBreakdown(_costsData.summary);
+}
+
+function fmtUsd(v) {
+  if (!v && v !== 0) return '—';
+  if (v < 0.0001) return '$0.0000';
+  if (v < 0.01)   return '$' + v.toFixed(5);
+  if (v < 1)      return '$' + v.toFixed(4);
+  return '$' + v.toFixed(3);
+}
+
+function fmtTok(n) {
+  if (!n) return '0';
+  if (n >= 1_000_000) return (n/1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000)     return (n/1_000).toFixed(1) + 'k';
+  return n;
+}
+
+const _SVC_COLOR = {
+  'grok': '#00d4ff',
+  'firecrawl': '#f7931a',
+  'deepseek': '#9945ff',
+  'openai': '#00ff88',
+};
+const _SVC_ICON = { 'grok': '🧠', 'firecrawl': '🕷️', 'deepseek': '🔮', 'openai': '🤖' };
+
+async function loadCosts() {
+  const bd  = document.getElementById('costsBreakdown');
+  const rec = document.getElementById('costsRecent');
+  if (bd) bd.innerHTML = '<div style="text-align:center;padding:20px;color:var(--txt3)"><div class="spinner" style="display:inline-block;margin-right:6px"></div>Ładuję...</div>';
+
+  const data = await api('/costs?days=30&limit=80');
+  _costsData = data;
+
+  const ts = document.getElementById('costsRefreshTime');
+  if (ts) ts.textContent = new Date().toLocaleTimeString('pl-PL', {hour:'2-digit',minute:'2-digit'});
+
+  // Totals
+  const tot = data.totals || {};
+  const fill = (id, t) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = t;
+  };
+  fill('costToday',       fmtUsd(tot.today?.cost));
+  fill('costTodayCalls',  (tot.today?.calls || 0) + ' calls');
+  fill('costWeek',        fmtUsd(tot.week?.cost));
+  fill('costWeekCalls',   (tot.week?.calls || 0) + ' calls');
+  fill('costMonth',       fmtUsd(tot.month?.cost));
+  fill('costMonthCalls',  (tot.month?.calls || 0) + ' calls');
+  fill('costAllTime',     fmtUsd(tot.alltime?.cost));
+  fill('costAllTimeCalls',(tot.alltime?.calls || 0) + ' calls');
+
+  renderCostsBreakdown(data.summary || []);
+  renderCostsRecent(data.recent || []);
+}
+
+function renderCostsBreakdown(summary) {
+  const bd = document.getElementById('costsBreakdown');
+  if (!bd) return;
+  if (!summary || !summary.length) {
+    bd.innerHTML = '<div style="color:var(--txt3);text-align:center;padding:20px;font-size:12px">Brak danych — uruchom Daily Alpha żeby zacząć zbierać dane</div>';
+    return;
+  }
+
+  // Group by view key
+  const key = _costsView === 'service' ? 'service' : 'script';
+  const groups = {};
+  for (const r of summary) {
+    const k = r[key] || '?';
+    if (!groups[k]) groups[k] = { calls: 0, in_tok: 0, out_tok: 0, cost: 0, service: r.service };
+    groups[k].calls   += r.calls || 0;
+    groups[k].in_tok  += r.in_tok || 0;
+    groups[k].out_tok += r.out_tok || 0;
+    groups[k].cost    += r.cost || 0;
+  }
+
+  const sorted = Object.entries(groups).sort((a,b) => b[1].cost - a[1].cost);
+  const maxCost = sorted[0]?.[1].cost || 1;
+
+  let html = '<table style="width:100%;border-collapse:collapse">'
+    + '<thead><tr>'
+    + '<th style="padding:5px 8px;text-align:left;font-size:10px;color:var(--txt3);border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.4px">Moduł</th>'
+    + '<th style="padding:5px 8px;text-align:right;font-size:10px;color:var(--txt3);border-bottom:1px solid var(--border);text-transform:uppercase">Calls</th>'
+    + '<th style="padding:5px 8px;text-align:right;font-size:10px;color:var(--txt3);border-bottom:1px solid var(--border);text-transform:uppercase">Tokeny</th>'
+    + '<th style="padding:5px 8px;text-align:right;font-size:10px;color:var(--txt3);border-bottom:1px solid var(--border);text-transform:uppercase">Koszt</th>'
+    + '</tr></thead><tbody>';
+
+  for (const [name, g] of sorted) {
+    const svc = g.service || name;
+    const col  = _SVC_COLOR[svc] || '#a8c0d6';
+    const icon = _SVC_ICON[svc] || '⚡';
+    const pct  = Math.round((g.cost / maxCost) * 100);
+    html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.04)">
+      <td style="padding:7px 8px">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:13px">${icon}</span>
+          <div>
+            <div style="color:#dde6f0;font-size:12px;font-weight:500">${escHtml(name)}</div>
+            <div style="width:${pct}%;max-width:140px;height:3px;background:${col};border-radius:2px;margin-top:3px;opacity:.7"></div>
+          </div>
+        </div>
+      </td>
+      <td style="padding:7px 8px;text-align:right;color:var(--txt2)">${g.calls}</td>
+      <td style="padding:7px 8px;text-align:right;color:var(--txt2);font-family:'Space Mono',monospace;font-size:11px">${fmtTok(g.in_tok+g.out_tok)}</td>
+      <td style="padding:7px 8px;text-align:right;color:${col};font-family:'Space Mono',monospace;font-weight:600">${fmtUsd(g.cost)}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  bd.innerHTML = html;
+}
+
+function renderCostsRecent(recent) {
+  const el = document.getElementById('costsRecent');
+  if (!el) return;
+  if (!recent || !recent.length) {
+    el.innerHTML = '<div style="color:var(--txt3);text-align:center;padding:20px;font-size:12px">Brak logów — wywołania zaczną być logowane od teraz</div>';
+    return;
+  }
+  let html = '<div style="display:flex;flex-direction:column;gap:4px">';
+  for (const r of recent) {
+    const svc = r.service || '?';
+    const col  = _SVC_COLOR[svc] || '#a8c0d6';
+    const icon = _SVC_ICON[svc] || '⚡';
+    const ts = (r.ts || '').substring(0, 16).replace('T',' ');
+    const op = r.operation || r.script || '—';
+    const tok = (r.in_tok || 0) + (r.out_tok || 0);
+    html += `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;display:flex;align-items:center;gap:8px">
+      <span style="font-size:14px;flex-shrink:0">${icon}</span>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap">
+          <span style="color:${col};font-size:12px;font-weight:600">${escHtml(r.script || svc)}</span>
+          <span style="color:var(--txt2);font-size:11px">${escHtml(r.model || '')}</span>
+          <span style="color:var(--txt3);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px" title="${escHtml(op)}">${escHtml(op)}</span>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:2px">
+          <span style="color:var(--txt3);font-size:10px;font-family:'Space Mono',monospace">${ts}</span>
+          <span style="color:var(--txt3);font-size:10px;font-family:'Space Mono',monospace">${fmtTok(tok)} tok</span>
+        </div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="color:${col};font-size:13px;font-weight:700;font-family:'Space Mono',monospace">${fmtUsd(r.cost)}</div>
+      </div>
+    </div>`;
+  }
+  html += '</div>';
+  el.innerHTML = html;
 }
 
 // ── Clock ──────────────────────────────────────────────────────────────────

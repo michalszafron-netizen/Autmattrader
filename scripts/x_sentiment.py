@@ -85,6 +85,15 @@ API_KEY = os.getenv("XAI_API_KEY", "")
 BASE_URL = "https://api.x.ai/v1"
 MODEL = "grok-4.3"
 
+try:
+    from scripts.cost_tracker import log_cost as _log_cost
+except ImportError:
+    try:
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from scripts.cost_tracker import log_cost as _log_cost
+    except ImportError:
+        def _log_cost(*a, **kw): return 0.0
+
 console = Console(highlight=False)
 _SSL_CTX = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
@@ -287,7 +296,9 @@ def query_live(coin: str, hours: int = 24) -> dict:
                 },
             )
             r.raise_for_status()
-            raw = _extract_responses_text(r.json()).strip()
+            resp_json = r.json()
+            _log_cost("grok", MODEL, resp_json, script="x_sentiment", operation=f"query_live {coin}")
+            raw = _extract_responses_text(resp_json).strip()
     except Exception as e:
         console.print(f"[yellow]query_live({coin}) error: {e} — fallback to knowledge[/yellow]")
         return query_knowledge(coin)
@@ -320,7 +331,9 @@ def query_knowledge(coin: str) -> dict:
             },
         )
         r.raise_for_status()
-        raw = r.json()["choices"][0]["message"]["content"].strip()
+        resp_json = r.json()
+        _log_cost("grok", MODEL, resp_json, script="x_sentiment", operation=f"query_knowledge {coin}")
+        raw = resp_json["choices"][0]["message"]["content"].strip()
     try:
         return _parse_json(raw)
     except Exception:
@@ -391,7 +404,9 @@ def verify_engagement(ticker: str) -> dict:
                 },
             )
             r.raise_for_status()
-            raw = _extract_responses_text(r.json()).strip()
+            resp_json = r.json()
+            _log_cost("grok", MODEL, resp_json, script="x_sentiment", operation=f"verify_engagement {ticker}")
+            raw = _extract_responses_text(resp_json).strip()
         return _parse_json(raw)
     except Exception:
         return {}

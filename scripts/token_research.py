@@ -48,6 +48,15 @@ BIRDEYE_KEY   = os.getenv("BIRDEYE_API_KEY", "")
 XAI_KEY        = os.getenv("XAI_API_KEY", "")
 CRYPTOCOMPARE_KEY = os.getenv("CRYPTOCOMPARE_API_KEY", "")
 
+try:
+    from scripts.cost_tracker import log_cost as _log_cost
+except ImportError:
+    try:
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from scripts.cost_tracker import log_cost as _log_cost
+    except ImportError:
+        def _log_cost(*a, **kw): return 0.0
+
 # Chains przetestowane na free tier Etherscan V2 (2026-05-20)
 # DZIALA: ETH, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche, Gnosis, Linea, Blast
 # BRAK: Fantom (250), Cronos (25), zkSync (324), Polygon zkEVM (1101), Scroll (534352)
@@ -804,7 +813,10 @@ def fetch_official_twitter_news(twitter_handle: str, symbol: str) -> list[str]:
             )
         if r.status_code != 200:
             return [f"Grok error {r.status_code}: {r.text[:100]}"]
-        text = _extract_responses_text(r.json()).strip()
+        resp_json = r.json()
+        _log_cost("grok", _GROK_MODEL, resp_json, script="token_research",
+                  operation=f"fetch_official_twitter {twitter_handle or symbol}")
+        text = _extract_responses_text(resp_json).strip()
         if not text:
             return ["Brak odpowiedzi od Grok"]
         lines = [l.strip() for l in text.split("\n") if l.strip() and len(l.strip()) > 8]

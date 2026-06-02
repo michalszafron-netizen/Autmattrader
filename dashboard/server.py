@@ -821,6 +821,23 @@ def strategies():
     return jsonify({'strategies': strategies_list, 'tv_alerts': tv_alerts})
 
 
+@app.route('/api/costs')
+def costs():
+    """API cost tracking: totals + daily breakdown + recent calls."""
+    try:
+        sys.path.insert(0, str(ROOT))
+        from scripts.cost_tracker import get_totals, get_summary, get_recent
+        days = int(request.args.get('days', 30))
+        limit = int(request.args.get('limit', 60))
+        return jsonify({
+            'totals':  get_totals(),
+            'summary': get_summary(days=days),
+            'recent':  get_recent(limit=limit),
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'totals': {}, 'summary': [], 'recent': []})
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
