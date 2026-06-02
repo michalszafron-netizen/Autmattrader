@@ -816,9 +816,57 @@ def strategies():
             'timeframe': '15m',
             'status': 'active',
             'webhook_url': 'https://gladiator-doorbell-handwoven.ngrok-free.dev/tv',
-        }
+        },
+        {
+            'name': 'IMBUS v1',
+            'key': 'imbus-v1',
+            'venue': 'Extended',
+            'mode': 'paper',
+            'symbols': 'Crypto Perp',
+            'timeframe': '15m',
+            'status': 'active',
+            'webhook_url': 'https://gladiator-doorbell-handwoven.ngrok-free.dev/tv',
+        },
     ]
     return jsonify({'strategies': strategies_list, 'tv_alerts': tv_alerts})
+
+
+@app.route('/api/strategies/signals/clear', methods=['DELETE'])
+def clear_strategy_signals():
+    """Permanently delete entries from alerts.jsonl.
+    ?strategy=zl-volatility-v1  → removes that strategy + legacy (no-strategy) entries.
+    ?symbol=RGTI                → combined with strategy, or alone, to filter by symbol.
+    No param                    → clears the whole file.
+    """
+    strategy = request.args.get('strategy', '').strip().lower()
+    symbol   = request.args.get('symbol',   '').strip().upper()
+    if not ALERTS_FILE.exists():
+        return jsonify({'ok': True, 'cleared': 0})
+    try:
+        lines = [l for l in ALERTS_FILE.read_text(encoding='utf-8').splitlines() if l.strip()]
+        if strategy or symbol:
+            kept, cleared = [], 0
+            for line in lines:
+                try:
+                    d          = json.loads(line)
+                    sig_strat  = d.get('strategy', '').lower()
+                    sig_symbol = d.get('symbol',   '').upper()
+                    # Match strategy: explicit match OR legacy entry (no strategy field)
+                    strat_ok = not strategy or sig_strat == strategy or not sig_strat
+                    # Match symbol: exact match or no filter
+                    sym_ok   = not symbol or sig_symbol == symbol
+                    if strat_ok and sym_ok:
+                        cleared += 1
+                    else:
+                        kept.append(line)
+                except Exception:
+                    kept.append(line)  # keep unparseable lines
+        else:
+            kept, cleared = [], len(lines)
+        ALERTS_FILE.write_text('\n'.join(kept) + ('\n' if kept else ''), encoding='utf-8')
+        return jsonify({'ok': True, 'cleared': cleared})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @app.route('/api/research/run', methods=['POST'])
@@ -866,6 +914,110 @@ def research_run():
         'ok':       result['ok'],
         'output':   result.get('output', ''),
         'error':    result.get('error', ''),
+        'markdown': markdown,
+        'file':     new_file,
+    })
+
+
+@app.route('/api/research/claude', methods=['POST'])
+def research_claude():
+    """Deep token research via Claude — the SAME engine as TG Trade.
+
+    Runs `claude --print` in the project dir so Claude has the full CLAUDE.md
+    rules + web search + MCP tools (CoinGecko 404s on new tokens; Claude works
+    around it by reading many sources). Detects the newly saved .md in
+    reports/research/, writes a DB row for the history verdict badge, and
+    returns the markdown. Unifies dashboard research with TG Trade quality.
+    """
+    data  = request.get_json(force=True) or {}
+    query = (data.get('query') or '').strip()
+    chain = (data.get('chain') or 'eth').strip()
+    no_x  = bool(data.get('no_x'))
+    if not query:
+        return jsonify({'ok': False, 'error': 'Brak zapytania'}), 400
+
+    claude = find_claude_exe()
+    if not claude:
+        return jsonify({'ok': False, 'error': 'claude not found w PATH — uruchom dashboard z sesji PS gdzie tgtrade działał choć raz.'}), 500
+
+    today  = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    x_note = 'Pomiń sentyment z X/Twitter (oszczędzaj kredyty).' if no_x else 'Dołącz sentyment z X jeśli się da.'
+    prompt = (
+        f"Zrób GŁĘBOKI research tokena: {query} (sieć: {chain}). "
+        f"Postępuj zgodnie z zasadami z CLAUDE.md (język edukacyjny, kontrakty, strefy UTC+CEST). "
+        f"Zbierz dane z wielu źródeł (CoinGecko, CoinMarketCap, DexScreener, Etherscan/BscScan, "
+        f"strona projektu, on-chain). Pokryj: kontrakty na wszystkich sieciach, dane rynkowe, "
+        f"podaż/tokenomikę, zespół i inwestorów, on-chain/holderów, ryzyka, werdykt. {x_note} "
+        f"Stosuj się do sekcji 'Research tokenów — auto-zapis' z CLAUDE.md: ZAPISZ plik do "
+        f"reports/research/<TICKER>_{chain}_<ca[:10]>_{today}.md ORAZ wpis do DB, "
+        f"a na końcu wyświetl pełny raport w odpowiedzi."
+    )
+
+    research_dir = ROOT / 'reports' / 'research'
+    research_dir.mkdir(parents=True, exist_ok=True)
+    before = {}
+    for f in research_dir.rglob('*.md'):
+        try:
+            before[str(f)] = f.stat().st_mtime
+        except Exception:
+            pass
+
+    cmd = [claude, '--dangerously-skip-permissions', '--print', prompt]
+    try:
+        r = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=720,
+            cwd=str(ROOT), encoding='utf-8', errors='replace',
+            env={**os.environ, 'PYTHONIOENCODING': 'utf-8',
+                 'FORCE_COLOR': '0', 'NO_COLOR': '1'},
+        )
+    except subprocess.TimeoutExpired:
+        return jsonify({'ok': False, 'error': 'Timeout 12 min — dla bardzo dużych raportów użyj TG Trade.'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+    out = strip_ansi(r.stdout or r.stderr or '')
+
+    # Detect the newly written / updated report
+    markdown, new_file = '', ''
+    try:
+        after = {}
+        for f in research_dir.rglob('*.md'):
+            try:
+                after[str(f)] = f.stat().st_mtime
+            except Exception:
+                pass
+        new_files = [f for f in after if f not in before or after[f] > before.get(f, 0)]
+        if new_files:
+            newest   = max(new_files, key=lambda p: after[p])
+            markdown = Path(newest).read_text(encoding='utf-8', errors='replace')
+            new_file = Path(newest).name
+    except Exception:
+        pass
+
+    # Write a DB row so the history list shows the verdict badge + name
+    if markdown:
+        try:
+            sys.path.insert(0, str(ROOT))
+            from scripts.db import DB
+            parts  = Path(new_file).stem.split('_')
+            ticker = parts[0] if parts else query.upper()
+            ch     = parts[1] if len(parts) > 1 else chain
+            mca    = re.search(r'0x[0-9a-fA-F]{40}', markdown)
+            verm   = re.search(r'Werdykt:\**\s*`?\s*([^\s`<]+)', markdown)
+            namem  = re.search(r'#\s*RESEARCH:\s*(.+?)\s*[\(—\-]', markdown)
+            DB().save_token_research(ticker, mca.group(0) if mca else '', {
+                'chain':   ch,
+                'name':    namem.group(1).strip() if namem else '',
+                'verdict': verm.group(1).strip() if verm else '',
+                'summary': markdown[:500],
+            })
+        except Exception:
+            pass
+
+    return jsonify({
+        'ok':       bool(markdown) or r.returncode == 0,
+        'output':   out,
+        'error':    strip_ansi(r.stderr) if (r.returncode != 0 and not markdown) else '',
         'markdown': markdown,
         'file':     new_file,
     })

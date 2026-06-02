@@ -63,7 +63,7 @@ app = Flask(__name__)
 # ── Schema validation ─────────────────────────────────────────────────────────
 
 REQUIRED_FIELDS = {"symbol", "side", "price"}
-VALID_SIDES     = {"long", "short", "buy", "sell", "close", "exit", "update_sl"}
+VALID_SIDES     = {"long", "short", "buy", "sell", "close", "exit", "update_sl", "partial_close"}
 
 def normalize_side(side: str) -> str:
     s = side.lower().strip()
@@ -103,11 +103,25 @@ def log_alert(data: dict, status: str, note: str = "") -> None:
 
 # ── Trade execution ───────────────────────────────────────────────────────────
 
+def symbol_to_ext_market(symbol: str) -> str:
+    """Convert TV ticker to Extended market name.
+    BTCUSDT → BTC-USD  |  BTCUSD → BTC-USD  |  BTC → BTC-USD
+    """
+    s = symbol.upper()
+    for suffix in ("USDT", "BUSD", "PERP", "USD"):
+        if s.endswith(suffix):
+            s = s[:-len(suffix)]
+            break
+    return f"{s}-USD"
+
+
 def detect_venue(symbol: str, data: dict) -> str:
     """Auto-detect venue: alpaca for stocks, hl for crypto/commodities."""
     explicit = data.get("venue", "").lower()
     if explicit in ("alpaca", "hl", "hyperliquid"):
         return explicit
+    if explicit == "extended":
+        return "extended"
     # US stock symbols: 1-5 uppercase letters, no numbers
     import re
     if re.match(r'^[A-Z]{1,5}$', symbol) and symbol not in ("BTC","ETH","SOL","HYPE","SILVER","GOLD"):
@@ -117,13 +131,67 @@ def detect_venue(symbol: str, data: dict) -> str:
 
 def execute_trade(data: dict) -> tuple[bool, str]:
     symbol   = str(data["symbol"]).upper()
-    side     = normalize_side(str(data["side"]))
+    side_raw = str(data["side"]).lower().strip()
+    side     = normalize_side(side_raw) if side_raw != "partial_close" else "partial_close"
     price    = float(data["price"])
     risk_pct = float(data.get("risk_pct", 1))
     stop_pct = float(data.get("stop_pct", 2))
     venue    = detect_venue(symbol, data)
 
     log.info("Venue: %s | Symbol: %s | Side: %s | Price: %s", venue, symbol, side, price)
+
+    # ── EXTENDED path ─────────────────────────────────────────────────────────
+    if venue == "extended":
+        market = symbol_to_ext_market(symbol)
+        log.info("[Extended] Market: %s | Side: %s", market, side)
+
+        if side == "close":
+            cmd = [PY, str(SCRIPTS / "extended_order.py"), "close", market]
+
+        elif side == "partial_close":
+            close_pct = int(float(data.get("close_pct", 100)))
+            if close_pct >= 100:
+                cmd = [PY, str(SCRIPTS / "extended_order.py"), "close", market]
+            else:
+                cmd = [PY, str(SCRIPTS / "extended_order.py"), "partial-close", market, str(close_pct)]
+            log.info("[Extended] Partial close %d%% of %s", close_pct, market)
+
+        elif side == "update_sl":
+            log.info("[Extended] Trailing SL update for %s → SL=%.4f (log only — no cancel/replace yet)",
+                     market, float(data.get("sl_price", 0)))
+            return True, f"update_sl logged for {market} (manual SL management on Extended)"
+
+        else:
+            # Entry order — buy/sell
+            ext_side   = "long" if side in ("long", "buy") else "short"
+            sl_raw     = data.get("sl_price")
+            tp1_raw    = data.get("tp1_price")
+
+            sl_price   = float(sl_raw) if sl_raw else (
+                price * (1 - stop_pct / 100) if ext_side == "long" else price * (1 + stop_pct / 100)
+            )
+            sl_dist    = abs(price - sl_price)
+
+            # Position sizing: risk_pct % of equity / sl_distance = BTC amount
+            # Default equity = 100 USDC (Extended test account); update if querying live
+            equity     = 100.0
+            risk_usd   = equity * risk_pct / 100          # e.g. $1 at 1%
+            amount_btc = max(round(risk_usd / sl_dist, 6), 0.0001) if sl_dist > 0 else 0.0001
+
+            log.info("[Extended] Sizing: equity=$%.0f risk=$%.2f sl_dist=%.2f qty=%.6f",
+                     equity, risk_usd, sl_dist, amount_btc)
+
+            cmd = [PY, str(SCRIPTS / "extended_order.py"), "order",
+                   market, ext_side, str(amount_btc), str(round(price, 2)),
+                   "--sl", str(round(sl_price, 2))]
+            if tp1_raw:
+                cmd += ["--tp", str(round(float(tp1_raw), 2))]
+
+        if TRADING_MODE != "live":
+            return True, f"PAPER mode — would run: {' '.join(cmd)}"
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        success = result.returncode == 0
+        return success, (result.stdout.strip() or result.stderr.strip())
 
     # ── ALPACA path ───────────────────────────────────────────────────────────
     if venue == "alpaca":

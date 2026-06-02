@@ -65,13 +65,29 @@ To jest najważniejsza rzecz do zrozumienia w całym projekcie:
 
 ## 🚀 Szybki start — jak uruchomić
 
-### Wariant A: Pełna sesja tradingowa (Claude + Telegram)
+### Wariant A: Sesja tradingowa (Claude + Telegram)
 
 ```powershell
 tgtrade
 ```
 
-Startuje: Claude Code + Telegram + keepalive + daemony w tle
+Startuje: **Claude Code + Telegram, w JEDNYM oknie** (tym, w którym wpisałeś `tgtrade`).
+To okno **jest** botem — trzymasz otwarte = bot żyje, zamkniesz = bot pada.
+
+Dwie warstwy żywotności (żeby nie trzeba było ręcznie restartować):
+- **Auto-restart po crashu** — gdy Claude wyjdzie/padnie, pętla wstaje sama po 5 s.
+- **Profilaktyczny restart co 2h** — timer w tle ubija sesję co 2 godziny i wstaje na nowo.
+  To lekarstwo na „zwis" (proces żyje, ale przestał odpowiadać po dłuższym idle).
+  Restart gubi kontekst rozmowy Claude — to świadoma cena za pewność, że bot żyje.
+
+Zmiana interwału restartu (np. na 3h): `tgtrade -RestartHours 3`
+
+> ⚠️ **Daemony NIE są już w `tgtrade`.** Volume/Smart Money/Listings działają 24/7
+> na VPS (systemd) — patrz `SERWER.md`. Lokalne uruchamianie ich dublowało tę samą
+> robotę. `tgtrade` robi teraz jedną rzecz: most Claude ↔ Telegram.
+>
+> ⚠️ **Nie odpalaj** `trade` / `DS` / `tg` równocześnie z `tgtrade` na tym samym
+> kompie — profilaktyczny restart ubija `claude.exe` po nazwie i zabiłby też tamte sesje.
 
 ### Wariant B: Tylko lokalnie (bez Telegram)
 
@@ -79,16 +95,17 @@ Startuje: Claude Code + Telegram + keepalive + daemony w tle
 trade
 ```
 
-### Wariant C: Uruchom daemony (skanery w tle)
+### Wariant C: Daemony (skanery w tle) — NORMALNIE NIEPOTRZEBNE
+
+Daemony (Volume / Smart Money / Listings) działają **24/7 na VPS** (systemd) —
+patrz `SERWER.md`. Lokalnie odpalaj je **tylko** gdy VPS leży lub testujesz zmianę:
 
 ```powershell
 bots
 ```
 
-Otwiera 3 okna CMD w tle:
-- Volume Scanner (co 1h)
-- Smart Money Tracker (co 1h)
-- Listings Scanner (co 6h)
+Otwiera 3 okna CMD w tle (Volume 1h, Smart Money 1h, Listings 6h).
+⚠️ Jeśli VPS działa — uruchomienie tego lokalnie dubluje alerty (dwa razy to samo).
 
 ### Hermes działa automatycznie
 
@@ -99,17 +116,33 @@ Jeśli Hermes nie odpowiada:
 hermes gateway start
 ```
 
+### Wariant D: Dashboard webowy (Alpha Desk)
+
+```powershell
+dashboard        # startuje serwer jeśli nie działa + otwiera przeglądarkę
+dashboard -r     # restart serwera (po zmianach w dashboard/server.py)
+```
+
+Flask backend na porcie **5007** (`dashboard/server.py`) + `index.html`. Zakładki:
+ceny, pozycje (4 venue), Fear&Greed, econ calendar, alerty, raporty, OI, edge,
+strategie/sygnały, **research** (token + akcje przez UI), **koszty API** (z `cost_tracker`),
+uruchamianie skryptów i Claude z przeglądarki, wysyłka na Telegram.
+`dashboard/vps_health.py` — healthcheck demonów na VPS.
+
 ---
 
 ## ⌨️ Aliasy PowerShell
 
 | Komenda | Co robi |
 |---|---|
-| `tgtrade` | Claude Code + Telegram + keepalive + daemony (główny tryb) |
-| `trade` | Claude Code lokalnie w trading-ai |
-| `tg` | Claude Code + Telegram z aktualnego folderu |
-| `bots` | Start 3 demonów (volume + smart_money + listings) |
+| `tgtrade` | **Claude + Telegram w jednym oknie** + auto-restart po crashu + profilaktyczny restart co 2h. Główny tryb. |
+| `tgtrade -RestartHours 3` | To samo, ale profilaktyczny restart co 3h zamiast 2h |
+| `trade` | Claude Code lokalnie w trading-ai (bez Telegrama) — ⚠️ nie z `tgtrade` naraz |
+| `tg` | Claude + Telegram z aktualnego folderu — ⚠️ nie z `tgtrade` naraz |
+| `bots` | Start 3 demonów lokalnie (zwykle niepotrzebne — są na VPS) |
 | `daemons` | To samo co `bots` |
+| `dashboard` | **Alpha Desk** — uruchamia serwer (jeśli nie działa) i otwiera `http://127.0.0.1:5007` w przeglądarce |
+| `dashboard -r` | Zabija i restartuje serwer dashboardu (użyj po zmianach w `dashboard/server.py`) |
 | `raport` | Podgląd najnowszego raportu dziś w terminalu |
 | `raport v2` | Konkretna wersja raportu |
 | `hermes` | Otwórz Hermesa w terminalu (TUI) |
@@ -132,7 +165,9 @@ Plik profilu: `C:\Users\markowyy\Documents\WindowsPowerShell\Microsoft.PowerShel
 | **DEX 2** | Extended Exchange (StarkNet) | ✅ LIVE | 115 rynków, ex-Revolut team |
 | **DEX 3** | Solana / Jupiter DEX | ✅ LIVE | Bot wallet: $11 (~AEbGdS6...) |
 | **Stocks** | Alpaca paper trading | ✅ PAPER | US akcje, paper only |
-| **Prices** | Hyperliquid xyz (allMids) | ✅ | Gold, Silver, Oil, SP500, DXY... |
+| **Prices (TradFi)** | Hyperliquid xyz (allMids) | ✅ | Gold, Silver, Oil, SP500, DXY... |
+| **Prices (Crypto)** | CCXT / Binance (public REST) | ✅ | BTC/ETH/SOL/HYPE + 100+ giełd, bez klucza |
+| **Alpha Desk** | Flask dashboard (localhost:5007) | ✅ | `dashboard` → UI kontroli botów |
 | **News** | Firecrawl (coindesk/reuters/theblock) | ✅ | 3 kredyty/run, 1000/miesiąc |
 | **X Sentiment** | Grok xAI live search | ✅ | 15 aktywów, BTC do COCOA |
 | **Whale Tracker** | HL leaderboard top 20 | ✅ | Weekly + daily divergence |
@@ -236,10 +271,23 @@ Start: `bots` w PowerShell
 | Skrypt | Komenda | Co robi |
 |---|---|---|
 | `position_calc.py` | `python scripts/position_calc.py risk SILVER long --risk-pct 2 --entry 75.62 --sl-pct 4` | Kalkulator rozmiaru pozycji |
-| `token_research.py` | `python scripts/token_research.py 0x123...` | Deep research tokena EVM/Solana |
+| `token_research.py` | `python scripts/token_research.py 0x123...` lub `python scripts/token_research.py RICE` | Deep research tokena — EVM (ETH/BSC/Base/Polygon, auto-wykrycie sieci) + Solana, 6 źródeł. `--no-x` = bez X (taniej) |
+| `stock_research.py` | `python scripts/stock_research.py research NVDA` | **NOWE** — research akcji US i PL (Yahoo Finance). `PKN.WA` = Orlen (GPW). `news TSLA --days 14`, `screen --type shorts` |
+| `cost_tracker.py` | importowany (`from scripts.cost_tracker import log_cost`) | **NOWE** — centralne logowanie kosztów API (Grok/DeepSeek/Firecrawl) do tabeli `api_costs`. Podgląd: zakładka kosztów w dashboardzie |
+| `kozaki_monitor.py` | `python scripts/kozaki_monitor.py --daemon --interval 1800` | **NOWE** — monitoring elitarnych portfeli HL z `config/kozaki_watchlist.json`. Alerty: nowa pozycja / zamknięcie / dokupka +25% / klaster 3+ |
+| `ccxt_prices.py` | `python scripts/ccxt_prices.py --brief` | **NOWE** — ceny krypto multi-giełda przez CCXT (Binance default, bez klucza). `--arbitrage BTC`, `--funding` |
 | `db.py` | `python scripts/db.py stats` | Stan bazy danych |
 | `db.py` | `python scripts/db.py context-daily` | Poprzednie daily briefs (dla Claude) |
 | `db.py` | `python scripts/db.py context-trending` | Historia trending tokenów |
+
+### Research — gdzie się zapisuje (konwencja, OBOWIĄZKOWA)
+
+| Co | Folder | Auto-zapis? |
+|---|---|---|
+| Krypto/tokeny (`token_research.py`) | `reports/research/` (root) | TAK — plik MD + wpis w DB (`token_research`). Reguła w CLAUDE.md |
+| Akcje US/PL (`stock_research.py`) | `reports/research/stocks/` | NIE auto — `stock_research.py` sam nie zapisuje, Claude zapisuje ręcznie wg konwencji |
+
+Nazwa pliku tokena: `<TICKER>_<chain>_<ca[:10]>_<YYYY-MM-DD>.md`. Werdykt na końcu: KUPUJ / CIEKAWE / NEUTRALNIE / RYZYKO / UNIKAJ.
 
 ---
 
@@ -445,7 +493,10 @@ trading-ai/
 
 | Problem | Rozwiązanie |
 |---|---|
-| Bot nie odpowiada na Telegram (Claude) | Uruchom `tgtrade` od nowa |
+| Bot nie odpowiada na Telegram (Claude) | Sprawdź czy okno `tgtrade` jest otwarte. Jeśli nie — odpal `tgtrade`. Jeśli tak a milczy — Ctrl+C i wpisz `tgtrade` ponownie (lub poczekaj na profilaktyczny restart co 2h) |
+| `tgtrade` nie otwiera żadnego okna | To poprawne od 2026-05-29 — Claude startuje **w tym samym oknie**, nie rodzi nowego. Stary kod rodził okno-dziecko, które ginęło |
+| Claude „zwiesił się" po dłuższym idle | Profilaktyczny restart co 2h sam to leczy. Chcesz częściej: `tgtrade -RestartHours 1` |
+| `tgtrade` ubił mi inną sesję Claude | Profilaktyczny restart ubija `claude.exe` po nazwie — nie odpalaj `trade`/`tg`/`DS` razem z `tgtrade` na jednym kompie |
 | Hermes (Agent TUI) nie odpowiada | `hermes gateway stop` → `hermes gateway start` |
 | Hermes odpowiada po angielsku | Napisz "odpowiadaj po polsku" — zapamięta na przyszłość |
 | "Provider authentication failed" w Hermesie | Sprawdź `%LOCALAPPDATA%\hermes\.env` — klucz DEEPSEEK_API_KEY |
@@ -470,7 +521,16 @@ trading-ai/
 
 | Data | Co dodano |
 |---|---|
-| 2026-05-25 | **edge_journal.py** — osobisty dziennik obserwacji rynkowych z AI weryfikacją |
+| 2026-06-02 | **cost_tracker.py** — centralne logowanie kosztów API (Grok/DeepSeek/Firecrawl) do tabeli `api_costs`, podgląd w dashboardzie (zakładka koszty) |
+| 2026-06-02 | **token_research.py** rozbudowany — auto-wykrycie sieci (ETH/BSC/Base/Polygon) + Solana, 6 źródeł, lookup po tickerze, `--no-x`, auto-zapis MD+DB |
+| 2026-06-01 | **kozaki_monitor.py** — monitoring elitarnych portfeli HL (`config/kozaki_watchlist.json`), alerty: nowa pozycja / zamknięcie / dokupka +25% / klaster 3+ |
+| 2026-05-30 | **strategie/** — eliksir optimizer (`eliksir_*.py`) + imbus strategy (Pine) — backtest i optymalizacja parametrów; configs/ z best params |
+| 2026-05-26 | **stock_research.py** — research akcji US i PL (GPW `.WA`, np. Orlen `PKN.WA`) przez Yahoo Finance: fundamenty, technika, news, insiders, short interest, analitycy |
+| 2026-05-30 | **Alpha Desk dashboard** (localhost:5007) — 7-panelowy UI kontroli botów, ticker cen, pozycje tabela, strategie, alerty, TG bridge, claude_run (`dashboard` w PS) |
+| 2026-05-30 | **CCXT** — `scripts/ccxt_prices.py`: Binance public REST, BTC/ETH/SOL/HYPE + 24h%, OHLCV; primary source cen w tickerze dashboardu; fallback HL allMids |
+| 2026-05-29 | **Naprawa `tgtrade`** — Claude + Telegram w jednym oknie (zamiast rodzenia 5 okien-dzieci, z których główne ginęło natychmiast mimo `-NoExit`). Diagnoza: bug objawił się po update'ach środowiska |
+| 2026-05-29 | **`tgtrade`: profilaktyczny restart co 2h** (timer Start-Job w tle ubija `claude.exe`, pętla `while` wskrzesza) — leczy „zwis" po dłuższym idle. Param `-RestartHours N` |
+| 2026-05-29 | **`tgtrade` odchudzony** — usunięto z niego keepalive + 3 daemony (są na VPS 24/7, lokalnie tylko dublowały robotę). `keepalive.ps1` i `tgtrade_loop.ps1` osierocone (nieużywane) |
 | 2026-05-25 | **AI Planning Agent** w edge_journal — DeepSeek decyduje które narzędzia są potrzebne per edge |
 | 2026-05-25 | DeepSeek jako domyślny verifier (zamiast Grok) — 10x tańszy, Grok tylko z `--grok` |
 | 2026-05-25 | `_fetch_reference_prices()` — automatyczny delta% HL vs Yahoo Finance (stocks + commodities) |

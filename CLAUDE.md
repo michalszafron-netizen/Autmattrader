@@ -30,6 +30,27 @@ Przy każdej analizie tokenów z X (trending, research, wzmianka w briefie):
 - Jeśli nie znaleziony — napisz gdzie szukać (DexScreener, pump.fun, Birdeye)
 - Nigdy nie zostawiaj tokena bez kontraktu lub wskazówki jak go znaleźć
 
+## Research tokenów — auto-zapis (OBOWIĄZKOWY) ⚠️
+
+Po KAŻDYM researchu pojedynczego tokena — niezależnie czy proszony przez TG Trade, z dashboardu, czy w czacie — ZAWSZE, bez pytania i bez czekania aż użytkownik poprosi:
+
+**1. Zapisz plik** do `reports/research/<TICKER>_<chain>_<ca[:10]>_<YYYY-MM-DD>.md`
+   - `<TICKER>` = symbol wielkimi literami (np. `H`, `GMT`); `<chain>` = `eth`/`bsc`/`base`/`sol`; `<ca[:10]>` = pierwsze 10 znaków adresu kontraktu (np. `0xcf5104D0`); data = dziś UTC.
+   - Plik MUSI zaczynać się: `# RESEARCH: <Nazwa> (<TICKER>) — <data> | <HH:MM UTC / HH:MM CEST>`
+   - Plik MUSI kończyć się linią: `**Werdykt:** <jedno słowo: KUPUJ / CIEKAWE / NEUTRALNIE / RYZYKO / UNIKAJ>`
+
+**2. Zapisz wpis do DB** (zasila historię + badge werdyktu w dashboardzie):
+```python
+import sys; sys.path.insert(0, 'scripts')
+from db import DB
+DB().save_token_research("<TICKER>", "<pełny_kontrakt_0x...>", {
+    "chain": "<chain>", "name": "<Nazwa>", "verdict": "<werdykt>", "summary": "<1-2 zdania>"})
+```
+
+**3. Dopiero potem** wyświetl pełny raport w czacie.
+
+To NIE jest opcjonalne — research bez zapisu pliku i DB = błąd. Kolejność: zbierz dane → zapisz plik → zapisz DB → wyświetl. Folder `reports/research/` to wspólna baza dla TG Trade i dashboardu — oba czytają stąd historię.
+
 ## Czas — zasada obowiązkowa (wszystkie raporty i odpowiedzi)
 
 **ZAWSZE podawaj czas w dwóch strefach: UTC i czas polski (CET/CEST).**

@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import io
 import os
+import re
 import ssl
 import sys
 from datetime import datetime, timezone
@@ -1439,6 +1440,12 @@ def main() -> None:
         return
 
     token = args.token.strip()
+
+    # Normalize EVM contract address: accept bare 40-hex and the common
+    # "dropped-0" typo ("xcf51…" → "0xcf51…"). Leaves tickers / Solana untouched.
+    _m = re.fullmatch(r"(?:0x|x)?([0-9a-fA-F]{40})", token)
+    if _m:
+        token = "0x" + _m.group(1)
 
     # ── Cache check (skip if --force) ──
     if not args.force:
