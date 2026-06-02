@@ -10,20 +10,23 @@ Usage:
     python scripts/tv_webhook.py           # starts on port 5005
     python scripts/tv_webhook.py --port 8080
 
-TV Alert JSON schema (paste into TradingView alert message):
+TV Alert JSON schema — sent automatically by the Pine alert() function:
 {
-  "symbol": "SILVER",
-  "side": "{{strategy.order.action}}",
-  "price": "{{close}}",
-  "time": "{{timenow}}",
-  "strategy": "zl-volatility-v1",
-  "risk_pct": 1,
-  "stop_pct": 2,
-  "tp_r_multiple": 2.5,
-  "leverage": 5
+  "symbol":    "RGTI",
+  "side":      "buy",          ← buy/sell/close/update_sl (set by Pine alert())
+  "price":     12.45,          ← entry price ({{close}} at signal bar)
+  "sl_price":  11.23,          ← ATR-based SL calculated by strategy (PREFERRED)
+  "tp_price":  14.56,          ← ATR-based TP calculated by strategy (PREFERRED)
+  "strategy":  "zl-volatility-v1",
+  "risk_pct":  1                ← % of equity to risk per trade
 }
 
-side values: "buy"/"long" for long, "sell"/"short" for short, "close" to close.
+IMPORTANT — TV alert condition must be: "alert() function calls only"
+Do NOT use "Order fills and alert()" — it fires duplicate events.
+
+Legacy fallback (no sl_price): uses "stop_pct" field (static %, less accurate).
+side values: buy/long → open long  |  sell/short → open short
+             close → close position |  update_sl → log only (bracket manages SL)
 """
 
 from __future__ import annotations
@@ -60,7 +63,7 @@ app = Flask(__name__)
 # ── Schema validation ─────────────────────────────────────────────────────────
 
 REQUIRED_FIELDS = {"symbol", "side", "price"}
-VALID_SIDES     = {"long", "short", "buy", "sell", "close", "exit"}
+VALID_SIDES     = {"long", "short", "buy", "sell", "close", "exit", "update_sl"}
 
 def normalize_side(side: str) -> str:
     s = side.lower().strip()
@@ -126,31 +129,63 @@ def execute_trade(data: dict) -> tuple[bool, str]:
     if venue == "alpaca":
         if side == "close":
             cmd = [PY, str(SCRIPTS / "alpaca_executor.py"), "close", symbol]
+
+        elif side == "update_sl":
+            # Trailing stop update — bracket order manages SL automatically on Alpaca
+            log.info("[Alpaca] Trailing SL update for %s → SL now %.4f (bracket handles it)",
+                     symbol, float(data.get("sl_price", 0)))
+            return True, f"update_sl logged — SL={data.get('sl_price')} (bracket order self-manages on Alpaca)"
+
         else:
             alpaca_side = "buy" if side == "long" else "sell"
-            # Risk sizing: account equity × risk_pct% / stop_distance
+
+            # ── Equity for position sizing ─────────────────────────────────
             try:
                 import subprocess as sp2
                 acct_r = sp2.run([PY, str(SCRIPTS / "alpaca_executor.py"), "positions"],
                                   capture_output=True, text=True, timeout=15)
-                equity = 100000.0  # fallback
+                equity = 100000.0
                 for line in acct_r.stdout.splitlines():
                     if "Equity:" in line:
-                        import re
-                        m = re.search(r'Equity:\s*\$([0-9,.]+)', line)
+                        import re as _re
+                        m = _re.search(r'Equity:\s*\$([0-9,.]+)', line)
                         if m:
-                            equity = float(m.group(1).replace(",",""))
+                            equity = float(m.group(1).replace(",", ""))
                             break
             except Exception:
                 equity = 100000.0
 
-            stop_price = price * (1 - stop_pct/100) if side == "long" else price * (1 + stop_pct/100)
-            risk_usd = equity * risk_pct / 100
+            # ── SL price — prefer Pine's ATR-based value over static stop_pct ──
+            sl_price_raw = data.get("sl_price")
+            tp_price_raw = data.get("tp_price")
+
+            if sl_price_raw:
+                # Pine Script passed actual ATR-based SL → use it directly
+                stop_price = float(sl_price_raw)
+                log.info("[Alpaca] Using Pine ATR SL: %.4f (entry=%.4f)", stop_price, price)
+            else:
+                # Fallback: static stop_pct (less accurate)
+                stop_price = price * (1 - stop_pct/100) if side == "long" else price * (1 + stop_pct/100)
+                log.info("[Alpaca] Using static stop_pct=%.1f%%: SL=%.4f", stop_pct, stop_price)
+
             stop_dist = abs(price - stop_price)
+            risk_usd  = equity * risk_pct / 100
             qty = max(round(risk_usd / stop_dist, 0), 1) if stop_dist > 0 else 1
             qty = int(qty)
-            log.info("Alpaca sizing: equity=$%.0f risk=$%.2f qty=%d", equity, risk_usd, qty)
-            cmd = [PY, str(SCRIPTS / "alpaca_executor.py"), "order", symbol, alpaca_side, str(qty), str(round(price, 2))]
+            log.info("Alpaca bracket sizing: equity=$%.0f risk_usd=$%.2f stop_dist=%.4f qty=%d",
+                     equity, risk_usd, stop_dist, qty)
+
+            # ── Use bracket order when SL available (entry + SL + TP in one) ──
+            if sl_price_raw:
+                cmd = [PY, str(SCRIPTS / "alpaca_executor.py"),
+                       "bracket", symbol, alpaca_side, str(qty),
+                       "--sl", str(round(stop_price, 4))]
+                if tp_price_raw:
+                    cmd += ["--tp", str(round(float(tp_price_raw), 4))]
+            else:
+                # Fallback: plain limit order (no SL/TP on broker)
+                cmd = [PY, str(SCRIPTS / "alpaca_executor.py"),
+                       "order", symbol, alpaca_side, str(qty), str(round(price, 2))]
 
         if TRADING_MODE != "live":
             return True, f"PAPER mode — would run: {' '.join(cmd)}"

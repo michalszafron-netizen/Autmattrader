@@ -106,6 +106,33 @@ def place_order(symbol: str, side: str, qty: float, price: float | None = None) 
     return r.json()
 
 
+def bracket_order(symbol: str, side: str, qty: float,
+                  sl_price: float, tp_price: float | None = None) -> dict:
+    """Place a bracket order: market entry + stop-loss + optional take-profit.
+    Alpaca handles SL/TP execution automatically — no monitoring needed.
+
+    side: "buy" (long entry) or "sell" (short entry)
+    sl_price: stop-loss trigger price
+    tp_price: take-profit limit price (optional)
+    """
+    payload: dict = {
+        "symbol":        symbol.upper(),
+        "qty":           str(int(max(qty, 1))),
+        "side":          side,
+        "type":          "market",
+        "time_in_force": "gtc",
+        "order_class":   "bracket",
+        "stop_loss":     {"stop_price": str(round(sl_price, 4))},
+    }
+    if tp_price:
+        payload["take_profit"] = {"limit_price": str(round(tp_price, 4))}
+
+    with client() as c:
+        r = c.post(f"{BASE_URL}/v2/orders", json=payload)
+    r.raise_for_status()
+    return r.json()
+
+
 def close_position(symbol: str) -> dict:
     with client() as c:
         r = c.delete(f"{BASE_URL}/v2/positions/{symbol}")
@@ -222,8 +249,18 @@ def main() -> None:
     cl = sub.add_parser("close")
     cl.add_argument("symbol")
 
-    cn = sub.add_parser("cancel")
-    cn.add_argument("order_id")
+    cl = sub.add_parser("cancel")  # renamed to avoid clash with close
+    cl.add_argument("order_id")
+
+    br = sub.add_parser("bracket",
+         help="Bracket order: market entry + SL stop + optional TP limit")
+    br.add_argument("symbol")
+    br.add_argument("side", choices=["long", "short", "buy", "sell"])
+    br.add_argument("qty",      type=float)
+    br.add_argument("--sl",     type=float, required=True, metavar="STOP_PRICE",
+                    help="Stop-loss trigger price")
+    br.add_argument("--tp",     type=float, default=None, metavar="LIMIT_PRICE",
+                    help="Take-profit limit price (optional)")
 
     args = p.parse_args()
 
@@ -259,6 +296,24 @@ def main() -> None:
         result = close_position(args.symbol.upper())
         console.print(f"[green]Position closed[/green] | {args.symbol.upper()} {side} {qty} | {result.get('status','done')}")
         print(f"Position closed — {args.symbol.upper()} {qty} {side}")
+
+    elif args.cmd == "bracket":
+        side = "buy" if args.side in ("long", "buy") else "sell"
+        result = bracket_order(args.symbol.upper(), side, args.qty,
+                               sl_price=args.sl, tp_price=args.tp)
+        oid    = result.get("id", "?")[:12]
+        status = result.get("status", "?")
+        legs   = result.get("legs", [])
+        sl_leg = next((l for l in legs if l.get("type") == "stop"), {})
+        tp_leg = next((l for l in legs if l.get("type") == "limit"), {})
+        console.print(
+            f"[green]Bracket order placed[/green] [{MODE}] | "
+            f"{args.symbol.upper()} {side.upper()} {int(args.qty)} | "
+            f"SL @ ${args.sl:.4f}"
+            + (f" | TP @ ${args.tp:.4f}" if args.tp else "")
+            + f" | status={status} | OID={oid}"
+        )
+        print(f"Bracket placed — OID: {result.get('id','')} SL={args.sl} TP={args.tp or 'none'}")
 
     elif args.cmd == "cancel":
         ok = cancel_order(args.order_id)
