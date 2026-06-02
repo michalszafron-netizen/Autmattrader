@@ -821,6 +821,124 @@ def strategies():
     return jsonify({'strategies': strategies_list, 'tv_alerts': tv_alerts})
 
 
+@app.route('/api/research/run', methods=['POST'])
+def research_run():
+    """Run token_research.py or stock_research.py; return stdout + new .md file content."""
+    data   = request.get_json(force=True) or {}
+    script = data.get('script', '').strip()
+    args   = [str(a) for a in (data.get('args') or [])]
+
+    if script not in {'token_research.py', 'stock_research.py'}:
+        return jsonify({'ok': False, 'error': 'Not allowed'}), 400
+
+    research_dir = ROOT / 'reports' / 'research'
+    research_dir.mkdir(parents=True, exist_ok=True)
+
+    # Snapshot existing files before run
+    before = {}
+    for f in research_dir.rglob('*.md'):
+        try:
+            before[str(f)] = f.stat().st_mtime
+        except Exception:
+            pass
+
+    result = run_script(script, args, timeout=360)
+
+    # Find newly created or updated .md files
+    markdown = ''
+    new_file = ''
+    try:
+        after = {}
+        for f in research_dir.rglob('*.md'):
+            try:
+                after[str(f)] = f.stat().st_mtime
+            except Exception:
+                pass
+        new_files = [f for f in after if f not in before or after[f] > before.get(f, 0)]
+        if new_files:
+            newest = max(new_files, key=lambda p: after[p])
+            markdown = Path(newest).read_text(encoding='utf-8', errors='replace')
+            new_file = Path(newest).name
+    except Exception:
+        pass
+
+    return jsonify({
+        'ok':       result['ok'],
+        'output':   result.get('output', ''),
+        'error':    result.get('error', ''),
+        'markdown': markdown,
+        'file':     new_file,
+    })
+
+
+@app.route('/api/research/history')
+def research_history():
+    """List all token + stock research reports from the filesystem."""
+    research_dir = ROOT / 'reports' / 'research'
+    tokens, stocks = [], []
+
+    if research_dir.exists():
+        # Token reports: *.md directly in research_dir
+        for f in sorted(research_dir.glob('*.md'), key=lambda x: x.stat().st_mtime, reverse=True)[:60]:
+            parts = f.stem.split('_')
+            tokens.append({
+                'filename': f.name,
+                'ticker':   parts[0] if parts else '?',
+                'chain':    parts[1] if len(parts) > 1 else '?',
+                'date':     parts[-1] if parts else '?',
+                'mtime':    f.stat().st_mtime,
+            })
+        # Stock reports: reports/research/stocks/*.md
+        stocks_dir = research_dir / 'stocks'
+        if stocks_dir.exists():
+            for f in sorted(stocks_dir.glob('*.md'), key=lambda x: x.stat().st_mtime, reverse=True)[:60]:
+                parts = f.stem.split('_')
+                stocks.append({
+                    'filename': f.name,
+                    'ticker':   parts[0] if parts else '?',
+                    'exch':     parts[1] if len(parts) > 1 else '',
+                    'date':     parts[-1] if parts else '?',
+                    'mtime':    f.stat().st_mtime,
+                })
+
+    # Enrich tokens with DB verdict/name
+    db_map = {}
+    try:
+        rows = db_query('SELECT ticker, chain, verdict, name FROM token_research ORDER BY ts DESC') or []
+        for r in rows:
+            k = f"{r['ticker']}_{r['chain']}"
+            if k not in db_map:
+                db_map[k] = r
+    except Exception:
+        pass
+    for t in tokens:
+        meta = db_map.get(f"{t['ticker']}_{t['chain']}", {})
+        t['verdict'] = meta.get('verdict', '')
+        t['name']    = meta.get('name', '')
+
+    return jsonify({'tokens': tokens, 'stocks': stocks})
+
+
+@app.route('/api/research/file')
+def research_file():
+    """Read a research .md file. ?f=filename&dir=stocks|''"""
+    fname  = request.args.get('f', '').strip()
+    subdir = request.args.get('dir', '').strip()
+
+    if not fname or '..' in fname or fname.startswith('/') or '\\' in fname:
+        return jsonify({'error': 'Bad filename'}), 400
+    if not fname.endswith('.md'):
+        return jsonify({'error': 'Only .md files'}), 400
+
+    base = ROOT / 'reports' / 'research'
+    filepath = (base / 'stocks' / fname) if subdir == 'stocks' else (base / fname)
+    if not filepath.exists():
+        return jsonify({'error': 'Not found'}), 404
+
+    content = filepath.read_text(encoding='utf-8', errors='replace')
+    return jsonify({'content': content, 'filename': fname})
+
+
 @app.route('/api/costs')
 def costs():
     """API cost tracking: totals + daily breakdown + recent calls."""

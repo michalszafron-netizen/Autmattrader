@@ -236,6 +236,32 @@ header{
 .report-preview{font-size:14px;color:var(--txt);line-height:1.5;
   overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 
+/* ── RESEARCH PANEL ── */
+.research-form{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.research-input{
+  background:var(--bg);border:1px solid var(--border2);border-radius:8px;
+  padding:9px 12px;color:var(--txt);font-family:'Space Mono',monospace;font-size:13px;
+  width:100%;outline:none;transition:border-color .15s;
+}
+.research-input:focus{border-color:var(--cyan)}
+.research-input::placeholder{color:var(--txt3)}
+.research-select{
+  background:var(--bg3);border:1px solid var(--border2);border-radius:8px;
+  padding:7px 10px;color:var(--txt);font-family:'Space Mono',monospace;font-size:12px;
+  width:100%;outline:none;cursor:pointer;
+}
+.research-history-item{
+  background:var(--bg3);border:1px solid var(--border);border-radius:8px;
+  padding:9px 12px;cursor:pointer;transition:all .15s;margin-bottom:5px;
+}
+.research-history-item:hover{border-color:var(--cyan);background:var(--cyan-dim)}
+.research-history-item.active{border-color:var(--cyan);background:var(--cyan-dim)}
+.research-verdict{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:600;letter-spacing:.3px}
+.verdict-good{background:rgba(0,255,136,0.15);color:var(--green)}
+.verdict-neutral{background:rgba(255,211,42,0.15);color:var(--yellow)}
+.verdict-bad{background:rgba(255,71,87,0.15);color:var(--red)}
+.verdict-unknown{background:rgba(255,255,255,0.07);color:var(--txt3)}
+
 /* ── MARKDOWN REPORT RENDERER ── */
 .md-report{font-family:'Inter',sans-serif;font-size:13px;line-height:1.72;color:var(--txt);overflow-y:auto;max-height:calc(100vh - 200px)}
 .md-report h1{font-size:16px;color:var(--cyan);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border2);padding-bottom:7px;margin:18px 0 10px}
@@ -424,6 +450,7 @@ header{
   <button class="nav-btn" onclick="showPanel('strategies')" title="Strategies">📈<span class="tooltip">Strategies</span></button>
   <button class="nav-btn" onclick="showPanel('alerts')" title="Alerts" id="navAlerts">🔔<span class="tooltip">Alerts</span><span class="nav-badge" id="navAlertBadge" style="display:none">0</span></button>
   <button class="nav-btn" onclick="showPanel('history')" title="Historia Analiz">📚<span class="tooltip">Historia Analiz</span></button>
+  <button class="nav-btn" onclick="showPanel('research')" title="Research">🔬<span class="tooltip">Research</span></button>
   <button class="nav-btn" onclick="showPanel('costs')" title="Koszty API">💰<span class="tooltip">Koszty API</span></button>
 </nav>
 
@@ -598,6 +625,117 @@ header{
         <span style="color:var(--txt3);font-family:Inter,sans-serif;font-size:12px">← Kliknij raport żeby zobaczyć pełną treść</span>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ═══ PANEL: RESEARCH ═══ -->
+<div id="panel-research" class="panel">
+  <div class="grid2" style="height:calc(100vh - 120px)">
+
+    <!-- LEFT: form + history -->
+    <div class="card" style="overflow-y:auto;display:flex;flex-direction:column;gap:0">
+      <div class="card-hdr" style="flex-wrap:wrap;gap:8px">
+        <span class="card-title">🔬 Research</span>
+        <div style="display:flex;gap:5px;align-items:center">
+          <button class="cat-btn active" id="rTabToken"  onclick="switchResearchTab('token')"  style="font-size:11px;padding:3px 10px;height:auto">🪙 Token</button>
+          <button class="cat-btn"        id="rTabStock"  onclick="switchResearchTab('stock')"  style="font-size:11px;padding:3px 10px;height:auto">📈 Stocks/TradFi</button>
+          <button class="btn btn-outline btn-sm" onclick="loadResearchHistory()">↻</button>
+        </div>
+      </div>
+
+      <!-- TOKEN FORM -->
+      <div id="rFormToken" style="padding:0 4px 10px">
+        <div class="research-form">
+          <div>
+            <div style="font-size:11px;color:var(--txt3);margin-bottom:4px;font-family:'Space Mono',monospace">ADRES KONTRAKTU LUB TICKER</div>
+            <input id="rTokenInput" class="research-input" placeholder="0x... albo HYPE, AGT, RICE, NIL..." />
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>
+              <div style="font-size:11px;color:var(--txt3);margin-bottom:4px;font-family:'Space Mono',monospace">SIEĆ</div>
+              <select id="rTokenChain" class="research-select">
+                <option value="">auto-detect</option>
+                <option value="eth">Ethereum (ETH)</option>
+                <option value="bsc">BNB Chain (BSC)</option>
+                <option value="sol">Solana</option>
+                <option value="base">Base</option>
+                <option value="polygon">Polygon</option>
+                <option value="arbitrum">Arbitrum</option>
+              </select>
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:6px;padding-bottom:2px">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--txt2)">
+                <input type="checkbox" id="rTokenNoX" style="accent-color:var(--cyan)">
+                <span>Bez X search<br><span style="font-size:10px;color:var(--txt3)">(oszczędza Grok)</span></span>
+              </label>
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="runTokenResearch()" id="btnRunToken" style="width:100%;height:38px;font-size:13px">
+            🔍 Research Token
+          </button>
+        </div>
+
+        <!-- Token history -->
+        <div style="border-top:1px solid var(--border);padding-top:10px">
+          <div style="font-size:11px;color:var(--txt3);font-family:'Space Mono',monospace;margin-bottom:8px">HISTORIA RESEARCHY</div>
+          <div id="rTokenHistory">
+            <div style="color:var(--txt3);font-size:12px;text-align:center;padding:12px">Kliknij ↻ aby załadować</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STOCK FORM -->
+      <div id="rFormStock" style="padding:0 4px 10px;display:none">
+        <div class="research-form">
+          <div>
+            <div style="font-size:11px;color:var(--txt3);margin-bottom:4px;font-family:'Space Mono',monospace">TICKER(Y) — np. NVDA TSLA PKN.WA</div>
+            <input id="rStockInput" class="research-input" placeholder="NVDA  |  NVDA TSLA  |  PKN.WA CDR.WA" />
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>
+              <div style="font-size:11px;color:var(--txt3);margin-bottom:4px;font-family:'Space Mono',monospace">TRYB</div>
+              <select id="rStockMode" class="research-select" onchange="updateStockOptions()">
+                <option value="research">research — pełna analiza</option>
+                <option value="news">news — wiadomości + sentiment</option>
+                <option value="screen">screen — scanner setupów</option>
+              </select>
+            </div>
+            <div id="rStockExtra">
+              <!-- filled by updateStockOptions() -->
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="runStockResearch()" id="btnRunStock" style="width:100%;height:38px;font-size:13px;background:linear-gradient(135deg,rgba(247,147,26,0.3),rgba(247,147,26,0.15));border-color:var(--orange);color:var(--orange)">
+            📈 Analyze
+          </button>
+        </div>
+
+        <!-- Stock history -->
+        <div style="border-top:1px solid var(--border);padding-top:10px">
+          <div style="font-size:11px;color:var(--txt3);font-family:'Space Mono',monospace;margin-bottom:8px">HISTORIA RESEARCHY</div>
+          <div id="rStockHistory">
+            <div style="color:var(--txt3);font-size:12px;text-align:center;padding:12px">Kliknij ↻ aby załadować</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: report viewer -->
+    <div class="card" style="overflow-y:auto;display:flex;flex-direction:column">
+      <div class="card-hdr">
+        <span class="card-title" id="rDetailTitle">Wybierz raport z historii lub uruchom nowy</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-size:11px;color:var(--txt3);font-family:'Space Mono',monospace" id="rDetailMeta"></span>
+          <button class="btn btn-outline btn-sm" id="btnRCopy" onclick="copyResearchReport()" style="display:none">📋 Kopiuj</button>
+        </div>
+      </div>
+      <div id="rDetail" class="md-report" style="flex:1;padding:4px 0">
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;color:var(--txt3)">
+          <div style="font-size:36px">🔬</div>
+          <div style="font-size:13px;text-align:center">Wpisz adres kontraktu lub ticker<br>i kliknij Research</div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -850,11 +988,234 @@ function showPanel(id) {
   if (id === 'market')     loadTVWidget();
   if (id === 'history')    loadHistory();
   if (id === 'costs')      loadCosts();
+  if (id === 'research')   { updateStockOptions(); loadResearchHistory(); }
   if (id === 'alerts') {
     loadAlerts();
     // Clear sidebar badge when user opens alerts panel
     const badge = document.getElementById('navAlertBadge');
     if (badge) badge.style.display = 'none';
+  }
+}
+
+// ── Research ───────────────────────────────────────────────────────────────
+let _researchTab  = 'token';
+let _researchReport = '';
+
+function switchResearchTab(tab) {
+  _researchTab = tab;
+  document.getElementById('rTabToken').classList.toggle('active', tab === 'token');
+  document.getElementById('rTabStock').classList.toggle('active', tab === 'stock');
+  document.getElementById('rFormToken').style.display = tab === 'token' ? '' : 'none';
+  document.getElementById('rFormStock').style.display = tab === 'stock' ? '' : 'none';
+}
+
+function updateStockOptions() {
+  const mode = document.getElementById('rStockMode').value;
+  const extra = document.getElementById('rStockExtra');
+  if (mode === 'news') {
+    extra.innerHTML = `<div>
+      <div style="font-size:11px;color:var(--txt3);margin-bottom:4px;font-family:'Space Mono',monospace">ZAKRES DNI</div>
+      <select id="rStockDays" class="research-select">
+        <option value="7">7 dni</option>
+        <option value="14">14 dni</option>
+        <option value="30">30 dni</option>
+      </select>
+    </div>`;
+  } else if (mode === 'screen') {
+    extra.innerHTML = `<div>
+      <div style="font-size:11px;color:var(--txt3);margin-bottom:4px;font-family:'Space Mono',monospace">TYP SCANU</div>
+      <select id="rStockScreenType" class="research-select">
+        <option value="momentum">Momentum</option>
+        <option value="shorts">Short Squeeze</option>
+        <option value="breakout">Breakout</option>
+      </select>
+    </div>`;
+  } else {
+    extra.innerHTML = `<div style="display:flex;align-items:flex-end;padding-bottom:2px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--txt2)">
+        <input type="checkbox" id="rStockPL" style="accent-color:var(--orange)">
+        <span>Polish GPW<br><span style="font-size:10px;color:var(--txt3)">(WIG, PKN.WA...)</span></span>
+      </label>
+    </div>`;
+  }
+}
+
+function _researchBtnState(btnId, loading) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  if (loading) {
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner" style="display:inline-block;margin-right:6px"></div>Running…';
+  } else {
+    btn.disabled = false;
+    btn.innerHTML = btnId === 'btnRunToken' ? '🔍 Research Token' : '📈 Analyze';
+  }
+}
+
+function _showResearchResult(data, label) {
+  const det = document.getElementById('rDetail');
+  const title = document.getElementById('rDetailTitle');
+  const meta  = document.getElementById('rDetailMeta');
+  const btn   = document.getElementById('btnRCopy');
+
+  if (data.markdown) {
+    // Prefer saved .md file (richer formatting)
+    det.innerHTML = renderMd(data.markdown);
+    _researchReport = data.markdown;
+  } else if (data.content) {
+    det.innerHTML = renderMd(data.content);
+    _researchReport = data.content;
+  } else if (data.output) {
+    det.innerHTML = `<pre style="white-space:pre-wrap;font-size:12px;font-family:'Space Mono',monospace;color:var(--txt);line-height:1.7">${escHtml(stripAnsi(data.output))}</pre>`;
+    _researchReport = data.output;
+  } else {
+    det.innerHTML = `<div style="color:var(--red);padding:12px">${escHtml(data.error || 'Brak danych')}</div>`;
+    _researchReport = '';
+  }
+
+  title.textContent = label;
+  meta.textContent  = data.file || '';
+  btn.style.display = _researchReport ? 'inline-flex' : 'none';
+}
+
+async function runTokenResearch() {
+  const input = document.getElementById('rTokenInput').value.trim();
+  if (!input) { alert('Podaj adres kontraktu lub ticker'); return; }
+
+  _researchBtnState('btnRunToken', true);
+  const args = [input];
+  const chain = document.getElementById('rTokenChain').value;
+  if (chain) args.push('--chain', chain);
+  if (document.getElementById('rTokenNoX').checked) args.push('--no-x');
+
+  const det = document.getElementById('rDetail');
+  det.innerHTML = `<div style="display:flex;align-items:center;gap:10px;padding:20px;color:var(--txt2)">
+    <div class="spinner"></div>
+    <span>Pobieranie danych dla <strong>${escHtml(input)}</strong>… (może zająć 1-2 min)</span>
+  </div>`;
+
+  const data = await fetch('/api/research/run', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({script: 'token_research.py', args}),
+  }).then(r => r.json()).catch(e => ({ok: false, error: String(e)}));
+
+  _researchBtnState('btnRunToken', false);
+  _showResearchResult(data, `Token: ${input.toUpperCase()}`);
+  loadResearchHistory();  // refresh history list
+}
+
+async function runStockResearch() {
+  const input = document.getElementById('rStockInput').value.trim();
+  const mode  = document.getElementById('rStockMode').value;
+  const args  = [mode];
+
+  if (mode === 'screen') {
+    const t = document.getElementById('rStockScreenType');
+    if (t) args.push('--type', t.value);
+    const pl = document.getElementById('rStockPL');
+    if (pl && pl.checked) args.push('--pl');
+  } else {
+    if (!input) { alert('Podaj ticker(y)'); return; }
+    input.split(/[\s,]+/).filter(Boolean).forEach(t => args.push(t));
+    if (mode === 'news') {
+      const d = document.getElementById('rStockDays');
+      if (d) args.push('--days', d.value);
+    }
+  }
+
+  _researchBtnState('btnRunStock', true);
+  const det = document.getElementById('rDetail');
+  const label = mode === 'screen' ? 'Stock Screen' : `Stock: ${input.toUpperCase()}`;
+  det.innerHTML = `<div style="display:flex;align-items:center;gap:10px;padding:20px;color:var(--txt2)">
+    <div class="spinner"></div>
+    <span>Analiza <strong>${escHtml(mode === 'screen' ? 'screener' : input)}</strong>… (30-60 sek)</span>
+  </div>`;
+
+  const data = await fetch('/api/research/run', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({script: 'stock_research.py', args}),
+  }).then(r => r.json()).catch(e => ({ok: false, error: String(e)}));
+
+  _researchBtnState('btnRunStock', false);
+  _showResearchResult(data, label);
+  loadResearchHistory();
+}
+
+async function loadResearchHistory() {
+  const data = await api('/research/history');
+
+  // Token history
+  const tokEl = document.getElementById('rTokenHistory');
+  if (tokEl) {
+    if (!data.tokens || !data.tokens.length) {
+      tokEl.innerHTML = '<div style="color:var(--txt3);font-size:12px;text-align:center;padding:8px">Brak historii</div>';
+    } else {
+      tokEl.innerHTML = data.tokens.map(t => {
+        const v = t.verdict || '';
+        const vClass = /polec|kup|ciekaw|bull/i.test(v) ? 'verdict-good'
+                     : /unikaj|ryzyko|nie|bad|bear/i.test(v) ? 'verdict-bad'
+                     : v ? 'verdict-neutral' : 'verdict-unknown';
+        const vLabel = v || '—';
+        const name = t.name ? `<span style="color:var(--txt2);font-size:11px"> — ${escHtml(t.name)}</span>` : '';
+        return `<div class="research-history-item" onclick="loadResearchFile('${escHtml(t.filename)}','')">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
+            <div>
+              <span style="color:var(--cyan);font-weight:600;font-size:13px">${escHtml(t.ticker)}</span>
+              <span style="color:var(--txt3);font-size:11px;font-family:'Space Mono',monospace"> ${escHtml(t.chain)}</span>
+              ${name}
+            </div>
+            <span class="research-verdict ${vClass}">${escHtml(vLabel)}</span>
+          </div>
+          <div style="color:var(--txt3);font-size:10px;font-family:'Space Mono',monospace;margin-top:3px">${escHtml(t.date)}</div>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  // Stock history
+  const stkEl = document.getElementById('rStockHistory');
+  if (stkEl) {
+    if (!data.stocks || !data.stocks.length) {
+      stkEl.innerHTML = '<div style="color:var(--txt3);font-size:12px;text-align:center;padding:8px">Brak historii</div>';
+    } else {
+      stkEl.innerHTML = data.stocks.map(s => {
+        const isScreen = s.ticker.toLowerCase().includes('screen') || s.ticker.toLowerCase().includes('dividend');
+        const icon = isScreen ? '📊' : '📈';
+        return `<div class="research-history-item" onclick="loadResearchFile('${escHtml(s.filename)}','stocks')">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <span style="font-size:13px">${icon}</span>
+              <span style="color:var(--orange);font-weight:600;font-size:13px;margin-left:4px">${escHtml(s.ticker)}</span>
+              ${s.exch ? `<span style="color:var(--txt3);font-size:11px;font-family:'Space Mono',monospace"> ${escHtml(s.exch)}</span>` : ''}
+            </div>
+            <span style="color:var(--txt3);font-size:10px;font-family:'Space Mono',monospace">${escHtml(s.date)}</span>
+          </div>
+        </div>`;
+      }).join('');
+    }
+  }
+}
+
+async function loadResearchFile(filename, dir) {
+  // Highlight active item
+  document.querySelectorAll('.research-history-item').forEach(el => el.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+
+  const det = document.getElementById('rDetail');
+  det.innerHTML = '<div style="padding:20px;color:var(--txt3)"><div class="spinner" style="display:inline-block;margin-right:8px"></div>Ładuję raport…</div>';
+
+  const data = await api(`/research/file?f=${encodeURIComponent(filename)}&dir=${encodeURIComponent(dir)}`);
+  _showResearchResult(data, filename.replace('.md', '').replace(/_/g, ' '));
+}
+
+function copyResearchReport() {
+  if (_researchReport) {
+    navigator.clipboard.writeText(_researchReport).then(() => {
+      const btn = document.getElementById('btnRCopy');
+      if (btn) { btn.textContent = '✓ Skopiowano'; setTimeout(() => btn.textContent = '📋 Kopiuj', 2000); }
+    });
   }
 }
 
