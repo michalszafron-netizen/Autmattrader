@@ -408,33 +408,41 @@ Budget guide:
   Brief (daily): 3 credits × 30 = 90/month  → 910 credits remaining
   Full scan:     9 credits × 4/week = 144/month → still under 1000 limit
 
-### X sentiment (Grok grok-4.3)
+### X sentiment (Grok grok-4.3) ⏸️ PAUSED w Daily Alpha — tylko na żądanie
+
+**Triggery ręczne (Telegram):**
+- "sentyment BTC" / "x sentiment na BTC" → `--coins BTC`
+- "sentyment rynek" / "full sentiment" / "x sentiment crypto" → `--group crypto` (BTC ETH SOL HYPE LINK)
+- "sentyment makro" → `--group macro`
+- "sentyment wszystko" / "x sentiment all" → `--group all`
+- "trending tokeny" / "x trending" → tryb `trending`
+- "/daily-alpha with-sentiment" → hermes.py --with-sentiment
 
 ```powershell
 $py = "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe"
 $script = "C:\Users\markowyy\trading-ai\scripts\x_sentiment.py"
 
-# Crypto: BTC ETH HYPE (default)
+# Crypto: BTC ETH SOL HYPE LINK (default)
 & $py $script sentiment
 
-# Macro: Gold Silver Oil + Indices
+# Makro: Gold Silver Oil + Indices
 & $py $script sentiment --group macro
 
-# All assets (crypto + macro)
+# Wszystkie aktywa (crypto + macro)
 & $py $script sentiment --group all
 
-# Custom mix
+# Konkretne coiny
 & $py $script sentiment --coins BTC XAU SPX DXY
 
-# Discover trending new tokens on X (not top-20 mcap)
+# Trending nowe tokeny na X
 & $py $script trending
 
-# With raw Grok response
-& $py $script sentiment --coins HYPE --verbose
+# Daily Alpha z sentymentem (droższy wariant)
+& $py "C:\Users\markowyy\trading-ai\scripts\hermes.py" --with-sentiment
 ```
 
 Asset groups:
-  crypto: BTC ETH HYPE
+  crypto: BTC ETH SOL HYPE LINK
   macro:  GOLD SILVER OIL SPX NDX DXY
   trending: autonomous query for hot new tokens + sector hotspots
 
@@ -502,7 +510,7 @@ Steps Claude executes when you type this:
   - Jeśli wczoraj pisałeś "short squeeze na Nasdaq" i dziś nadal jest — napisz "short squeeze na Nasdaq (trwa od X dni)" zamiast opisywać od nowa
   - Jeśli coś nowego zastąpiło poprzedni temat — wspomnij zmianę wprost: "poprzednio uwaga była na X, teraz dominuje Y"
   - Jeśli brak historii w DB (pierwsze uruchomienie) — pomiń i kontynuuj normalnie
-- Run: `python scripts/db.py context-trending` — historia trending tokenów (użyj w STEP 5 i X SENTIMENT)
+- Run: `python scripts/db.py context-trending` — historia trending tokenów (użyj w X SENTIMENT jeśli uruchomiony)
 
 **PRE-STEP 0 — LIVE QUOTES (zawsze, jeden call, błyskawiczne)**
 - Run: `python scripts/quotes.py --brief` — aktualne ceny Gold, Silver, Oil, Corn, SP500, VIX, DXY, NVDA
@@ -531,9 +539,10 @@ Steps Claude executes when you type this:
 - Wyciągnij 5 bulletów; oznacz co może ruszyć assets w ciągu 24h
 
 **STEP 1.5 — OPEN INTEREST (Binance + Bybit + Extended)**
-- Run: `python scripts/oi_tracker.py --brief` — aggregate OI dla BTC/ETH/SOL/XAU/XAG
+- Run: `python scripts/oi_tracker.py --brief` — aggregate OI dla BTC/ETH/SOL/HYPE/LINK/XAU/XAG
 - Run: `python scripts/oi_tracker.py --trend --save` — OI z trendem vs poprzedni snapshot + zapis do DB
 - Zwroc uwage na: funding rate (crowded long/short) + spike >15% (alert)
+- Dla **każdego** aktywa BTC/ETH/SOL/HYPE/LINK: napisz jedno zdanie po polsku co oznacza funding (kto płaci komu, co to znaczy dla kierunku) — nie tylko suche liczby
 
 **STEP 1.6 — TOKEN DASHBOARD (per-token unified view)**
 - Run: `python scripts/token_dashboard.py --save` — kafelki dla BTC/ETH/SOL/HYPE/LINK
@@ -566,10 +575,12 @@ Na podstawie danych określ dla każdego asseta:
 - Kluczowe S/R (support i resistance)
 - Jeden clean trade setup: entry, stop, TP1, TP2
 
-**STEP 5 — X SENTIMENT (Grok)**
-- Run: `python scripts/x_sentiment.py sentiment --group all` (BTC, ETH, SOL, HYPE, LINK + macro)
-- Jeśli błąd kredytów ("credit", "quota", "429"): skrypt automatycznie przełącza na `--no-live` (dane treningowe)
-- NIGDY nie przerywaj briefu z powodu braku kredytów — napisz "X Sentiment: brak kredytów xAI" i kontynuuj
+**STEP 5 — X SENTIMENT** ⏸️ ZAPAUZOWANY — pomijaj domyślnie
+- NIE uruchamiaj x_sentiment automatycznie w każdym /daily-alpha — generuje koszty xAI ($0.15-0.25/run)
+- Uruchom TYLKO gdy user wyraźnie poprosi: "z sentymentem", "dodaj X", "z x_sentiment", "/daily-alpha with-sentiment"
+  → Run: `python scripts/x_sentiment.py sentiment --group all`
+- Manualnie dostępny: zakładka X Sentiment w dashboardzie lub komenda /x-sentiment
+- Dane z ostatniego uruchomienia są w DB i używane przez token_dashboard composite score
 
 **STEP 6 — SENPI (jeśli MCP dostępny)**
 - Call: `leaderboard_get_top` (ELITE/RELIABLE traders + ich pozycje)
@@ -651,8 +662,29 @@ Zasady POSITION WATCH:
 | BTC  | ...     | ...   | ...      | ...   | ...   | ...     |
 | ETH  | ...     | ...   | ...      | ...   | ...   | ...     |
 | SOL  | ...     | ...   | ...      | ...   | ...   | ...     |
+| HYPE | —       | —     | ...      | ...   | ...   | ...     |
+| LINK | ...     | ...   | ...      | ...   | ...   | ...     |
 
-[Interpretacja: czy funding crowded? Spike >15% = alert. OI rosnie z cena = trend silny.]
+**Interpretacja — ZAWSZE wyjaśniaj co liczby oznaczają (nie zostawiaj samych cyferek):**
+
+**Funding rate** (% płatności co 8 godzin między longami a shortami — podawaj jako %, NIE w dolarach):
+- Dodatni (+0.01%+): **longi PŁACĄ shortom** = rynek załadowany longami ("crowded long"). Im wyższy, tym więcej
+  longierzy "przepalają" na utrzymanie pozycji. Roczniowany: +0.01% × 3 × 365 ≈ 11% APR.
+  Znaczenie: jeśli cena stoi w miejscu → longi zaczynają wychodzić → presja na spadek.
+- Ujemny (-0.01%-): **shorty PŁACĄ longom** = rynek załadowany shortami ("crowded short").
+  Znaczenie: bycze dla trzymających long — shorty Ci płacą. Ryzyko: short squeeze (nagły wzrost
+  gdy shorty zamykają straty i napędza cenę w górę).
+- Bliski 0 (< ±0.005%): neutralny — brak ekstremalnej ekspozycji po żadnej stronie.
+
+**OI (Open Interest = łączna wartość otwartych kontraktów) + kierunek ceny:**
+- OI ↑ + cena ↑ → nowe pieniądze wchodzą z longami = **trend silny i potwierdzony**
+- OI ↑ + cena ↓ → nowe pieniądze wchodzą z shortami = **presja sprzedaży rośnie, trend spadkowy potwierdzony**
+- OI ↓ + cena ↑ → zamykanie shortów = **short squeeze** (wzrost może być krótkotrwały)
+- OI ↓ + cena ↓ → zamykanie longów / likwidacje = rynek się czyści, szukaj dna
+- Spike OI >15% w jednej sesji = ⚠️ — duże pieniądze weszły lub wyszły nagle
+
+**Wzór zdania interpretacji (OBOWIĄZKOWY dla każdego aktywa z funding >|0.005%|):**
+"[COIN] funding [+/-X%] = [longi/shorty] płacą [shortom/longom] — [co to znaczy dla kierunku w 1 zdaniu]"
 
 ### TOKEN DASHBOARD
 Dla każdego z obserwowanych tokenów (BTC, ETH, SOL, HYPE, LINK) — kafelek z:
@@ -689,8 +721,8 @@ Fear & Greed: [wartość]/100 — [label] | Trend 5d: [X→X→X→X→X] [↑/�
 | HYPE  | ...   | ...     | ...        | ... |
 | LINK  | ...   | ...     | ...        | ... |
 
-### X SENTIMENT
-[Crypto + macro sentiment w 2 zdaniach]
+### X SENTIMENT *(tylko gdy uruchomiony manualnie lub z "with-sentiment")*
+[Crypto + macro sentiment w 2 zdaniach — POMIJAJ tę sekcję jeśli nie było uruchomienia x_sentiment w tym raporcie]
 
 ### TRADE PLAN — TOP PICK
 Asset: [najwyższe przekonanie z CHART READ potwierdzone przez WHALE + SENTIMENT]
@@ -792,7 +824,8 @@ Workflow notes — OBOWIĄZKOWE (each rule is MUST, not SHOULD):
 **2. WYŚWIETLENIE W CHACIE — pełny brief, ZAWSZE, BEZWYJĄTKOWO**
 - **CHAT jest głównym miejscem wyświetlenia raportu** — tu tabele renderują się najładniej
 - Pełny tekst raportu MUSI być wyświetlony w czacie jako ostatni krok, PO zapisaniu pliku i DB
-- **NIGDY nie pokazuj skróconego summary** — pokaż KAŻDĄ sekcję: MY BOOK, POSITION WATCH, MACRO PULSE, OI, TOKEN DASHBOARD, WHALE LAYER, MARKET PULSE, COT, CHART READ, X SENTIMENT, TRADE PLAN, ECON CALENDAR, EXPERT VIEW
+- **NIGDY nie pokazuj skróconego summary** — pokaż KAŻDĄ sekcję: MY BOOK, POSITION WATCH, MACRO PULSE, OI, TOKEN DASHBOARD, WHALE LAYER, MARKET PULSE, COT, CHART READ, TRADE PLAN, ECON CALENDAR, EXPERT VIEW
+- X SENTIMENT: pokaż tylko jeśli był uruchomiony w tym raporcie (user poprosił lub użył "with-sentiment")
 - Kolejność: 1) zbierz dane → 2) zapisz plik → 3) zapisz do DB → 4) **wyświetl PEŁNY raport w czacie** (w tej kolejności)
 - `python -m rich` w terminalu jest opcjonalne — terminal użytkownika nie renderuje tabel poprawnie. Chat > terminal.
 - Jeśli raport jest długi — wyświetl go w całości mimo to. Użytkownik chce widzieć wszystko tutaj.

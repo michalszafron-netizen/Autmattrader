@@ -7,7 +7,7 @@ pełny Daily Alpha Brief.
 Usage:
     python scripts/hermes.py                         # pełny brief
     python scripts/hermes.py --no-news               # pomiń blogwatcher (oszczędność Firecrawl)
-    python scripts/hermes.py --no-sentiment          # pomiń x_sentiment (oszczędność Grok)
+    python scripts/hermes.py --with-sentiment        # włącz x_sentiment (Grok +$0.15-0.25, domyślnie OFF)
     python scripts/hermes.py --no-cot                # pomiń COT tracker
     python scripts/hermes.py --no-whales             # pomiń whale tracker
     python scripts/hermes.py --from-cache STAMP      # użyj cached news (zero Firecrawl)
@@ -171,6 +171,22 @@ def collect_whales(top: int = 10) -> str:
         return f"Error: {e}"
 
 
+def collect_sentiment(group: str = "all") -> str:
+    """Run x_sentiment.py and return text output for LLM context injection.
+    Only called when --with-sentiment flag is set.
+    """
+    try:
+        _, out, err = run_script(
+            "x_sentiment.py", ["sentiment", "--group", group], timeout=300
+        )
+        text = strip_ansi(out or err or "")
+        if not text:
+            return "X Sentiment: brak danych"
+        return text
+    except Exception as e:
+        return f"X Sentiment: błąd ({e})"
+
+
 def collect_news(
     positions_file: str | None = None,
     from_cache: str | None = None,
@@ -329,6 +345,11 @@ def _build_market_data_text(ctx: dict, articles: list[dict]) -> str:
     if whales and whales not in ("N/A", ""):
         parts.append(f"### HL WHALE POSITIONS\n{whales[:800]}")
 
+    # X Sentiment (optional — only when --with-sentiment was passed)
+    x_sent = ctx.get("x_sentiment", "")
+    if x_sent:
+        parts.append(f"### X SENTIMENT\n{x_sent[:1500]}")
+
     # My Edge (personal observations from edge_journal)
     edge_path = Path(__file__).parent.parent / "context" / "my_edge.md"
     if edge_path.exists():
@@ -476,7 +497,8 @@ def main() -> None:
     p.add_argument("--output",           help="Zapisz brief do pliku .md")
     p.add_argument("--from-cache",       metavar="STAMP", help="Cache stamp dla blogwatcher (zero Firecrawl)")
     p.add_argument("--no-news",          action="store_true", help="Pomiń blogwatcher")
-    p.add_argument("--no-sentiment",     action="store_true", help="Pomiń x_sentiment")
+    p.add_argument("--no-sentiment",     action="store_true", help="[DEPRECATED] x_sentiment jest domyślnie pominięty")
+    p.add_argument("--with-sentiment",   action="store_true", help="Włącz x_sentiment (Grok, +$0.15-0.25/run) — domyślnie OFF")
     p.add_argument("--no-cot",           action="store_true", help="Pomiń COT tracker")
     p.add_argument("--no-whales",        action="store_true", help="Pomiń whale tracker")
     p.add_argument("--no-llm",           action="store_true", help="Zbierz dane, pomiń LLM")
@@ -561,6 +583,16 @@ def main() -> None:
     else:
         ctx["asset_impact"] = {}
         console.print("  [yellow]–[/yellow] news pominięty (--no-news)")
+
+    # X Sentiment — domyślnie OFF, włącz przez --with-sentiment
+    if args.with_sentiment:
+        console.print("  [dim]Pobieranie X Sentiment (Grok)… [/dim]", end="  ")
+        ctx["x_sentiment"] = collect_sentiment(group="all")
+        lines_s = ctx["x_sentiment"].count("\n")
+        console.print(f"[green]✓[/green] x_sentiment — {lines_s} linii")
+    else:
+        ctx["x_sentiment"] = ""
+        console.print("  [dim]–[/dim] x_sentiment pominięty (użyj --with-sentiment żeby włączyć)")
 
     # ── Phase 2: LLM synthesis ────────────────────────────────────────────────
     llm_output = ""
