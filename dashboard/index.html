@@ -490,9 +490,9 @@ header{
   <div class="grid2" style="margin-bottom:12px">
     <div class="card">
       <div class="card-hdr"><span class="card-title">Fear & Greed</span><span class="card-badge badge-green" id="fgBadge">—</span></div>
-      <div class="chart-wrap"><canvas id="fgChart"></canvas></div>
-      <div style="margin-top:10px">
-        <div class="output-box" id="fgOutput" style="max-height:160px;font-size:10px">Kliknij ↻ aby załadować</div>
+      <div class="chart-wrap" id="fgChartWrap" style="display:none"><canvas id="fgChart"></canvas></div>
+      <div style="margin-top:6px">
+        <div class="output-box" id="fgOutput" style="max-height:200px;font-size:10px">Kliknij ↻ aby załadować</div>
       </div>
       <button class="btn btn-outline btn-sm" style="margin-top:8px" onclick="loadFearGreed()">↻ Odśwież</button>
     </div>
@@ -1194,10 +1194,15 @@ async function loadFearGreed() {
 
 function renderFGChart(history) {
   const ctx = document.getElementById('fgChart');
+  const wrap = document.getElementById('fgChartWrap');
   if (!ctx) return;
   const labels = history.map(r => r.ts ? r.ts.substring(5,10) : '').reverse();
   const values = history.map(r => r.value || 50).reverse();
+  // Pokaż canvas dopiero gdy mamy dane
+  if (wrap) wrap.style.display = 'block';
   if (fgChartInstance) fgChartInstance.destroy();
+  const minVal = Math.max(0,  Math.min(...values) - 8);
+  const maxVal = Math.min(100, Math.max(...values) + 8);
   fgChartInstance = new Chart(ctx, {
     type: 'line',
     data: {
@@ -1217,7 +1222,7 @@ function renderFGChart(history) {
       plugins: { legend: { display: false } },
       scales: {
         x: { ticks: { color: '#7a8da0', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
-        y: { min: 0, max: 100, ticks: { color: '#7a8da0', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.04)' } }
+        y: { min: minVal, max: maxVal, ticks: { color: '#7a8da0', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.04)' } }
       }
     }
   });

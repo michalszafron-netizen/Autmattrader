@@ -344,13 +344,15 @@ def econ():
 
         raw = mod.fetch_calendar(today, today)
 
-        important_countries = {'US', 'GB', 'EU', 'DE', 'FR', 'JP', 'CN', 'CA', 'AU'}
+        # Tylko kraje mające realny wpływ na instrumenty finansowe
+        important_countries = {'US', 'EU', 'DE', 'FR', 'GB'}
         now_ts = datetime.now(_tz.utc).timestamp()
 
         events = []
         for e in raw:
             country = e.get('country', '')
-            if country not in important_countries and not mod.is_high_impact(e):
+            # Pokazuj tylko wybrane kraje; LUB globalnie krytyczne eventy (np. IMF, G7)
+            if country not in important_countries:
                 continue
             label, color, style = mod.get_importance(e)
             tip = mod.get_event_tip(e)
