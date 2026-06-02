@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -234,6 +235,29 @@ header{
 .report-date{font-size:12px;font-family:'Space Mono',monospace;color:var(--txt2);margin-bottom:5px}
 .report-preview{font-size:14px;color:var(--txt);line-height:1.5;
   overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+
+/* ── MARKDOWN REPORT RENDERER ── */
+.md-report{font-family:'Inter',sans-serif;font-size:13px;line-height:1.72;color:var(--txt);overflow-y:auto;max-height:calc(100vh - 200px)}
+.md-report h1{font-size:16px;color:var(--cyan);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border2);padding-bottom:7px;margin:18px 0 10px}
+.md-report h2{font-size:13px;color:var(--green);font-family:'Space Mono',monospace;margin:14px 0 6px;letter-spacing:.4px;border-left:3px solid var(--green);padding-left:8px;text-transform:uppercase}
+.md-report h3{font-size:12px;color:#7fcfee;font-family:'Space Mono',monospace;margin:10px 0 4px}
+.md-report p{margin:4px 0;font-size:13px}
+.md-report strong{color:#eaf2ff;font-weight:600}
+.md-report em{color:var(--txt2)}
+.md-report hr{border:none;border-top:1px solid var(--border);margin:12px 0}
+.md-report blockquote{border-left:3px solid var(--orange);padding:7px 12px;background:rgba(247,147,26,0.08);border-radius:0 6px 6px 0;margin:8px 0;font-size:12px;color:#d4b896}
+.md-report blockquote p{margin:2px 0;font-size:12px}
+.md-report table{width:100%;border-collapse:collapse;margin:10px 0;font-size:12px;font-family:'Space Mono',monospace}
+.md-report th{background:rgba(0,255,136,0.1);color:var(--green);text-align:left;padding:5px 10px;border:1px solid rgba(255,255,255,0.12);font-size:11px;text-transform:uppercase;letter-spacing:.3px}
+.md-report td{padding:4px 10px;border:1px solid var(--border);color:var(--txt);vertical-align:top}
+.md-report tr:nth-child(even) td{background:rgba(255,255,255,0.02)}
+.md-report tr:hover td{background:rgba(0,255,136,0.06)}
+.md-report code{font-family:'Space Mono',monospace;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);border-radius:3px;padding:1px 5px;font-size:11px;color:var(--orange)}
+.md-report pre{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin:8px 0;overflow-x:auto}
+.md-report pre code{background:none;border:none;padding:0;color:#c8ddf0;font-size:11px;white-space:pre-wrap}
+.md-report ul,.md-report ol{padding-left:20px;margin:5px 0}
+.md-report li{font-size:13px;margin:2px 0}
+.md-report a{color:var(--cyan);text-decoration:none}
 
 /* ── STATUS TABLE ── */
 .status-grid{display:flex;flex-direction:column;gap:8px}
@@ -569,7 +593,7 @@ header{
         <span class="card-title" id="reportDetailTitle">Wybierz raport z listy</span>
         <button class="btn btn-outline btn-sm" id="btnCopyReport" onclick="copyReportContent()" style="display:none">📋 Kopiuj</button>
       </div>
-      <div id="reportDetail" class="output-box" style="max-height:calc(100vh - 200px);border:none;background:none;padding:0">
+      <div id="reportDetail" class="md-report">
         <span style="color:var(--txt3);font-family:Inter,sans-serif;font-size:12px">← Kliknij raport żeby zobaczyć pełną treść</span>
       </div>
     </div>
@@ -1372,6 +1396,13 @@ async function loadEcon() {
 
 // ── Fear & Greed output strip ─────────────────────────────────────────────
 
+// ── Markdown renderer ─────────────────────────────────────────────────────
+function renderMd(text) {
+  if (!text) return '';
+  if (typeof marked === 'undefined') return `<pre style="white-space:pre-wrap;font-size:12px;font-family:'Space Mono',monospace">${escHtml(text)}</pre>`;
+  return marked.parse(text, { breaks: true, gfm: true });
+}
+
 // ── Reports ────────────────────────────────────────────────────────────────
 let _activeReportTab = 'alpha';
 
@@ -1435,15 +1466,15 @@ async function loadReportDetail(id, date) {
   const el = document.getElementById('reportDetail');
   const title = document.getElementById('reportDetailTitle');
   const btn = document.getElementById('btnCopyReport');
-  el.textContent = 'Ładuję...';
+  el.innerHTML = '<div style="color:var(--txt3);font-size:12px;padding:8px 0"><div class="spinner" style="display:inline-block;margin-right:8px"></div>Ładuję...</div>';
   title.textContent = `Raport: ${date}`;
   btn.style.display = 'block';
   const data = await api(`/reports/${id}`);
   if (data.content) {
-    el.textContent = data.content;
+    el.innerHTML = renderMd(data.content);
     reportContent = data.content;
   } else {
-    el.textContent = 'Błąd ładowania raportu';
+    el.innerHTML = '<div style="color:var(--red);padding:8px">Błąd ładowania raportu</div>';
   }
 }
 
@@ -1451,15 +1482,15 @@ async function loadBriefDetail(id, ts) {
   const el    = document.getElementById('reportDetail');
   const title = document.getElementById('reportDetailTitle');
   const btn   = document.getElementById('btnCopyReport');
-  el.textContent = 'Ładuję...';
+  el.innerHTML = '<div style="color:var(--txt3);font-size:12px;padding:8px 0"><div class="spinner" style="display:inline-block;margin-right:8px"></div>Ładuję...</div>';
   title.textContent = `Daily Brief: ${ts}`;
   btn.style.display = 'block';
   const data = await api(`/history/${id}`);
   if (data.output) {
-    el.textContent = data.output;
+    el.innerHTML = renderMd(data.output);
     reportContent  = data.output;
   } else {
-    el.textContent = data.error || 'Błąd ładowania';
+    el.innerHTML = `<div style="color:var(--red);padding:8px">${escHtml(data.error || 'Błąd ładowania')}</div>`;
   }
 }
 
