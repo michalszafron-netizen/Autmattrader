@@ -319,7 +319,7 @@ def fear_greed():
     """Fear & Greed from script + history from DB."""
     result = run_script('fear_greed.py', ['--days', '14'], timeout=20)
     history = db_query(
-        "SELECT ts, value, label FROM fear_greed_history ORDER BY ts DESC LIMIT 14"
+        "SELECT ts, value, classification AS label FROM fear_greed_history ORDER BY ts DESC LIMIT 14"
     )
     return jsonify({'ok': result['ok'], 'output': result['output'], 'history': history or []})
 

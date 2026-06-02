@@ -1203,11 +1203,12 @@ function renderFGChart(history) {
   if (!ctx) return;
   const labels = history.map(r => r.ts ? r.ts.substring(5,10) : '').reverse();
   const values = history.map(r => r.value || 50).reverse();
-  // Pokaż canvas dopiero gdy mamy dane
+  // Pokaż canvas, daj DOM chwilę na reflow, potem rysuj
   if (wrap) wrap.style.display = 'block';
-  if (fgChartInstance) fgChartInstance.destroy();
+  if (fgChartInstance) { fgChartInstance.destroy(); fgChartInstance = null; }
   const minVal = Math.max(0,  Math.min(...values) - 8);
   const maxVal = Math.min(100, Math.max(...values) + 8);
+  setTimeout(() => {
   fgChartInstance = new Chart(ctx, {
     type: 'line',
     data: {
@@ -1231,6 +1232,7 @@ function renderFGChart(history) {
       }
     }
   });
+  }, 30);  // czekaj na reflow DOM po display:none→block
 }
 
 // ── OI ─────────────────────────────────────────────────────────────────────
