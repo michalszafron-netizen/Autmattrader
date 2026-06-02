@@ -490,9 +490,14 @@ header{
   <div class="grid2" style="margin-bottom:12px">
     <div class="card">
       <div class="card-hdr"><span class="card-title">Fear & Greed</span><span class="card-badge badge-green" id="fgBadge">—</span></div>
-      <div class="chart-wrap" id="fgChartWrap" style="display:none"><canvas id="fgChart"></canvas></div>
-      <div style="margin-top:6px">
-        <div class="output-box" id="fgOutput" style="max-height:200px;font-size:10px">Kliknij ↻ aby załadować</div>
+      <div style="display:flex;gap:12px;align-items:flex-start;margin-top:6px">
+        <div style="flex:1;min-width:0">
+          <div class="output-box" id="fgOutput" style="max-height:220px;font-size:10px">Kliknij ↻ aby załadować</div>
+        </div>
+        <div id="fgChartWrap" style="display:none;width:220px;flex-shrink:0">
+          <div style="font-size:9px;color:var(--txt3);text-align:center;margin-bottom:3px;letter-spacing:.4px">TREND 14 DNI</div>
+          <div class="chart-wrap" style="height:130px"><canvas id="fgChart"></canvas></div>
+        </div>
       </div>
       <button class="btn btn-outline btn-sm" style="margin-top:8px" onclick="loadFearGreed()">↻ Odśwież</button>
     </div>
@@ -1329,7 +1334,10 @@ function renderEconCalendar(data) {
 
     html += `<div style="padding:9px 12px;border-bottom:1px solid var(--border);opacity:${opacity};border-left:3px solid ${c.border}">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px">
-        <span style="font-size:11px;font-family:'Space Mono',monospace;color:#c0d4e8;flex-shrink:0;min-width:105px">${escHtml(e.time_utc)}</span>
+        <span style="font-size:11px;font-family:'Space Mono',monospace;color:#c0d4e8;flex-shrink:0">
+          ${escHtml(e.time_utc)}
+          ${e.time_pl ? `<span style="color:#00e0ff;font-size:11px;margin-left:4px">(${escHtml(e.time_pl)} PL)</span>` : ''}
+        </span>
         <span style="font-size:10px;font-weight:700;color:${c.text};background:${c.bg};border-radius:3px;padding:2px 6px;flex-shrink:0">${escHtml(IMP_LABEL[e.importance]||e.importance)}</span>
         <span style="font-size:11px;font-weight:700;color:#d0e4f4;flex-shrink:0">${escHtml(e.country)}</span>
         <span style="font-size:13px;font-weight:600;color:#eaf2ff">${escHtml(e.name)}</span>

@@ -360,12 +360,19 @@ def econ():
             try:
                 dt = datetime.fromisoformat(e['time'].replace('Z', '+00:00'))
                 ts = dt.timestamp()
-                time_utc  = dt.strftime('%d.%m  %H:%M UTC')   # data + godzina
+                time_utc  = dt.strftime('%d.%m  %H:%M UTC')
                 date_only = dt.strftime('%Y-%m-%d')
+                # Czas polski: CEST (UTC+2) od ostatniej niedzieli marca do ostatniej niedzieli października
+                from datetime import timedelta as _td
+                _month = dt.month
+                _pl_offset = 2 if 3 < _month < 10 or (_month == 3 and dt.day >= 25) or (_month == 10 and dt.day < 25) else 1
+                dt_pl    = dt + _td(hours=_pl_offset)
+                time_pl  = dt_pl.strftime('%H:%M')   # tylko godzina — data ta sama co UTC
             except Exception:
                 ts = 0
                 time_utc  = e.get('time', '')
                 date_only = today
+                time_pl   = ''
 
             actual  = e.get('actual')
             est     = e.get('estimate')
@@ -401,6 +408,7 @@ def econ():
 
             events.append({
                 'time_utc':   time_utc,
+                'time_pl':    time_pl,
                 'date':       date_only,
                 'ts':         ts,
                 'name':       e.get('event', ''),
