@@ -647,8 +647,11 @@ header{
       <div id="rFormToken" style="padding:0 4px 10px">
         <div class="research-form">
           <div>
-            <div style="font-size:11px;color:var(--txt3);margin-bottom:4px;font-family:'Space Mono',monospace">ADRES KONTRAKTU LUB TICKER</div>
-            <input id="rTokenInput" class="research-input" placeholder="0x... albo HYPE, AGT, RICE, NIL..." />
+            <div style="font-size:11px;color:var(--txt3);margin-bottom:4px;font-family:'Space Mono',monospace">ADRES, TICKER LUB NAZWA TOKENA</div>
+            <input id="rTokenInput" class="research-input"
+              placeholder="LINK  |  0x1234...  |  zbadaj chainlink  |  zrób research na HYPE"
+              oninput="updateTokenHint(this.value)" />
+            <div id="rTokenHint" style="font-size:11px;color:var(--cyan);margin-top:3px;font-family:'Space Mono',monospace;min-height:14px"></div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div>
@@ -688,8 +691,9 @@ header{
       <div id="rFormStock" style="padding:0 4px 10px;display:none">
         <div class="research-form">
           <div>
-            <div style="font-size:11px;color:var(--txt3);margin-bottom:4px;font-family:'Space Mono',monospace">TICKER(Y) — np. NVDA TSLA PKN.WA</div>
-            <input id="rStockInput" class="research-input" placeholder="NVDA  |  NVDA TSLA  |  PKN.WA CDR.WA" />
+            <div style="font-size:11px;color:var(--txt3);margin-bottom:4px;font-family:'Space Mono',monospace">TICKER(Y) LUB NAZWA SPÓŁKI</div>
+            <input id="rStockInput" class="research-input"
+              placeholder="NVDA  |  nvidia apple  |  PKN.WA CDR.WA  |  analiza Tesli" />
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div>
@@ -1001,6 +1005,96 @@ function showPanel(id) {
 let _researchTab  = 'token';
 let _researchReport = '';
 
+// Stopwords stripped before passing query to token_research.py
+const _TOKEN_STOPWORDS = new Set([
+  // Polish
+  'zrób','zrob','mi','analizę','analize','analizę','analize','kryptowaluty','krypto',
+  'kryptowaltue','tokena','token','tokenu','monety','monete','monet','projekt','projektu',
+  'research','zbadaj','sprawdź','sprawdz','sprawdzmi','pokaż','pokaz','przeanalizuj',
+  'na','dla','tego','tej','to','ten','ta','jest','a','i','z','do','o','w','ze','po',
+  'daj','szybko','mi','proszę','prosze','chcę','chce','zrób','zrob',
+  // English
+  'analyze','analysis','crypto','cryptocurrency','coin','token','project',
+  'research','check','show','give','me','the','a','an','of','for','on',
+]);
+
+/**
+ * Smart parser: extracts a clean ticker/CA/name from free-form text.
+ *
+ *  "zrób mi analizę kryptowaluty Link"  → "LINK"
+ *  "research Chainlink"                 → "Chainlink"
+ *  "0x5dBde81fcE337..."                 → "0x5dBde81fcE337..."   (CA passthrough)
+ *  "HYPE"                               → "HYPE"
+ */
+function parseTokenQuery(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+
+  // 1. Contract address — pass as-is
+  if (/^0x[0-9a-fA-F]{10,}/i.test(trimmed)) return trimmed;
+  // 2. Solana address (base58, 32-44 chars, no spaces)
+  if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(trimmed)) return trimmed;
+  // 3. Clean ticker — no spaces, ≤12 chars (e.g. HYPE, BTC, LINK, NIL)
+  if (!/\s/.test(trimmed) && trimmed.length <= 12) return trimmed.toUpperCase();
+
+  // 4. Natural language → strip stopwords, take what's left
+  const words = trimmed.split(/\s+/).map(w => w.replace(/[^a-zA-Z0-9.$]/g, ''));
+  const meaningful = words.filter(w => w.length >= 2 && !_TOKEN_STOPWORDS.has(w.toLowerCase()));
+
+  if (meaningful.length === 0) return trimmed;          // nothing stripped — pass raw
+  if (meaningful.length === 1) return meaningful[0].toUpperCase();
+
+  // Multiple meaningful words — check if last one looks like ticker
+  const last = meaningful[meaningful.length - 1];
+  if (/^[A-Z0-9]{2,8}$/.test(last)) return last;       // last word is all-caps ticker
+  // Otherwise join the meaningful words as a CoinGecko search phrase
+  return meaningful.join(' ');
+}
+
+// Known company → ticker mappings for natural language stock queries
+const _STOCK_ALIASES = {
+  'nvidia':'NVDA','apple':'AAPL','microsoft':'MSFT','tesla':'TSLA','google':'GOOGL',
+  'alphabet':'GOOGL','amazon':'AMZN','meta':'META','netflix':'NFLX','paypal':'PYPL',
+  'palantir':'PLTR','coinbase':'COIN','berkshire':'BRK-B','jpmorgan':'JPM',
+  'nvidia':'NVDA','intel':'INTC','amd':'AMD','qualcomm':'QCOM','arm':'ARM',
+  'orlen':'PKN.WA','cdprojekt':'CDR.WA','cdprojekt red':'CDR.WA',
+  'allegrogroup':'ALE.WA','allegro':'ALE.WA','pkn':'PKN.WA','cdr':'CDR.WA',
+};
+const _STOCK_STOPWORDS = new Set([
+  'zrób','zrob','mi','analizę','analize','akcji','akcje','spółki','spolki','spólki',
+  'spólke','spółkę','research','zbadaj','sprawdź','sprawdz','pokaż','pokaz',
+  'analiza','analize','analizę','przeanalizuj','daj','na','dla','tego','tej',
+  'analiza','researchu','zbadaj','sprawdz','pokaż','pokaz','check','analyze',
+  'stock','company','firm','shares','equity','analisis','give','me','the','a','an',
+  'of','for','on','tesli','tesly','nvidii','amazona','microsoftu','apple',
+]);
+
+function _parseStockQuery(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  if (!/\s/.test(trimmed)) return trimmed.toUpperCase();  // single word — pass as ticker
+
+  // Check aliases first
+  const lower = trimmed.toLowerCase().replace(/[^a-z ]/g, '').trim();
+  if (_STOCK_ALIASES[lower]) return _STOCK_ALIASES[lower];
+
+  // Strip stopwords
+  const words = trimmed.split(/[\s,]+/).map(w => w.replace(/[^a-zA-Z0-9.$-]/g, ''));
+  const meaningful = words.filter(w => w.length >= 2 && !_STOCK_STOPWORDS.has(w.toLowerCase()));
+
+  if (!meaningful.length) return trimmed;
+  // Return all meaningful words joined (multi-ticker support)
+  return meaningful.join(' ').toUpperCase();
+}
+
+function updateTokenHint(raw) {
+  const hint = document.getElementById('rTokenHint');
+  if (!hint || !raw.trim()) { if (hint) hint.textContent = ''; return; }
+  const parsed = parseTokenQuery(raw.trim());
+  const showHint = parsed !== raw.trim() && parsed !== raw.trim().toUpperCase();
+  hint.textContent = showHint ? `↳ szukam: ${parsed}` : '';
+}
+
 function switchResearchTab(tab) {
   _researchTab = tab;
   document.getElementById('rTabToken').classList.toggle('active', tab === 'token');
@@ -1079,8 +1173,15 @@ function _showResearchResult(data, label) {
 }
 
 async function runTokenResearch() {
-  const input = document.getElementById('rTokenInput').value.trim();
-  if (!input) { alert('Podaj adres kontraktu lub ticker'); return; }
+  const raw   = document.getElementById('rTokenInput').value.trim();
+  if (!raw) { alert('Podaj adres kontraktu, ticker lub nazwę tokena'); return; }
+
+  const input = parseTokenQuery(raw);
+
+  // Show parsed query if it differs from raw input
+  const hint = document.getElementById('rTokenHint');
+  if (hint) hint.textContent = input !== raw.toUpperCase() && input !== raw
+    ? `↳ szukam: ${input}` : '';
 
   _researchBtnState('btnRunToken', true);
   const args = [input];
@@ -1116,8 +1217,10 @@ async function runStockResearch() {
     const pl = document.getElementById('rStockPL');
     if (pl && pl.checked) args.push('--pl');
   } else {
-    if (!input) { alert('Podaj ticker(y)'); return; }
-    input.split(/[\s,]+/).filter(Boolean).forEach(t => args.push(t));
+    if (!input) { alert('Podaj ticker(y) lub nazwę spółki'); return; }
+    // Parse natural language for stocks too
+    const cleanedInput = _parseStockQuery(input);
+    cleanedInput.split(/[\s,]+/).filter(Boolean).forEach(t => args.push(t));
     if (mode === 'news') {
       const d = document.getElementById('rStockDays');
       if (d) args.push('--days', d.value);
