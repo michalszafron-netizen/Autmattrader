@@ -53,9 +53,32 @@ TG_CHAT_ID = os.getenv("TELEGRAM_ALLOWED_USER_ID", "")
 
 # Tickers to always ignore (stablecoins, already everywhere)
 IGNORE_TICKERS = {
-    "USDT", "USDC", "BUSD", "DAI", "TUSD", "FDUSD", "USDP",
+    "USDT", "USDC", "BUSD", "DAI", "TUSD", "FDUSD", "USDP", "USDE",
+    "USD", "EUR", "GBP", "AED", "JPY", "KRW",          # fiat
     "BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE", "TRX",
+    "OKB", "BNX",                                       # exchange tokens
 }
+
+# Title substrings that indicate NOISE — not a new crypto listing
+# (case-insensitive match — skip if ANY of these appear in the title)
+IGNORE_TITLE_PATTERNS = [
+    "pre-ipo",       # Bybit/Binance pre-IPO perps (ANTHROPICUSDT Pre-IPO etc.)
+    "tradfi",        # traditional finance perps (SAMSUNG, HYUNDAI etc.)
+    "margin",        # margin pair additions — not new listings
+    "/aed", "/eur", "/gbp", "/jpy",   # fiat trading pair additions
+    "stablecoin",
+    "institutional",
+    "simple earn",
+    "hodler airdrop",  # airdrop announcements, not listings
+    "earn flexible",
+    "earn yield",
+    "loan",
+    "vip loan",
+    "convert",
+    "cross margin",
+    "isolated margin",
+    "multiple usd",    # "Multiple USDT-Margined" batch futures announcements
+]
 
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
@@ -474,10 +497,28 @@ def _save_heartbeat(db, count: int) -> None:
         pass
 
 
+def _is_noise(alert: dict) -> bool:
+    """Return True if this alert is noise and should be suppressed.
+
+    Filters:
+    - No ticker extracted (title unparseable) → too vague to act on
+    - Title contains known noise patterns (Pre-IPO, TradFi, margin pairs, etc.)
+    """
+    # Must have a real ticker
+    if not alert.get("ticker"):
+        return True
+
+    title_lower = alert.get("title", "").lower()
+    for pattern in IGNORE_TITLE_PATTERNS:
+        if pattern in title_lower:
+            return True
+    return False
+
+
 def run_once(dry_run: bool, interval_s: int = 3600) -> int:
     ts  = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     db  = _get_db()
-    all_alerts = []
+    all_alerts: list[dict] = []
 
     scanners = [
         ("Binance",  scan_binance),
@@ -490,30 +531,39 @@ def run_once(dry_run: bool, interval_s: int = 3600) -> int:
     print(f"[{ts}] Scanning {len(scanners)} exchanges...", end=" ", flush=True)
     for name, scanner_fn in scanners:
         try:
-            alerts = scanner_fn(db, dry_run)
-            if alerts:
-                print(f"{name}:{len(alerts)}", end=" ", flush=True)
-            all_alerts.extend(alerts)
+            raw = scanner_fn(db, dry_run)
+
+            # Per-exchange flood protection: >4 items from one exchange in one run
+            # = ann_id format changed / DB migration, not genuine new listings.
+            # Items are already mark_seen'd — just suppress Telegram alerts.
+            if len(raw) > 4:
+                print(f"{name}:FLOOD({len(raw)},suppressed)", end=" ", flush=True)
+                for a in raw:
+                    print(f"  [FLOOD-{name}] {a.get('ticker','?')}")
+                continue  # don't add to all_alerts
+
+            # Noise filter — remove non-actionable items
+            clean = [a for a in raw if not _is_noise(a)]
+            noisy = len(raw) - len(clean)
+
+            if clean:
+                print(f"{name}:{len(clean)}", end=" ", flush=True)
+            elif noisy:
+                print(f"{name}:noise({noisy})", end=" ", flush=True)
+
+            all_alerts.extend(clean)
         except Exception as e:
             print(f"{name}:ERR({e})", end=" ", flush=True)
 
-    print(f"| Total new: {len(all_alerts)}")
+    print(f"| Actionable: {len(all_alerts)}")
     _save_heartbeat(db, len(all_alerts))
-
-    # Flood protection: >10 "new" items in one run = scope expansion / re-baseline, not real listings
-    # Save them as seen (already done above) but DON'T send Telegram alerts.
-    if len(all_alerts) > 10:
-        print(f"[WARN] {len(all_alerts)} alerts in one run — baseline expansion detected, suppressing Telegram flood.")
-        for a in all_alerts:
-            print(f"  [BASELINE] {a['exchange']} {a.get('ticker','?')}")
-        all_alerts = []
 
     for alert in all_alerts:
         msg = format_listing_alert(alert, ts)
         send_telegram(msg, dry_run=dry_run)
         print(f"  → {alert['exchange']} {alert.get('ticker','?')} [{alert['type']}]")
 
-    # Heartbeat — always send status even when no new listings
+    # Heartbeat — send status when no new listings (but not more than 1x/scan)
     if not all_alerts:
         interval_h = max(1, interval_s // 3600)
         hb = (
