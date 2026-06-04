@@ -114,22 +114,27 @@ def bracket_order(symbol: str, side: str, qty: float,
     side: "buy" (long entry) or "sell" (short entry)
     sl_price: stop-loss trigger price
     tp_price: take-profit limit price (optional)
+
+    NOTE: Alpaca requires time_in_force="day" for market bracket orders.
+    "gtc" is only valid for limit orders — market+gtc returns 422.
     """
     payload: dict = {
         "symbol":        symbol.upper(),
         "qty":           str(int(max(qty, 1))),
         "side":          side,
         "type":          "market",
-        "time_in_force": "gtc",
+        "time_in_force": "day",      # must be "day" for market bracket orders
         "order_class":   "bracket",
-        "stop_loss":     {"stop_price": str(round(sl_price, 4))},
+        "stop_loss":     {"stop_price": str(round(sl_price, 2))},
     }
     if tp_price:
-        payload["take_profit"] = {"limit_price": str(round(tp_price, 4))}
+        payload["take_profit"] = {"limit_price": str(round(tp_price, 2))}
 
     with client() as c:
         r = c.post(f"{BASE_URL}/v2/orders", json=payload)
-    r.raise_for_status()
+    if not r.is_success:
+        # Include Alpaca's error body in the exception so we can debug
+        raise RuntimeError(f"Alpaca {r.status_code}: {r.text}")
     return r.json()
 
 
