@@ -433,6 +433,7 @@ header{
       <div class="bot-dot"><div class="dot" id="dot-claude"></div>Claude</div>
       <div class="bot-dot"><div class="dot" id="dot-hermes"></div>Hermes</div>
       <div class="bot-dot"><div class="dot" id="dot-ngrok"></div>ngrok</div>
+      <div class="bot-dot"><div class="dot" id="dot-tvhook"></div>TV Hook</div>
     </div>
     <div class="hdr-time mono" id="hdrTime">--:--</div>
   </div>
@@ -458,6 +459,16 @@ header{
 
 <!-- ── MAIN CONTENT ── -->
 <main class="main">
+
+<!-- ═══ VPS API WARNING BANNER ═══ -->
+<div id="vpsApiBanner" style="display:none;align-items:center;gap:10px;
+  background:rgba(255,71,87,0.12);border:1px solid rgba(255,71,87,0.4);
+  border-radius:8px;padding:10px 16px;margin:8px 0;font-size:13px;color:var(--red)">
+  <span style="font-size:18px">🔴</span>
+  <span><b>VPS API offline</b> (92.112.181.37:5008) — Alerty, Kozaki i Smart Money pokazują stare dane z lokalnej bazy.
+  SSH na VPS i zrestartuj serwis API: <code style="background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:4px">pm2 restart all</code> lub
+  <code style="background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:4px">systemctl restart trading-api</code></span>
+</div>
 
 <!-- ═══ PANEL: COMMAND CENTER ═══ -->
 <div id="panel-cmd" class="panel active">
@@ -531,7 +542,10 @@ header{
       <div class="card" style="flex:1;min-height:0;overflow:hidden">
         <div class="card-hdr">
           <span class="card-title">Ostatnie alerty</span>
-          <span class="card-badge badge-green" id="alertCount">0</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span class="card-badge badge-green" id="alertCount">0</span>
+            <button class="btn btn-outline btn-sm" onclick="clearAllMiniAlerts()" title="Wyczyść wszystkie alerty z widoku" style="font-size:11px;padding:2px 7px;color:var(--txt3);border-color:var(--border)">🗑</button>
+          </div>
         </div>
         <div id="miniAlerts" class="loading" style="overflow-y:auto;max-height:calc(100% - 48px)"><div class="spinner"></div> Ładuję...</div>
       </div>
@@ -861,6 +875,14 @@ header{
           <span class="status-info" id="sinfo-ngrok">Sprawdzam...</span>
         </div>
         <div class="status-row">
+          <div class="status-dot" id="sdot-tvhook" style="background:var(--txt3)"></div>
+          <span class="status-name">tv_webhook.py :5005</span>
+          <span class="status-info" id="sinfo-tvhook">Sprawdzam...</span>
+          <button class="btn btn-outline btn-sm" id="btnStartWebhook"
+            style="display:none;margin-left:8px;color:var(--green);border-color:var(--green)"
+            onclick="startWebhook()">▶ Uruchom</button>
+        </div>
+        <div class="status-row">
           <div class="status-dot" id="sdot-sm" style="background:var(--txt3)"></div>
           <span class="status-name">VPS: smart_money</span>
           <span class="status-info" id="sinfo-sm">Sprawdzam DB...</span>
@@ -948,6 +970,30 @@ header{
 
 <script>
 'use strict';
+
+// ── Timestamp formatting — UTC → local time ──────────────────────────────
+// All timestamps from DB/VPS are UTC. This converts to browser's local timezone.
+function fmtTs(ts, opts = {}) {
+  if (!ts) return '—';
+  let s = String(ts).trim().replace(' ', 'T');
+  // Append Z if no timezone info (DB stores UTC without Z)
+  if (!s.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(s)) s += 'Z';
+  try {
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return String(ts).substring(0, 16).replace('T', ' ');
+    const now   = new Date();
+    const today = now.toDateString() === d.toDateString();
+    const yesterday = new Date(now - 86400000).toDateString() === d.toDateString();
+    const timePart = d.toLocaleTimeString('pl-PL', {hour:'2-digit', minute:'2-digit'});
+    if (opts.full) return d.toLocaleString('pl-PL', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    if (opts.dateOnly) return d.toLocaleDateString('pl-PL', {day:'2-digit', month:'2-digit'});
+    if (today)     return timePart;
+    if (yesterday) return 'wczoraj ' + timePart;
+    return d.toLocaleDateString('pl-PL', {day:'2-digit', month:'2-digit'}) + ' ' + timePart;
+  } catch(e) {
+    return String(ts).substring(0, 16).replace('T', ' ');
+  }
+}
 
 // ── State ──────────────────────────────────────────────────────────────────
 let currentAlerts = {smart_money:[], volume:[], listings:[], tv_alerts:[], insider:[], kozaki:[]};
@@ -1478,7 +1524,7 @@ function renderCostsRecent(recent) {
     const svc = r.service || '?';
     const col  = _SVC_COLOR[svc] || '#a8c0d6';
     const icon = _SVC_ICON[svc] || '⚡';
-    const ts = (r.ts || '').substring(0, 16).replace('T',' ');
+    const ts = fmtTs(r.ts);
     const op = r.operation || r.script || '—';
     const tok = (r.in_tok || 0) + (r.out_tok || 0);
     html += `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;display:flex;align-items:center;gap:8px">
@@ -1544,9 +1590,20 @@ async function loadStatus() {
     if (hdot) hdot.className = 'dot ' + (ok ? 'on' : 'off');
   };
 
-  set('claude', data.tgtrade, data.tgtrade ? 'Running ✓' : 'Stopped');
-  set('hermes', data.hermes,  data.hermes  ? 'Running ✓' : 'Stopped');
-  set('ngrok',  data.ngrok,   data.ngrok   ? 'Online ✓'  : 'Offline');
+  set('claude',  data.tgtrade, data.tgtrade ? 'Running ✓' : 'Stopped');
+  set('hermes',  data.hermes,  data.hermes  ? 'Running ✓' : 'Stopped');
+  set('ngrok',   data.ngrok,   data.ngrok   ? 'Online ✓'  : 'Offline');
+
+  // VPS API banner (92.112.181.37:5008) — alerts/kozaki/smart money depend on it
+  const vpsOk = !!data.vps_api;
+  const banner = document.getElementById('vpsApiBanner');
+  if (banner) banner.style.display = vpsOk ? 'none' : 'flex';
+
+  // TV Webhook server status (port 5005)
+  const tvOk  = !!data.tvhook;
+  set('tvhook', tvOk, tvOk ? 'Online :5005 ✓' : '⚠ Offline — kliknij ▶ Uruchom');
+  const startBtn = document.getElementById('btnStartWebhook');
+  if (startBtn) startBtn.style.display = tvOk ? 'none' : 'inline-flex';
 
   // Daemon health from DB recency (2C)
   if (ext && !ext.error) {
@@ -2167,7 +2224,7 @@ async function loadDailyBriefs() {
     return;
   }
   el.innerHTML = data.history.map(h => {
-    const ts   = (h.ts || '').substring(0, 16).replace('T', ' ');
+    const ts   = fmtTs(h.ts, {full:true});
     const prev = escHtml((h.preview || '').trim().replace(/\n/g, '  ').substring(0, 180));
     return `<div class="report-item" onclick="loadBriefDetail(${h.id}, '${escHtml(ts)}')">
       <div class="report-date">${ts} · Daily Brief</div>
@@ -2248,7 +2305,7 @@ async function loadHistory() {
     const key   = (h.script || '').replace('.py', '');
     const label = h.label ? h.label.replace(/\.py$/, '') : (_SCRIPT_LABELS[key] || key);
     const icon  = _SCRIPT_LABELS[key] ? _SCRIPT_LABELS[key].split(' ')[0] : '📄';
-    const ts    = (h.ts || '').substring(0, 16).replace('T', ' ');
+    const ts    = fmtTs(h.ts, {full:true});
     const prev  = escHtml((h.preview || '').trim().substring(0, 180));
     return `<div class="history-item" id="hi-${h.id}" onclick="showHistoryItem(${h.id}, this)">
       <div class="history-item-body">
@@ -2331,6 +2388,21 @@ function showAlertTab(tab) {
   const titles = {sm:'Smart Money Alerts', kozaki:'Kozaki — Elite HL Wallets', vol:'Volume Anomalies', listing:'New Listings', insider:'Insider Tracker (Eddie / Maggie / Frank)', tv:'TV Webhook Signals'};
   document.getElementById('alertTabTitle').textContent = titles[tab] || tab;
   renderAlertTab(tab);
+}
+
+// ── Clear ALL mini alerts (sidebar) ─────────────────────────────────────────
+function clearAllMiniAlerts() {
+  const now = new Date().toISOString().substring(0, 16).replace('T', ' ');
+  ['sm', 'vol', 'listing', 'insider', 'kozaki'].forEach(t =>
+    localStorage.setItem(`alertCleared_${t}`, now)
+  );
+  // Refresh mini panel
+  if (currentAlerts) renderMiniAlerts(currentAlerts);
+  // Also refresh open alert tab if visible
+  renderAlertTab(currentAlertTab);
+  document.getElementById('alertCount').textContent = '0';
+  const badge = document.getElementById('navAlertBadge');
+  if (badge) badge.style.display = 'none';
 }
 
 // ── Alert clear (localStorage — hides without deleting from DB) ──────────────
@@ -2466,7 +2538,7 @@ function renderAlertTab(tab) {
       );
     }
 
-    const time = (a.ts || a.received_at || '').substring(0,16).replace('T',' ');
+    const time = fmtTs(a.ts || a.received_at);
     return `<div class="alert-item">
       <div class="alert-icon">${icon}</div>
       <div class="alert-body">
@@ -2532,7 +2604,7 @@ function renderMiniAlerts(data) {
       </div>
       <div style="display:flex;justify-content:space-between;padding-left:19px">
         <span style="font-size:11px;color:var(--cyan);font-family:'Space Mono',monospace">${escHtml(a.value)}</span>
-        <span style="font-size:10px;color:var(--txt3)">${escHtml((a.time||'').substring(0,16).replace('T',' '))}</span>
+        <span style="font-size:10px;color:var(--txt3)">${fmtTs(a.time)}</span>
       </div>
     </div>`;
   }).join('');
@@ -2645,7 +2717,7 @@ function _tradeRows(trades) {
     const exitStr = t.exit !== null
       ? `→ <b style="color:var(--txt1)">$${t.exit.toFixed(2)}</b>`
       : `SL: <span style="color:var(--red)">${escHtml(String(t.sl||'?'))}</span>`;
-    const dateStr = (t.tsC||t.tsO||'').substring(0,10);
+    const dateStr = fmtTs(t.tsC||t.tsO, {dateOnly:true});
     return `<div class="signal-row" style="${isOpen?'background:rgba(0,212,255,0.04);':''}">
       <span class="sig-status ${stCls}">${stLbl}</span>
       <span style="font-size:11px;color:${dClr};font-weight:600">${t.dir.toUpperCase()}</span>
@@ -2659,6 +2731,24 @@ function _tradeRows(trades) {
 }
 
 // ── Strategies ─────────────────────────────────────────────────────────────
+async function startWebhook() {
+  const btn = document.getElementById('btnStartWebhook');
+  if (btn) { btn.textContent = '⏳ Uruchamiam...'; btn.disabled = true; }
+  try {
+    const d = await fetch('/api/webhook/start', { method: 'POST' }).then(r => r.json());
+    if (d.ok) {
+      // Wait 2s then refresh status to confirm port 5005 is up
+      setTimeout(() => loadStatus(), 2000);
+    } else {
+      alert('Błąd: ' + (d.error || 'Nieznany błąd'));
+      if (btn) { btn.textContent = '▶ Uruchom'; btn.disabled = false; }
+    }
+  } catch(e) {
+    alert('Błąd sieci: ' + e.message);
+    if (btn) { btn.textContent = '▶ Uruchom'; btn.disabled = false; }
+  }
+}
+
 async function loadStrategies() {
   const el = document.getElementById('strategiesContent');
   el.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
