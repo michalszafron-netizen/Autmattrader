@@ -6,7 +6,7 @@ Knowing the announcement = knowing the pump before it happens.
 Sources monitored:
   Binance   — cms announcement API (1-24h before listing)
   Coinbase  — asset listing announcements (24-48h before)
-  Bybit     — announcements API (1-24h before)
+  Bybit     — announcements API v5 (1-24h before)
   Upbit     — Korean exchange, often biggest pumps (1-24h before)
   OKX       — announcements (1-24h before)
 
@@ -17,7 +17,7 @@ Alert types:
 
 Usage:
     python scripts/listings_scanner.py              # one-shot scan
-    python scripts/listings_scanner.py --daemon     # run every 30min forever
+    python scripts/listings_scanner.py --daemon     # run every 1h forever
     python scripts/listings_scanner.py --interval 1800  # custom interval (seconds)
     python scripts/listings_scanner.py --dry-run    # no Telegram, print only
 """
@@ -131,19 +131,37 @@ def exchange_initialized(db, exchange: str) -> bool:
 # ── Ticker extraction ─────────────────────────────────────────────────────────
 
 def extract_ticker(text: str) -> str | None:
-    """Extract token ticker from announcement title."""
+    """Extract token ticker from announcement title.
+
+    Handles:
+    - "Will List XYZ" / "Lists XYZ" / "(XYZ)"
+    - "New listing: XYZUSDT Perpetual Contract" → XYZ
+    - "OKX will launch XYZ/USD" → XYZ
+    - "Binance Futures Will Launch XYZUSDT" → XYZ
+    """
     # Pattern: "Will List XYZ" or "Lists XYZ" or "(XYZ)" or "XYZ Spot"
     patterns = [
-        r'[Ll]ist\s+([A-Z]{2,10})\b',
-        r'\(([A-Z]{2,10})\)',
-        r'[Aa]dds?\s+([A-Z]{2,10})\b',
-        r'^([A-Z]{2,10})\s+[Ss]pot',
-        r'[Tt]oken[:\s]+([A-Z]{2,10})\b',
+        r'\(([A-Z]{2,12})\)',                          # (TICKER) — most reliable
+        r'[Ll]ist(?:ing)?[:\s]+([A-Z]{2,12})\b',      # list/listing: TICKER (covers "listing: NOWUSDT")
+        r'[Ll]aunch\s+([A-Z]{2,12})\b',               # launch TICKER
+        r'[Aa]dds?\s+([A-Z]{2,12})\b',                # adds/add TICKER
+        r'[Ll]ist\s+([A-Z]{2,12})\b',                 # list TICKER
+        r'^([A-Z]{2,12})\s+[Ss]pot',                  # TICKER Spot
+        r'[Tt]oken[:\s]+([A-Z]{2,12})\b',             # token: TICKER
+        r'launch\s+([A-Z]{2,12})/[A-Z]{3}',           # launch XYZ/USD (OKX style)
     ]
+    # Common quote-currency suffixes on futures/spot contract names
+    QUOTE_SUFFIXES = ("USDT", "USD", "USDC", "BUSD", "BTC", "ETH", "BNB", "EUR")
+
     for pat in patterns:
         m = re.search(pat, text)
         if m:
             ticker = m.group(1).upper()
+            # Strip trailing quote currency (XYZUSDT → XYZ)
+            for suffix in QUOTE_SUFFIXES:
+                if ticker.endswith(suffix) and len(ticker) > len(suffix) + 1:
+                    ticker = ticker[: -len(suffix)]
+                    break
             if ticker not in IGNORE_TICKERS and len(ticker) >= 2:
                 return ticker
     return None
@@ -153,14 +171,19 @@ def extract_ticker(text: str) -> str | None:
 
 def _scan_binance_catalog(db, catalog_id: str, exchange_name: str,
                           id_prefix: str, kw_filter: list[str]) -> list[dict]:
-    """Generic Binance CMS scanner for any catalog ID."""
+    """Generic Binance CMS scanner for any catalog ID.
+
+    Uses the /catalog/list/query endpoint (updated — old /article/list/query
+    changed structure to data.catalogs[].articles[] which broke the scanner).
+    """
     alerts = []
     is_first_run = not exchange_initialized(db, exchange_name)
     try:
         with httpx.Client(verify=_SSL, timeout=12) as c:
             r = c.get(
-                "https://www.binance.com/bapi/composite/v1/public/cms/article/list/query",
-                params={"type": "1", "catalogId": catalog_id, "pageSize": "20", "pageNo": "1"},
+                # NEW endpoint — returns data.articles[] directly
+                "https://www.binance.com/bapi/composite/v1/public/cms/article/catalog/list/query",
+                params={"catalogId": catalog_id, "pageSize": "20", "pageNo": "1"},
                 headers={"User-Agent": "Mozilla/5.0"},
             )
         items = r.json().get("data", {}).get("articles", [])
@@ -171,11 +194,16 @@ def _scan_binance_catalog(db, catalog_id: str, exchange_name: str,
 
             if not title or is_seen(db, ann_id):
                 continue
-            if kw_filter and not any(kw in title.lower() for kw in kw_filter):
-                continue
 
             ticker = extract_ticker(title)
+
+            # ALWAYS mark as seen — even if kw_filter doesn't match.
+            # Without this, non-matching items silently re-process every scan forever.
             mark_seen(db, exchange_name, ann_id, title, ticker or "", url)
+
+            if kw_filter and not any(kw in title.lower() for kw in kw_filter):
+                continue  # baseline'd but don't alert — not a listing announcement
+
             if not is_first_run:
                 alerts.append({
                     "exchange": exchange_name,
@@ -185,7 +213,7 @@ def _scan_binance_catalog(db, catalog_id: str, exchange_name: str,
                     "type":     "announcement",
                 })
         if is_first_run and items:
-            print(f"[{exchange_name}] baseline saved", end=" ")
+            print(f"[{exchange_name}] baseline saved ({len(items)} articles)", end=" ")
     except Exception as e:
         print(f"[{exchange_name}] Error: {e}")
     return alerts
@@ -205,34 +233,44 @@ def scan_binance(db, dry_run: bool) -> list[dict]:
 
 
 def scan_bybit(db, dry_run: bool) -> list[dict]:
-    """Bybit announcements API."""
+    """Bybit announcements — v5 API (old announcements.bybit.com/api/v1 is dead).
+
+    New endpoint: api.bybit.com/v5/announcements/index with type=new_crypto.
+    No unique numeric ID — use URL slug as ann_id.
+    """
     alerts = []
+    is_first_run = not exchange_initialized(db, "Bybit")
     try:
         with httpx.Client(verify=_SSL, timeout=12) as c:
             r = c.get(
-                "https://announcements.bybit.com/api/v1/announcements",
-                params={"locale": "en-US", "category": "new_crypto",
-                        "page": "1", "limit": "15"},
+                "https://api.bybit.com/v5/announcements/index",
+                params={"locale": "en-US", "type": "new_crypto",
+                        "page": "1", "limit": "20"},
                 headers={"User-Agent": "Mozilla/5.0"},
             )
         items = r.json().get("result", {}).get("list", [])
         for item in items:
-            ann_id = f"bybit_{item.get('id', '')}"
-            title  = item.get("title", "")
-            url    = item.get("url", "https://announcements.bybit.com")
+            url   = item.get("url", "https://announcements.bybit.com")
+            title = item.get("title", "")
+            # Use URL slug as unique ID (no numeric id in v5)
+            slug  = url.rstrip("/").split("/")[-1] if url else ""
+            ann_id = f"bybit_{slug}" if slug else f"bybit_{title[:40]}"
 
             if not title or is_seen(db, ann_id):
                 continue
 
             ticker = extract_ticker(title)
             mark_seen(db, "Bybit", ann_id, title, ticker or "", url)
-            alerts.append({
-                "exchange": "Bybit",
-                "title":    title,
-                "ticker":   ticker,
-                "url":      url,
-                "type":     "announcement",
-            })
+            if not is_first_run:
+                alerts.append({
+                    "exchange": "Bybit",
+                    "title":    title,
+                    "ticker":   ticker,
+                    "url":      url,
+                    "type":     "announcement",
+                })
+        if is_first_run and items:
+            print(f"[Bybit] baseline saved ({len(items)} articles)", end=" ")
     except Exception as e:
         print(f"[Bybit] Error: {e}")
     return alerts
@@ -334,36 +372,42 @@ def scan_upbit(db, dry_run: bool) -> list[dict]:
 
 
 def scan_okx(db, dry_run: bool) -> list[dict]:
-    """OKX announcement feed."""
+    """OKX announcement feed.
+
+    Uses data.notices[] (not data.lists[] — old field name is gone).
+    Category: 'announcements-new-listings' (not 'New Listings').
+    """
     alerts = []
+    is_first_run = not exchange_initialized(db, "OKX")
     try:
         with httpx.Client(verify=_SSL, timeout=12) as c:
             r = c.get(
                 "https://www.okx.com/v2/support/home/web",
-                params={"category": "New Listings", "limit": "10"},
-                headers={"User-Agent": "Mozilla/5.0"},
+                params={"category": "announcements-new-listings", "limit": "15"},
+                headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
             )
-        items = r.json().get("data", {}).get("lists", [])
+        items = r.json().get("data", {}).get("notices", [])
         for item in items:
-            ann_id = f"okx_{item.get('pCode', item.get('id', ''))}"
-            title  = item.get("title", "")
-            url    = f"https://www.okx.com/support/hc/en-us/articles/{item.get('pCode', '')}"
+            slug   = item.get("slug", item.get("link", "").strip("/").split("/")[-1])
+            ann_id = f"okx_{slug}"
+            title  = item.get("title", item.get("shareTitle", ""))
+            url    = f"https://www.okx.com{item.get('link', '')}"
 
             if not title or is_seen(db, ann_id):
-                continue
-            if not any(kw in title.lower() for kw in
-                       ["list", "adds", "new", "spot"]):
                 continue
 
             ticker = extract_ticker(title)
             mark_seen(db, "OKX", ann_id, title, ticker or "", url)
-            alerts.append({
-                "exchange": "OKX",
-                "title":    title,
-                "ticker":   ticker,
-                "url":      url,
-                "type":     "announcement",
-            })
+            if not is_first_run:
+                alerts.append({
+                    "exchange": "OKX",
+                    "title":    title,
+                    "ticker":   ticker,
+                    "url":      url,
+                    "type":     "announcement",
+                })
+        if is_first_run and items:
+            print(f"[OKX] baseline saved ({len(items)} articles)", end=" ")
     except Exception as e:
         print(f"[OKX] Error: {e}")
     return alerts
@@ -430,7 +474,7 @@ def _save_heartbeat(db, count: int) -> None:
         pass
 
 
-def run_once(dry_run: bool, interval_s: int = 21600) -> int:
+def run_once(dry_run: bool, interval_s: int = 3600) -> int:
     ts  = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     db  = _get_db()
     all_alerts = []
@@ -488,8 +532,8 @@ def run_once(dry_run: bool, interval_s: int = 21600) -> int:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="New Listings Scanner — exchange announcements")
-    p.add_argument("--interval", type=int, default=21600,
-                   help="Scan interval seconds (default: 21600 = 6h)")
+    p.add_argument("--interval", type=int, default=3600,
+                   help="Scan interval seconds (default: 3600 = 1h)")
     p.add_argument("--daemon",   action="store_true",
                    help="Run forever")
     p.add_argument("--dry-run",  action="store_true",
