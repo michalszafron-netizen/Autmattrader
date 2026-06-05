@@ -2374,7 +2374,7 @@ async function loadAlerts() {
   el.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
   const data = await api('/alerts');
   currentAlerts = data;
-  const total = (data.smart_money||[]).length + (data.volume||[]).length + (data.listings||[]).length + (data.insider||[]).length + (data.kozaki||[]).length;
+  const total = (data.smart_money||[]).length + (data.volume||[]).length + (data.insider||[]).length + (data.kozaki||[]).length; // listings excluded from sidebar count
   document.getElementById('alertCount').textContent = total;
   renderAlertTab(currentAlertTab);
   // mini alerts in command center
@@ -2420,7 +2420,7 @@ function clearAlertTab(tab) {
   localStorage.setItem(`alertCleared_${tab}`, now);
   renderAlertTab(tab);
   // Recount visible alerts
-  const visibleTotal = ['sm','vol','listing','insider','kozaki'].reduce((n, t) => {
+  const visibleTotal = ['sm','vol','insider','kozaki'].reduce((n, t) => { // listings excluded from sidebar
     const cleared = _getClearedAt(t);
     const items = t==='sm' ? currentAlerts.smart_money : t==='vol' ? currentAlerts.volume :
                   t==='listing' ? currentAlerts.listings : t==='kozaki' ? currentAlerts.kozaki : currentAlerts.insider;
@@ -2569,10 +2569,7 @@ function renderMiniAlerts(data) {
       icon:'⚡', badge:'VOL',
       coin: a.symbol||'?', side: a.direction||'', value: a.ratio ? a.ratio+'x vol' : '', time: a.ts
     })),
-    ..._filt(data.listings,'listing').map(a => ({
-      icon:'📋', badge:'LISTING',
-      coin: a.symbol||'?', side: a.exchange||'', value: '', time: a.ts
-    })),
+    // listings intentionally excluded from sidebar — too noisy, see Alerts → New Listings tab
     ..._filt(data.insider,'insider').map(a => ({
       icon:'🕵️', badge: a.scout||'INSIDER',
       coin: a.ticker||'?', side: a.direction||'', value: a.confidence ? 'conf: '+a.confidence : '', time: a.ts
