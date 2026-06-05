@@ -234,6 +234,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Alpaca paper trading executor")
     sub = p.add_subparsers(dest="cmd")
 
+    sub.add_parser("equity")      # prints account equity as plain float (for tv_webhook sizing)
     sub.add_parser("positions")
     sub.add_parser("orders")
 
@@ -269,7 +270,12 @@ def main() -> None:
 
     args = p.parse_args()
 
-    if args.cmd == "positions":
+    if args.cmd == "equity":
+        # Print equity as a plain number — used by tv_webhook.py for position sizing
+        acct = get_account()
+        print(f"{float(acct.get('equity', 100000)):.2f}")
+
+    elif args.cmd == "positions":
         show_positions()
 
     elif args.cmd == "orders":

@@ -210,18 +210,13 @@ def execute_trade(data: dict) -> tuple[bool, str]:
             # ── Equity for position sizing ─────────────────────────────────
             try:
                 import subprocess as sp2
-                acct_r = sp2.run([PY, str(SCRIPTS / "alpaca_executor.py"), "positions"],
+                # Use dedicated "equity" command — returns a plain float, no parsing needed
+                acct_r = sp2.run([PY, str(SCRIPTS / "alpaca_executor.py"), "equity"],
                                   capture_output=True, text=True, timeout=15)
-                equity = 100000.0
-                for line in acct_r.stdout.splitlines():
-                    if "Equity:" in line:
-                        import re as _re
-                        m = _re.search(r'Equity:\s*\$([0-9,.]+)', line)
-                        if m:
-                            equity = float(m.group(1).replace(",", ""))
-                            break
+                equity = float(acct_r.stdout.strip()) if acct_r.returncode == 0 and acct_r.stdout.strip() else 100000.0
             except Exception:
                 equity = 100000.0
+            log.info("[Alpaca] Equity: $%.2f", equity)
 
             # ── SL price — prefer Pine's ATR-based value over static stop_pct ──
             sl_price_raw = data.get("sl_price")
@@ -240,6 +235,11 @@ def execute_trade(data: dict) -> tuple[bool, str]:
             risk_usd  = equity * risk_pct / 100
             qty = max(round(risk_usd / stop_dist, 0), 1) if stop_dist > 0 else 1
             qty = int(qty)
+            # Safety cap: max 10% of equity as notional value per position
+            max_qty = max(int(equity * 0.10 / price), 1) if price > 0 else qty
+            if qty > max_qty:
+                log.warning("[Alpaca] qty=%d capped to %d (10%% equity cap at $%.0f)", qty, max_qty, equity)
+                qty = max_qty
             log.info("Alpaca bracket sizing: equity=$%.0f risk_usd=$%.2f stop_dist=%.4f qty=%d",
                      equity, risk_usd, stop_dist, qty)
 
