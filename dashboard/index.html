@@ -110,21 +110,30 @@ header{
 .sm-left{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
 .sm-left .card{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
 #alertContent{flex:1;overflow-y:auto;min-height:0}
-#sm-side-panel{width:370px;flex-shrink:0;display:flex;flex-direction:column;gap:10px;overflow:hidden}
+#sm-side-panel{width:460px;flex-shrink:0;display:flex;flex-direction:column;gap:10px;overflow:hidden}
 /* Thermometer */
-.sm-thermo-bar{height:10px;border-radius:5px;overflow:hidden;display:flex;margin:8px 0 5px;background:rgba(255,71,87,.25)}
+.sm-thermo-bar{height:12px;border-radius:6px;overflow:hidden;display:flex;margin:10px 0 6px;background:rgba(255,71,87,.25)}
 .sm-thermo-l{background:var(--green);transition:width .5s ease}
 .sm-thermo-s{background:var(--red);flex:1}
-.sm-thermo-pct{display:flex;justify-content:space-between;font-family:'Space Mono',monospace;font-size:14px;font-weight:700;margin-bottom:3px}
-.sm-thermo-sub{font-size:11px;color:var(--txt3);margin-bottom:10px;font-family:'Space Mono',monospace}
-.sm-coin-row{display:flex;align-items:center;gap:7px;padding:5px 0;border-bottom:1px solid var(--border)}
+.sm-thermo-pct{display:flex;justify-content:space-between;font-family:'Space Mono',monospace;font-size:16px;font-weight:700;margin-bottom:4px}
+.sm-thermo-sub{font-size:13px;color:var(--txt2);margin-bottom:10px;font-family:'Space Mono',monospace}
+.sm-coin-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)}
 .sm-coin-row:last-child{border-bottom:none}
-.sm-coin-name{font-weight:800;font-size:13px;width:46px;flex-shrink:0;font-family:'Space Mono',monospace;color:var(--txt)}
-.sm-coin-bar{flex:1;height:7px;border-radius:3px;overflow:hidden;display:flex;background:rgba(255,71,87,.2)}
+.sm-coin-name{font-weight:800;font-size:14px;width:52px;flex-shrink:0;font-family:'Space Mono',monospace;color:var(--txt)}
+.sm-coin-bar{flex:1;height:8px;border-radius:4px;overflow:hidden;display:flex;background:rgba(255,71,87,.2)}
 .sm-coin-bar-l{background:var(--green);transition:width .4s}
-.sm-coin-counts{font-family:'Space Mono',monospace;font-size:11px;width:60px;text-align:right;flex-shrink:0}
-.sm-coin-dom{font-size:10px;font-weight:800;width:32px;text-align:center;flex-shrink:0;letter-spacing:.5px}
-.sm-thermo-scroll{overflow-y:auto;max-height:210px}
+.sm-coin-counts{font-family:'Space Mono',monospace;font-size:13px;width:68px;text-align:right;flex-shrink:0}
+.sm-coin-dom{font-size:12px;font-weight:800;width:32px;text-align:center;flex-shrink:0;letter-spacing:.5px}
+.sm-thermo-scroll{overflow-y:auto;max-height:220px}
+/* Coin selector buttons */
+.sm-coin-btns{display:flex;flex-wrap:wrap;gap:5px;padding:8px 0 6px;border-bottom:1px solid var(--border);margin-bottom:6px}
+.sm-coin-btn{
+  padding:4px 11px;border-radius:6px;border:1px solid var(--border);
+  background:none;color:var(--txt2);font-size:13px;font-weight:700;
+  cursor:pointer;transition:all .12s;font-family:'Space Mono',monospace;
+}
+.sm-coin-btn:hover{border-color:var(--green);color:var(--green)}
+.sm-coin-btn.active{background:var(--green-dim);border-color:var(--green);color:var(--green)}
 
 /* ── CARDS ── */
 .card{
@@ -1021,9 +1030,11 @@ header{
       <!-- Wykres aktywności -->
       <div class="card" style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column">
         <div class="card-hdr" style="padding-bottom:6px;flex-shrink:0">
-          <span class="card-title">📈 SM Activity — kumulatywne L/S</span>
+          <span class="card-title">📈 SM Activity — net L/S</span>
           <span id="smChartInfo" class="refresh-info">—</span>
         </div>
+        <!-- Selektor tokenów -->
+        <div id="smCoinSelector" class="sm-coin-btns" style="flex-shrink:0;padding-left:2px;padding-right:2px"></div>
         <div style="flex:1;min-height:0;overflow-y:auto;padding:4px 0">
           <canvas id="smActivityCanvas" style="width:100%"></canvas>
         </div>
@@ -1117,6 +1128,7 @@ let currentAlerts = {smart_money:[], volume:[], listings:[], tv_alerts:[], insid
 let currentAlertTab = 'sm';
 let fgChartInstance = null;
 let _smChartInstance = null;
+let _smSelectedCoin  = null;   // aktywnie wybrany token w SM Activity chart
 let reportContent = '';
 let _waitTimer = null;
 
@@ -3023,129 +3035,149 @@ function renderSMSidePanel(smAlerts, smSnapshot) {
   _drawSMActivityChart(smAlerts);
 }
 
+// Klik na przycisk tokena w SM Activity chart
+function _smSelectCoin(coin) {
+  _smSelectedCoin = coin;
+  document.querySelectorAll('.sm-coin-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.coin === coin)
+  );
+  _drawSMActivityChart(currentAlerts.smart_money || []);
+}
+
 function _drawSMActivityChart(smAlerts) {
-  const canvas = document.getElementById('smActivityCanvas');
+  const canvas   = document.getElementById('smActivityCanvas');
+  const selector = document.getElementById('smCoinSelector');
   if (!canvas) return;
 
   if (_smChartInstance) { _smChartInstance.destroy(); _smChartInstance = null; }
 
-  if (!smAlerts || smAlerts.length < 2) {
+  if (!smAlerts || !smAlerts.length) {
     canvas.style.height = '60px';
+    if (selector) selector.innerHTML = '';
     return;
   }
 
   // Sortuj ASC po czasie
   const sorted = [...smAlerts].sort((a,b) => (a.ts||'').localeCompare(b.ts||''));
 
-  // Znajdź top 6 coinów po liczbie alertów
+  // Wszystkie unikalne coiny posortowane wg aktywności
   const coinCount = {};
   for (const a of sorted) {
     const t = (a.coin||'?').toUpperCase();
     coinCount[t] = (coinCount[t]||0) + 1;
   }
-  const topCoins = Object.entries(coinCount)
+  const allCoins = Object.entries(coinCount)
     .sort((a,b) => b[1]-a[1])
-    .slice(0,6)
     .map(([t]) => t);
 
-  // Kumulatywny net (LONG=+1, SHORT=-1) per token w czasie
-  const cumNet = {};
-  const series = {};
-  for (const c of topCoins) { cumNet[c] = 0; series[c] = []; }
+  // Ustaw domyślny token jeśli żaden nie wybrany lub wybrany nie istnieje
+  if (!_smSelectedCoin || !allCoins.includes(_smSelectedCoin)) {
+    _smSelectedCoin = allCoins[0];
+  }
 
-  const todayStr = new Date().toDateString();
+  // Renderuj selektor tokenów
+  if (selector) {
+    selector.innerHTML = allCoins.map(c =>
+      `<button class="sm-coin-btn${c===_smSelectedCoin?' active':''}"
+        data-coin="${escHtml(c)}"
+        onclick="_smSelectCoin('${escHtml(c)}')">${escHtml(c)}</button>`
+    ).join('');
+  }
+
+  // Buduj serię dla JEDNEGO wybranego tokena
+  const TZ = 'Europe/Warsaw';
   const _lbl = ts => {
     if (!ts) return '';
     let s = ts.replace(/\s*UTC\s*$/i,'').trim().replace(' ','T');
     if (!s.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(s)) s += 'Z';
     const d = new Date(s);
-    if (isNaN(d)) return ts.substring(11,16) || ts;
-    const h = d.getHours().toString().padStart(2,'0');
-    const m = d.getMinutes().toString().padStart(2,'0');
-    if (d.toDateString() === todayStr) return `${h}:${m}`;
-    const dd = d.getDate().toString().padStart(2,'0');
-    const mo = (d.getMonth()+1).toString().padStart(2,'0');
-    return `${dd}.${mo} ${h}:${m}`;
+    if (isNaN(d)) return ts.substring(11,16)||ts;
+    const isToday = d.toLocaleDateString('en-US',{timeZone:TZ}) === new Date().toLocaleDateString('en-US',{timeZone:TZ});
+    const t = d.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit',timeZone:TZ});
+    if (isToday) return t;
+    const dt = d.toLocaleDateString('pl-PL',{day:'2-digit',month:'2-digit',timeZone:TZ});
+    return `${dt} ${t}`;
   };
+
+  let cumNet = 0;
+  const points   = []; // {x, y, side} dla wybranego tokena
+  const bgColors = []; // kolor paska per punkt
 
   for (const a of sorted) {
     const t = (a.coin||'?').toUpperCase();
-    if (!topCoins.includes(t)) continue;
-    const delta = (a.side||'').toUpperCase() === 'LONG' ? 1 : -1;
-    cumNet[t] = (cumNet[t]||0) + delta;
-    series[t].push({ x: _lbl(a.ts), y: cumNet[t] });
+    if (t !== _smSelectedCoin) continue;
+    const side  = (a.side||'').toUpperCase();
+    const delta = side === 'LONG' ? 1 : -1;
+    cumNet += delta;
+    points.push({ x: _lbl(a.ts), y: cumNet, side });
+    bgColors.push(cumNet >= 0 ? 'rgba(0,255,136,0.45)' : 'rgba(255,71,87,0.45)');
   }
 
-  // Paleta kolorów
-  const COLORS = ['#00ff88','#ff4757','#00d4ff','#f7931a','#ffd32a','#9945ff'];
+  canvas.style.height = Math.max(180, points.length * 16 + 100) + 'px';
 
-  canvas.style.height = Math.max(200, topCoins.length * 30 + 80) + 'px';
-
-  const datasets = topCoins.map((coin, i) => ({
-    label: coin,
-    data: series[coin],
-    borderColor: COLORS[i % COLORS.length],
-    backgroundColor: COLORS[i % COLORS.length] + '15',
-    fill: true,
-    tension: 0.1,
-    stepped: 'before',   // skok w momencie zdarzenia — dokładnie pokazuje "ładowanie"
-    pointRadius: 4,
-    pointHoverRadius: 6,
-    borderWidth: 2,
-  }));
+  if (!points.length) {
+    canvas.style.height = '60px';
+    return;
+  }
 
   _smChartInstance = new Chart(canvas, {
-    type: 'line',
-    data: { datasets },
+    type: 'bar',
+    data: {
+      labels: points.map(p => p.x),
+      datasets: [{
+        label: _smSelectedCoin + ' net L/S',
+        data: points.map(p => p.y),
+        backgroundColor: bgColors,
+        borderColor: bgColors.map(c => c.replace('0.45','0.9')),
+        borderWidth: 1,
+        borderRadius: 3,
+      }]
+    },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      parsing: { xAxisKey: 'x', yAxisKey: 'y' },
-      interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: {
-          position: 'top',
-          labels: {
-            color: '#7a8da0',
-            font: { size: 10, family: "'Space Mono', monospace" },
-            padding: 8, boxWidth: 12,
-          }
-        },
+        legend: { display: false },
         tooltip: {
           backgroundColor: 'rgba(6,12,22,0.95)',
           titleColor: '#dde6f0',
-          bodyColor: '#7a8da0',
-          borderColor: 'rgba(255,255,255,0.08)',
+          titleFont: { size: 13, family: "'Space Mono',monospace", weight: 'bold' },
+          bodyColor: '#aac8e8',
+          bodyFont: { size: 13, family: "'Space Mono',monospace" },
+          borderColor: 'rgba(255,255,255,0.1)',
           borderWidth: 1,
+          padding: 10,
           callbacks: {
+            title: items => items[0]?.label || '',
             label: ctx => {
               const v = ctx.parsed.y;
-              const s = v > 0 ? `🟢 LONG +${v}` : v < 0 ? `🔴 SHORT ${v}` : `⬜ neutral`;
-              return ` ${ctx.dataset.label}: ${s}`;
+              const pt = points[ctx.dataIndex];
+              const arrow = pt.side === 'LONG' ? '▲ LONG' : '▼ SHORT';
+              const net   = v > 0 ? `net: +${v} LONG` : v < 0 ? `net: ${v} SHORT` : 'net: 0 NEUTRAL';
+              return [`${arrow}`, `${net}`];
             }
           }
         }
       },
       scales: {
         x: {
-          type: 'category',
           ticks: {
-            color: '#3d4f62',
-            font: { size: 9, family: "'Space Mono', monospace" },
-            maxRotation: 0,
-            maxTicksLimit: 10,
+            color: '#7a8da0',
+            font: { size: 11, family: "'Space Mono',monospace" },
+            maxRotation: 45,
+            maxTicksLimit: 12,
           },
-          grid: { color: 'rgba(255,255,255,0.03)' }
+          grid: { color: 'rgba(255,255,255,0.04)' }
         },
         y: {
           ticks: {
-            color: '#3d4f62',
-            font: { size: 9, family: "'Space Mono', monospace" },
-            callback: v => v > 0 ? `+${v}L` : v < 0 ? `${v}S` : '0',
+            color: '#7a8da0',
+            font: { size: 12, family: "'Space Mono',monospace" },
+            callback: v => v > 0 ? `+${v} L` : v < 0 ? `${v} S` : '0',
           },
-          grid: { color: 'rgba(255,255,255,0.04)' },
-          // linia zerowa pogrubiona
-          border: { color: 'rgba(255,255,255,0.1)' }
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          // linia zerowa
+          border: { color: 'rgba(255,255,255,0.15)', dash: [4,4] }
         }
       }
     }
