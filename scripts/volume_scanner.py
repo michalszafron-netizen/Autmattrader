@@ -52,11 +52,16 @@ IGNORE = {
 
 DEFAULT_THRESHOLD  = 5.0   # minimum multiplier to alert (24h window)
 DEFAULT_TOP_N      = 10    # max tokens per alert message
+MAX_ALERTS_TOTAL   = 15    # hard cap — max anomalii w jednym raporcie
 MIN_VOL_USD        = 500_000    # ignore tokens with <$500K 24h volume
 
 # Early-detection window (4h vs rolling hourly avg)
 EARLY_WINDOW_HOURS = 4     # compare last N hours vs historical hourly avg
-EARLY_THRESHOLD    = 2.5   # multiplier to fire early alert (slightly lower — 4h is noisier)
+EARLY_THRESHOLD    = 5.0   # podwyższony z 2.5 → 5.0 (było za dużo szumu w trybie spot-only)
+
+# Binance Alpha direct scan — osobne filtry bo Alpha tokeny są z natury bardziej volatile
+ALPHA_MIN_VOL_USD        = 2_000_000   # min $2M 24h volume (odsiewa śmieciowe tokeny)
+ALPHA_THRESHOLD_FACTOR   = 1.5         # Alpha musi mieć 1.5× główny próg (np. 7.5x przy 5x)
 
 
 # ── Binance API ───────────────────────────────────────────────────────────────
@@ -484,14 +489,21 @@ def find_anomalies(threshold: float, no_futures: bool = False) -> list[dict]:
 
 
 def find_alpha_anomalies(threshold: float) -> list[dict]:
-    """Directly scan Binance Alpha tokens for volume spikes (24h vs 30d avg)."""
-    print("  Alpha direct scan...", end=" ", flush=True)
+    """Directly scan Binance Alpha tokens for volume spikes (24h vs 30d avg).
+
+    Surowsze filtry niż dla Spot — Alpha tokeny są z natury bardziej volatile:
+      - ALPHA_MIN_VOL_USD: min $2M (odsiewa śmieciowe tokeny bez płynności)
+      - ALPHA_THRESHOLD_FACTOR × threshold: np. 7.5x przy głównym progu 5x
+    """
+    alpha_threshold = threshold * ALPHA_THRESHOLD_FACTOR
+    print(f"  Alpha direct scan (min ${ALPHA_MIN_VOL_USD/1e6:.0f}M vol, >{alpha_threshold:.1f}x)...",
+          end=" ", flush=True)
     alpha_map = fetch_alpha_token_map()
 
     candidates = []
     for sym, token in alpha_map.items():
         vol24 = float(token.get("volume24h") or 0)
-        if vol24 < MIN_VOL_USD:
+        if vol24 < ALPHA_MIN_VOL_USD:   # surowszy próg wolumenu dla Alpha
             continue
         alpha_id = token.get("alphaId", "")
         chg      = float(token.get("percentChange24h") or 0)
@@ -510,16 +522,16 @@ def find_alpha_anomalies(threshold: float) -> list[dict]:
             "alpha_chain": chain,
         })
     candidates.sort(key=lambda x: -x["vol24"])
-    candidates = candidates[:40]  # top 40 Alpha tokens by 24h volume
+    candidates = candidates[:30]  # top 30 Alpha tokenów po wolumenie
     print(f"{len(candidates)} Alpha candidates", end=" ", flush=True)
 
     anomalies = []
     for cand in candidates:
         avg = fetch_alpha_30d_avg(cand["alpha_id"])
-        if not avg or avg < 50_000:
+        if not avg or avg < 500_000:    # min $500K 30d avg (odsiewa tokeny bez historii)
             continue
         mult = cand["vol24"] / avg
-        if mult >= threshold:
+        if mult >= alpha_threshold:     # surowszy próg mnożnika
             anomalies.append({
                 **cand,
                 "avg30d":     avg,
@@ -530,7 +542,7 @@ def find_alpha_anomalies(threshold: float) -> list[dict]:
             })
 
     anomalies.sort(key=lambda x: -x["multiplier"])
-    print(f"| {len(anomalies)} Alpha anomalii")
+    print(f"| {len(anomalies)} Alpha anomalii (prog {alpha_threshold:.1f}x)")
     return anomalies
 
 
@@ -762,14 +774,18 @@ def run_once(threshold: float, dry_run: bool, no_futures: bool = False, interval
     anomalies = find_anomalies(threshold, no_futures=no_futures)
 
     if anomalies:
+        # Hard cap — wyslij max MAX_ALERTS_TOTAL (posortowane po sile spike'a)
+        to_send = anomalies[:MAX_ALERTS_TOTAL]
+        skipped = len(anomalies) - len(to_send)
         chunk_size = DEFAULT_TOP_N
-        chunks = [anomalies[i:i + chunk_size] for i in range(0, len(anomalies), chunk_size)]
+        chunks = [to_send[i:i + chunk_size] for i in range(0, len(to_send), chunk_size)]
         total = len(chunks)
         for idx, chunk in enumerate(chunks, 1):
             msg = format_alert(chunk, ts, threshold, part=idx, total_parts=total)
             send_telegram(msg, dry_run=dry_run)
         save_to_db(anomalies, ts)
-        print(f"[{ts}] Alert sent: {len(anomalies)} anomalies in {total} message(s)")
+        skipped_note = f" (pominięto {skipped} słabszych)" if skipped else ""
+        print(f"[{ts}] Alert sent: {len(to_send)}/{len(anomalies)} anomalii w {total} msg{skipped_note}")
     else:
         hb = format_heartbeat(ts, threshold, interval_sec=interval_sec, no_futures=no_futures)
         send_telegram(hb, dry_run=dry_run)
