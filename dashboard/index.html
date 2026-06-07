@@ -104,6 +104,28 @@ header{
 #panel-alerts .alert-item{width:100%;box-sizing:border-box}
 #panel-alerts .card{width:100%;box-sizing:border-box}
 
+/* ── SM WHALE SPLIT LAYOUT ── */
+#panel-alerts.active{display:flex;flex-direction:column;height:100%;padding-bottom:0}
+.sm-layout{display:flex;gap:12px;flex:1;min-height:0;overflow:hidden}
+.sm-left{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+.sm-left .card{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+#alertContent{flex:1;overflow-y:auto;min-height:0}
+#sm-side-panel{width:370px;flex-shrink:0;display:flex;flex-direction:column;gap:10px;overflow:hidden}
+/* Thermometer */
+.sm-thermo-bar{height:10px;border-radius:5px;overflow:hidden;display:flex;margin:8px 0 5px;background:rgba(255,71,87,.25)}
+.sm-thermo-l{background:var(--green);transition:width .5s ease}
+.sm-thermo-s{background:var(--red);flex:1}
+.sm-thermo-pct{display:flex;justify-content:space-between;font-family:'Space Mono',monospace;font-size:14px;font-weight:700;margin-bottom:3px}
+.sm-thermo-sub{font-size:11px;color:var(--txt3);margin-bottom:10px;font-family:'Space Mono',monospace}
+.sm-coin-row{display:flex;align-items:center;gap:7px;padding:5px 0;border-bottom:1px solid var(--border)}
+.sm-coin-row:last-child{border-bottom:none}
+.sm-coin-name{font-weight:800;font-size:13px;width:46px;flex-shrink:0;font-family:'Space Mono',monospace;color:var(--txt)}
+.sm-coin-bar{flex:1;height:7px;border-radius:3px;overflow:hidden;display:flex;background:rgba(255,71,87,.2)}
+.sm-coin-bar-l{background:var(--green);transition:width .4s}
+.sm-coin-counts{font-family:'Space Mono',monospace;font-size:11px;width:60px;text-align:right;flex-shrink:0}
+.sm-coin-dom{font-size:10px;font-weight:800;width:32px;text-align:center;flex-shrink:0;letter-spacing:.5px}
+.sm-thermo-scroll{overflow-y:auto;max-height:210px}
+
 /* ── CARDS ── */
 .card{
   background:var(--card);border:1px solid var(--border);border-radius:12px;
@@ -972,15 +994,41 @@ header{
     <div class="tab" onclick="showAlertTab('insider')">🕵️ Insider</div>
     <div class="tab" onclick="showAlertTab('tv')">📡 TV Webhook</div>
   </div>
-  <div class="card">
-    <div class="card-hdr">
-      <span class="card-title" id="alertTabTitle">Smart Money Alerts</span>
-      <div style="display:flex;gap:6px">
-        <button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" onclick="clearAlertTab(currentAlertTab)" title="Ukryj wszystkie obecne alerty (nie usuwa z DB)">🗑 Wyczyść</button>
-        <button class="btn btn-outline btn-sm" onclick="loadAlerts()">↻ Odśwież</button>
+  <div class="sm-layout">
+    <!-- LEFT: lista alertów -->
+    <div class="sm-left">
+      <div class="card">
+        <div class="card-hdr">
+          <span class="card-title" id="alertTabTitle">Smart Money Alerts</span>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" onclick="clearAlertTab(currentAlertTab)" title="Ukryj wszystkie obecne alerty (nie usuwa z DB)">🗑 Wyczyść</button>
+            <button class="btn btn-outline btn-sm" onclick="loadAlerts()">↻ Odśwież</button>
+          </div>
+        </div>
+        <div id="alertContent" class="loading"><div class="spinner"></div> Ładuję...</div>
       </div>
     </div>
-    <div id="alertContent" class="loading"><div class="spinner"></div> Ładuję...</div>
+    <!-- RIGHT: Whale Thermometer + SM Activity Chart (tylko dla SM tab) -->
+    <div id="sm-side-panel" style="display:none">
+      <!-- Termometr -->
+      <div class="card" style="flex-shrink:0">
+        <div class="card-hdr" style="padding-bottom:8px">
+          <span class="card-title">🐋 Whale Thermometer</span>
+          <span id="smThermoLabel" class="card-badge badge-red">SHORT</span>
+        </div>
+        <div id="smThermoContent" class="sm-thermo-scroll"></div>
+      </div>
+      <!-- Wykres aktywności -->
+      <div class="card" style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column">
+        <div class="card-hdr" style="padding-bottom:6px;flex-shrink:0">
+          <span class="card-title">📈 SM Activity — kumulatywne L/S</span>
+          <span id="smChartInfo" class="refresh-info">—</span>
+        </div>
+        <div style="flex:1;min-height:0;overflow-y:auto;padding:4px 0">
+          <canvas id="smActivityCanvas" style="width:100%"></canvas>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1062,6 +1110,7 @@ function fmtTs(ts, opts = {}) {
 let currentAlerts = {smart_money:[], volume:[], listings:[], tv_alerts:[], insider:[], kozaki:[], kozaki_snapshot:[]};
 let currentAlertTab = 'sm';
 let fgChartInstance = null;
+let _smChartInstance = null;
 let reportContent = '';
 let _waitTimer = null;
 
@@ -2525,6 +2574,9 @@ function showAlertTab(tab) {
   event.target.classList.add('active');
   const titles = {sm:'Smart Money Alerts', kozaki:'Kozaki — Elite HL Wallets', watchlist:'⭐ Ulubieni — Moje Portfele', vol:'Volume Anomalies', listing:'New Listings', insider:'Insider Tracker (Eddie / Maggie / Frank)', tv:'TV Webhook Signals'};
   document.getElementById('alertTabTitle').textContent = titles[tab] || tab;
+  // Pokaż/ukryj panel boczny Whale Thermometer (tylko dla SM)
+  const sidePanel = document.getElementById('sm-side-panel');
+  if (sidePanel) sidePanel.style.display = tab === 'sm' ? 'flex' : 'none';
   renderAlertTab(tab);
 }
 
@@ -2879,6 +2931,219 @@ function renderAlertTab(tab) {
   el.scrollTop = 0;
   const panel = document.getElementById('panel-alerts');
   if (panel) panel.scrollTop = 0;
+  // Odśwież panel boczny SM jeśli aktywny
+  if (tab === 'sm') renderSMSidePanel(currentAlerts.smart_money || []);
+}
+
+// ── SM Whale Thermometer + Activity Chart ────────────────────────────────────
+
+function renderSMSidePanel(smAlerts) {
+  const thermoEl = document.getElementById('smThermoContent');
+  const infoEl   = document.getElementById('smChartInfo');
+  if (!thermoEl) return;
+
+  if (!smAlerts || !smAlerts.length) {
+    thermoEl.innerHTML = '<div class="empty" style="padding:16px 0"><p>Brak danych SM</p></div>';
+    if (infoEl) infoEl.textContent = '0 alertów';
+    return;
+  }
+
+  // Agregacja per token
+  const coins = {};
+  for (const a of smAlerts) {
+    const ticker  = (a.coin || '?').toUpperCase();
+    const side    = (a.side || '').toUpperCase();
+    const notional = parseFloat(a.notional) || 0;
+    if (!coins[ticker]) coins[ticker] = { L:0, S:0, nL:0, nS:0 };
+    if (side === 'LONG')  { coins[ticker].L++; coins[ticker].nL += notional; }
+    else if (side === 'SHORT') { coins[ticker].S++; coins[ticker].nS += notional; }
+  }
+
+  // Sortuj wg notional (ciężar sygnałów)
+  const sorted = Object.entries(coins)
+    .sort((a,b) => (b[1].nL+b[1].nS) - (a[1].nL+a[1].nS))
+    .slice(0, 16);
+
+  // Ogólne statystyki
+  let tL=0, tS=0, tNL=0, tNS=0;
+  for (const [,c] of Object.entries(coins)) { tL+=c.L; tS+=c.S; tNL+=c.nL; tNS+=c.nS; }
+  const total = tL + tS;
+  const pctL  = total ? Math.round(tL/total*100) : 0;
+  const pctS  = 100 - pctL;
+  const domByNotional = tNL >= tNS ? 'LONG' : 'SHORT';
+
+  // Badge dominacji
+  const badge = document.getElementById('smThermoLabel');
+  if (badge) {
+    badge.textContent = domByNotional;
+    badge.className = 'card-badge ' + (domByNotional === 'LONG' ? 'badge-green' : 'badge-red');
+  }
+
+  const _fN = v => v>=1e6?'$'+(v/1e6).toFixed(1)+'M':v>=1e3?'$'+(v/1e3).toFixed(0)+'K':'$'+v.toFixed(0);
+
+  // Termometr ogólny
+  let html = `
+    <div class="sm-thermo-bar">
+      <div class="sm-thermo-l" style="width:${pctL}%"></div>
+      <div class="sm-thermo-s"></div>
+    </div>
+    <div class="sm-thermo-pct">
+      <span style="color:var(--green)">${pctL}% LONG</span>
+      <span style="color:var(--red)">${pctS}% SHORT</span>
+    </div>
+    <div class="sm-thermo-sub">${_fN(tNL)} L · ${_fN(tNS)} S · ${total} sygnałów</div>`;
+
+  // Wiersze per token
+  for (const [ticker, c] of sorted) {
+    const coinTotal = c.L + c.S;
+    const pL = coinTotal ? Math.round(c.L/coinTotal*100) : 50;
+    const dom = c.nL >= c.nS ? 'L' : 'S';
+    const domClr = dom==='L' ? 'var(--green)' : 'var(--red)';
+    html += `<div class="sm-coin-row">
+      <span class="sm-coin-name">${escHtml(ticker)}</span>
+      <div class="sm-coin-bar"><div class="sm-coin-bar-l" style="width:${pL}%"></div></div>
+      <span class="sm-coin-counts">
+        <span style="color:var(--green)">${c.L}L</span>
+        <span style="color:var(--txt3)"> / </span>
+        <span style="color:var(--red)">${c.S}S</span>
+      </span>
+      <span class="sm-coin-dom" style="color:${domClr}">●${dom}</span>
+    </div>`;
+  }
+
+  thermoEl.innerHTML = html;
+  if (infoEl) infoEl.textContent = `${smAlerts.length} alertów`;
+
+  _drawSMActivityChart(smAlerts);
+}
+
+function _drawSMActivityChart(smAlerts) {
+  const canvas = document.getElementById('smActivityCanvas');
+  if (!canvas) return;
+
+  if (_smChartInstance) { _smChartInstance.destroy(); _smChartInstance = null; }
+
+  if (!smAlerts || smAlerts.length < 2) {
+    canvas.style.height = '60px';
+    return;
+  }
+
+  // Sortuj ASC po czasie
+  const sorted = [...smAlerts].sort((a,b) => (a.ts||'').localeCompare(b.ts||''));
+
+  // Znajdź top 6 coinów po liczbie alertów
+  const coinCount = {};
+  for (const a of sorted) {
+    const t = (a.coin||'?').toUpperCase();
+    coinCount[t] = (coinCount[t]||0) + 1;
+  }
+  const topCoins = Object.entries(coinCount)
+    .sort((a,b) => b[1]-a[1])
+    .slice(0,6)
+    .map(([t]) => t);
+
+  // Kumulatywny net (LONG=+1, SHORT=-1) per token w czasie
+  const cumNet = {};
+  const series = {};
+  for (const c of topCoins) { cumNet[c] = 0; series[c] = []; }
+
+  const todayStr = new Date().toDateString();
+  const _lbl = ts => {
+    if (!ts) return '';
+    let s = ts.replace(/\s*UTC\s*$/i,'').trim().replace(' ','T');
+    if (!s.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(s)) s += 'Z';
+    const d = new Date(s);
+    if (isNaN(d)) return ts.substring(11,16) || ts;
+    const h = d.getHours().toString().padStart(2,'0');
+    const m = d.getMinutes().toString().padStart(2,'0');
+    if (d.toDateString() === todayStr) return `${h}:${m}`;
+    const dd = d.getDate().toString().padStart(2,'0');
+    const mo = (d.getMonth()+1).toString().padStart(2,'0');
+    return `${dd}.${mo} ${h}:${m}`;
+  };
+
+  for (const a of sorted) {
+    const t = (a.coin||'?').toUpperCase();
+    if (!topCoins.includes(t)) continue;
+    const delta = (a.side||'').toUpperCase() === 'LONG' ? 1 : -1;
+    cumNet[t] = (cumNet[t]||0) + delta;
+    series[t].push({ x: _lbl(a.ts), y: cumNet[t] });
+  }
+
+  // Paleta kolorów
+  const COLORS = ['#00ff88','#ff4757','#00d4ff','#f7931a','#ffd32a','#9945ff'];
+
+  canvas.style.height = Math.max(200, topCoins.length * 30 + 80) + 'px';
+
+  const datasets = topCoins.map((coin, i) => ({
+    label: coin,
+    data: series[coin],
+    borderColor: COLORS[i % COLORS.length],
+    backgroundColor: COLORS[i % COLORS.length] + '15',
+    fill: true,
+    tension: 0.1,
+    stepped: 'before',   // skok w momencie zdarzenia — dokładnie pokazuje "ładowanie"
+    pointRadius: 4,
+    pointHoverRadius: 6,
+    borderWidth: 2,
+  }));
+
+  _smChartInstance = new Chart(canvas, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      parsing: { xAxisKey: 'x', yAxisKey: 'y' },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: {
+            color: '#7a8da0',
+            font: { size: 10, family: "'Space Mono', monospace" },
+            padding: 8, boxWidth: 12,
+          }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(6,12,22,0.95)',
+          titleColor: '#dde6f0',
+          bodyColor: '#7a8da0',
+          borderColor: 'rgba(255,255,255,0.08)',
+          borderWidth: 1,
+          callbacks: {
+            label: ctx => {
+              const v = ctx.parsed.y;
+              const s = v > 0 ? `🟢 LONG +${v}` : v < 0 ? `🔴 SHORT ${v}` : `⬜ neutral`;
+              return ` ${ctx.dataset.label}: ${s}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'category',
+          ticks: {
+            color: '#3d4f62',
+            font: { size: 9, family: "'Space Mono', monospace" },
+            maxRotation: 0,
+            maxTicksLimit: 10,
+          },
+          grid: { color: 'rgba(255,255,255,0.03)' }
+        },
+        y: {
+          ticks: {
+            color: '#3d4f62',
+            font: { size: 9, family: "'Space Mono', monospace" },
+            callback: v => v > 0 ? `+${v}L` : v < 0 ? `${v}S` : '0',
+          },
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          // linia zerowa pogrubiona
+          border: { color: 'rgba(255,255,255,0.1)' }
+        }
+      }
+    }
+  });
 }
 
 function renderMiniAlerts(data) {
