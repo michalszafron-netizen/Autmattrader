@@ -1011,13 +1011,18 @@ header{
   <div class="sm-layout">
     <!-- LEFT: lista alertów -->
     <div class="sm-left">
+      <!-- Baner "nowsze alerty" gdy scrolled down -->
+      <div id="smNewAlertsBar" onclick="scrollToNewest()" style="display:none;align-items:center;justify-content:center;
+        background:rgba(0,255,136,0.15);border:1px solid var(--green);border-radius:8px;
+        padding:8px 16px;margin-bottom:8px;cursor:pointer;font-size:13px;font-weight:700;
+        color:var(--green);flex-shrink:0"></div>
       <div class="card">
         <div class="card-hdr">
           <span class="card-title" id="alertTabTitle">Smart Money Alerts</span>
           <div style="display:flex;align-items:center;gap:8px">
             <span id="alertRefreshTs" class="refresh-info" style="font-size:12px"></span>
             <button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" onclick="clearAlertTab(currentAlertTab)" title="Ukryj wszystkie obecne alerty (nie usuwa z DB)">🗑 Wyczyść</button>
-            <button class="btn btn-outline btn-sm" onclick="loadAlerts()">↻ Odśwież</button>
+            <button class="btn btn-outline btn-sm" onclick="renderAlertTab._resetScroll=true; loadAlerts()">↻ Odśwież</button>
           </div>
         </div>
         <div id="alertContent" class="loading"><div class="spinner"></div> Ładuję...</div>
@@ -2619,6 +2624,7 @@ function showAlertTab(tab) {
   // Pokaż/ukryj panel boczny Whale Thermometer (tylko dla SM)
   const sidePanel = document.getElementById('sm-side-panel');
   if (sidePanel) sidePanel.style.display = tab === 'sm' ? 'flex' : 'none';
+  renderAlertTab._resetScroll = true;  // tab switch → scroll do góry
   renderAlertTab(tab);
 }
 
@@ -2969,14 +2975,33 @@ function renderAlertTab(tab) {
       <div class="alert-time" title="${escHtml(utcHint)}">${escHtml(time)}</div>
     </div>`;
   }).join('') + '</div>';
-  // Scroll reset — requestAnimationFrame zapewnia że browser zdąży wyrenderować przed reset
-  requestAnimationFrame(() => {
-    el.scrollTop = 0;
-    const panel = document.getElementById('panel-alerts');
-    if (panel) panel.scrollTop = 0;
-  });
   // Odśwież panel boczny SM jeśli aktywny
   if (tab === 'sm') renderSMSidePanel(currentAlerts.smart_money || [], currentAlerts.sm_snapshot || []);
+  // Scroll reset — tylko gdy renderAlertTab wywołany z resetScroll=true (manual click / tab switch)
+  // Auto-refresh NIE resetuje scroll — żebyś mógł scrollować historię swobodnie
+  if (renderAlertTab._resetScroll) {
+    renderAlertTab._resetScroll = false;
+    requestAnimationFrame(() => { el.scrollTop = 0; });
+  }
+  // Pokaż baner "↑ Nowsze alerty" gdy scroll > 0 i jest nowsza data niż widoczna
+  _updateNewAlertsBar(el, items);
+}
+
+function _updateNewAlertsBar(el, items) {
+  let bar = document.getElementById('smNewAlertsBar');
+  if (!bar) return;
+  // Sprawdź czy scrolled down (>50px)
+  const isDown = el.scrollTop > 50;
+  bar.style.display = isDown && items.length > 5 ? 'flex' : 'none';
+  if (isDown && items.length > 0) {
+    const newest = fmtTs(items[0]?.ts || '');
+    bar.textContent = `▲ Najnowszy alert: ${newest} — kliknij żeby przejść na górę`;
+  }
+}
+
+function scrollToNewest() {
+  const el = document.getElementById('alertContent');
+  if (el) { el.scrollTop = 0; }
 }
 
 // ── SM Whale Thermometer + Activity Chart ────────────────────────────────────
@@ -3852,8 +3877,19 @@ function escHtml(str) {
 // ── Auto-refresh ───────────────────────────────────────────────────────────
 // Status every 60s
 setInterval(loadStatus, 60_000);
-// Alerts every 5 min
-setInterval(loadAlerts, 5 * 60_000);
+// Alerts every 2 min (bylo 5min)
+setInterval(loadAlerts, 2 * 60_000);
+
+// Baner "nowsze alerty" — pojawia się gdy scrolled down
+document.addEventListener('DOMContentLoaded', () => {
+  const alertEl = document.getElementById('alertContent');
+  if (alertEl) {
+    alertEl.addEventListener('scroll', () => {
+      const items = currentAlerts[currentAlertTab==='sm'?'smart_money':currentAlertTab] || [];
+      _updateNewAlertsBar(alertEl, items);
+    }, { passive: true });
+  }
+});
 // Prices every 30s (header ticker)
 async function refreshTicker() {
   const data = await api('/prices');
