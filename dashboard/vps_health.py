@@ -111,19 +111,40 @@ def get_alerts() -> dict:
     return {
         'smart_money': db_query(
             'SELECT ts, alert_type, coin, side, wallet, notional, details '
-            'FROM sm_alerts ORDER BY ts DESC LIMIT 30'
+            'FROM sm_alerts ORDER BY ts DESC LIMIT 300'
         ),
         'listings': db_query(
             'SELECT ts, ticker AS symbol, exchange, url AS announce_url, title, ann_type '
-            'FROM listing_announcements ORDER BY ts DESC LIMIT 20'
+            'FROM listing_announcements ORDER BY ts DESC LIMIT 30'
         ),
         'insider': db_query(
             'SELECT ts, scout, ticker, direction, confidence, reason '
-            'FROM insider_signals ORDER BY ts DESC LIMIT 20'
+            'FROM insider_signals ORDER BY ts DESC LIMIT 30'
         ),
         'kozaki': db_query(
             'SELECT ts, alert_type, wallet, label, coin, side, notional, details '
-            'FROM kozaki_alerts ORDER BY ts DESC LIMIT 30'
+            'FROM kozaki_alerts ORDER BY ts DESC LIMIT 50'
+        ),
+        # Aktualny snapshot SM — pozycje z ostatniego skanu (dla Whale Thermometru)
+        'sm_snapshot': db_query(
+            '''SELECT coin, side,
+                      SUM(notional)          AS notional,
+                      COUNT(DISTINCT wallet) AS wallet_count
+               FROM sm_snapshots
+               WHERE ts = (SELECT MAX(ts) FROM sm_snapshots)
+               GROUP BY coin, side
+               ORDER BY notional DESC'''
+        ),
+        # Aktualny snapshot Kozaki — top pozycje z ostatniego skanu
+        'kozaki_snapshot': db_query(
+            '''SELECT ks.wallet, ks.coin, ks.side, ks.notional, ks.entry, ks.lev, ks.upnl,
+                      ka.label
+               FROM kozaki_snapshots ks
+               LEFT JOIN (
+                   SELECT wallet, MAX(label) AS label FROM kozaki_alerts GROUP BY wallet
+               ) ka ON ks.wallet = ka.wallet
+               WHERE ks.ts = (SELECT MAX(ts) FROM kozaki_snapshots)
+               ORDER BY ks.notional DESC LIMIT 20'''
         ),
     }
 
