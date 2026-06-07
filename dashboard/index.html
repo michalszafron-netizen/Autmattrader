@@ -96,7 +96,7 @@ header{
 .nav-sep{width:48px;height:1px;background:var(--border);margin:4px 0}
 
 /* ── MAIN CONTENT ── */
-.main{flex:1;overflow-y:auto;overflow-x:hidden;padding:0}
+.main{flex:1;overflow-y:auto;overflow-x:hidden;padding:0;display:flex;flex-direction:column}
 .panel{display:none;padding:16px 24px;height:100%}
 .panel.active{display:block}
 /* ── Alerts panel: full width ── */
@@ -105,7 +105,7 @@ header{
 #panel-alerts .card{width:100%;box-sizing:border-box}
 
 /* ── SM WHALE SPLIT LAYOUT ── */
-#panel-alerts.active{display:flex;flex-direction:column;overflow:hidden;padding-bottom:0}
+#panel-alerts.active{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden;padding-bottom:0}
 .sm-layout{display:flex;gap:12px;flex:1;min-height:0;overflow:hidden}
 .sm-left{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
 .sm-left .card{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
@@ -2833,6 +2833,9 @@ async function deleteFromWatchlist(address) {
 
 function renderAlertTab(tab) {
   const el = document.getElementById('alertContent');
+  // Synchronizuj widoczność panelu bocznego SM (może być wywołane z loadAlerts bez showAlertTab)
+  const sidePanel = document.getElementById('sm-side-panel');
+  if (sidePanel) sidePanel.style.display = tab === 'sm' ? 'flex' : 'none';
   // Watchlist ma własny async renderer
   if (tab === 'watchlist') { renderWatchlistTab(); return; }
 
@@ -3005,12 +3008,9 @@ function _updateNewAlertsBar(el, items) {
 }
 
 function scrollToNewest() {
-  // Próbuj wszystkie możliwe scrollujące kontenery
-  ['alertContent'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.scrollTop = 0;
-  });
-  // .main jest głównym scrollerem gdy panel nie ma własnego scroll
+  const el = document.getElementById('alertContent');
+  if (el) el.scrollTop = 0;
+  // fallback — na wypadek gdyby .main był scrollerem
   const mainEl = document.querySelector('.main');
   if (mainEl) mainEl.scrollTop = 0;
 }
