@@ -2,6 +2,27 @@
 
 This is a personal AI trading project. When working in this folder, follow these rules.
 
+## 📱 TELEGRAM (tgtrade) — zasada krytyczna
+
+Gdy pracujesz w sesji Telegram channel (`--channels plugin:telegram`):
+
+**ZAWSZE odpowiadaj na Telegram.** Nigdy nie kończ przetwarzania bez wysłania `reply`.
+
+- Jeśli zadanie się udało → wyślij wynik przez `reply`
+- Jeśli narzędzie zwróciło błąd lub pusty output → wyślij `reply` z opisem błędu
+- Jeśli PowerShell nie działa → spróbuj Bash zamiast → jeśli też nie → wyślij `reply` informując o problemie
+
+**Fallback Python via Bash** (jeśli PowerShell zwraca empty output):
+```bash
+/mnt/c/Users/markowyy/trading-ai/.venv/Scripts/python.exe scripts/fetch_positions.py --no-solana
+```
+Ewentualnie z WSL Python jeśli dostępny:
+```bash
+cd /mnt/c/Users/markowyy/trading-ai && python3 scripts/fetch_positions.py --no-solana
+```
+
+Nigdy nie kończ w ciszy — użytkownik jest poza komputerem i czeka na odpowiedź w Telegramie.
+
 ## ⚡ POZYCJE — JEDNA KOMENDA, ZAWSZE (obowiązkowe)
 
 Gdy użytkownik pyta o pozycje, portfel, co ma otwarte, ile ma na giełdach — **ZAWSZE uruchom:**

@@ -97,8 +97,12 @@ header{
 
 /* ── MAIN CONTENT ── */
 .main{flex:1;overflow-y:auto;overflow-x:hidden;padding:0}
-.panel{display:none;padding:16px;height:100%}
+.panel{display:none;padding:16px 24px;height:100%}
 .panel.active{display:block}
+/* ── Alerts panel: full width ── */
+#panel-alerts .alert-list{max-height:none;width:100%}
+#panel-alerts .alert-item{width:100%;box-sizing:border-box}
+#panel-alerts .card{width:100%;box-sizing:border-box}
 
 /* ── CARDS ── */
 .card{
@@ -200,16 +204,31 @@ header{
 }
 
 /* ── ALERT LIST ── */
-.alert-list{display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto}
+.alert-list{display:flex;flex-direction:column;gap:5px;width:100%}
+/* ── Nowy dwurzędowy layout karty — pełna szerokość ── */
 .alert-item{
   background:var(--bg3);border:1px solid var(--border);border-radius:8px;
-  padding:10px 12px;display:flex;align-items:center;gap:10px;
+  padding:10px 16px;display:flex;flex-direction:column;gap:5px;width:100%;box-sizing:border-box;
 }
+.al-row{display:flex;align-items:center;gap:8px;width:100%;min-width:0}
+.al-spacer{flex:1}
+/* Wiersz 1: typ, coin, side, pigułki, czas */
+.al-icon{font-size:18px;flex-shrink:0}
+.al-type{font-size:11px;font-weight:700;letter-spacing:.3px;white-space:nowrap;flex-shrink:0;min-width:140px}
+.al-coin{font-size:16px;font-weight:800;color:var(--txt1);flex-shrink:0}
+.al-side{font-size:14px;font-weight:800;flex-shrink:0}
+.al-pill{color:#FFD700;background:rgba(255,215,0,.12);border-radius:4px;padding:2px 7px;font-size:12px;font-weight:700;flex-shrink:0}
+.al-time{font-size:13px;color:#c8d8f0;font-family:'Space Mono',monospace;font-weight:700;white-space:nowrap;flex-shrink:0}
+/* Wiersz 2: kwota, etykieta, adres, przycisk */
+.al-notional{font-size:14px;font-weight:800;color:var(--txt1);flex-shrink:0;min-width:70px}
+.al-label{font-size:12px;color:#9ecfff;flex:1;min-width:0;cursor:help}
+.al-addr{font-family:'Space Mono',monospace;font-size:10px;color:var(--cyan);cursor:pointer;flex-shrink:0;white-space:nowrap}
+/* Legacy compat (inne taby) */
 .alert-icon{font-size:20px;flex-shrink:0}
-.alert-body{flex:1}
+.alert-body{flex:1;min-width:0}
 .alert-title{font-size:14px;font-weight:600;color:var(--txt)}
-.alert-meta{font-size:12px;color:var(--txt2);font-family:'Space Mono',monospace;margin-top:3px}
-.alert-time{font-size:12px;color:var(--txt3);font-family:'Space Mono',monospace;flex-shrink:0}
+.alert-meta{font-size:12px;color:var(--txt2);font-family:'Space Mono',monospace;margin-top:3px;word-break:break-all}
+.alert-time{font-size:12px;color:#c8d8f0;font-family:'Space Mono',monospace;flex-shrink:0;font-weight:600}
 
 /* ── HISTORY LIST ── */
 .history-list{display:flex;flex-direction:column;gap:6px}
@@ -947,6 +966,7 @@ header{
   <div class="tabs">
     <div class="tab active" onclick="showAlertTab('sm')">🐋 Smart Money</div>
     <div class="tab" onclick="showAlertTab('kozaki')">🦅 Kozaki</div>
+    <div class="tab" id="tab-watchlist" onclick="showAlertTab('watchlist')">⭐ Ulubieni</div>
     <div class="tab" onclick="showAlertTab('vol')">⚡ Volume</div>
     <div class="tab" onclick="showAlertTab('listing')">📋 Listings</div>
     <div class="tab" onclick="showAlertTab('insider')">🕵️ Insider</div>
@@ -964,6 +984,45 @@ header{
   </div>
 </div>
 
+<!-- ═══ MODAL: Dodaj do watchlisty ═══ -->
+<div id="watchlistModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);align-items:center;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px;width:min(540px,95vw);max-height:90vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h3 style="margin:0;font-size:16px">⭐ Dodaj do Watchlisty</h3>
+      <button onclick="closeWatchlistModal()" style="background:none;border:none;color:var(--txt3);font-size:20px;cursor:pointer;padding:0 4px">✕</button>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:11px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px">Adres portfela</label>
+      <div id="wlAddress" style="font-family:'Space Mono',monospace;font-size:11px;color:var(--cyan);background:var(--bg3);padding:8px 10px;border-radius:6px;word-break:break-all;margin-top:4px;cursor:pointer" onclick="navigator.clipboard.writeText(this.textContent)"></div>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:11px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px">Etykieta źródłowa</label>
+      <div id="wlLabel" style="font-size:12px;color:var(--txt2);background:var(--bg3);padding:6px 10px;border-radius:6px;margin-top:4px;font-style:italic"></div>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:11px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">Twój komentarz / notatka</label>
+      <textarea id="wlComment" rows="4" placeholder="np. &quot;Przekozak — LONG_ONLY, zawsze wchodzi przed pumpem. Idealny do copy trade.&quot;"
+        style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--txt1);padding:8px 10px;font-size:13px;resize:vertical;outline:none"></textarea>
+    </div>
+    <div style="margin-bottom:16px">
+      <label style="font-size:11px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px">Tagi (zaznacz pasujące)</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px" id="wlTags">
+        <label style="cursor:pointer"><input type="checkbox" value="copy_trade"> 📋 Copy Trade</label>
+        <label style="cursor:pointer"><input type="checkbox" value="whale"> 🐋 Whale</label>
+        <label style="cursor:pointer"><input type="checkbox" value="obserwuj"> 👁 Obserwuj</label>
+        <label style="cursor:pointer"><input type="checkbox" value="elite"> ⭐ Elite</label>
+        <label style="cursor:pointer"><input type="checkbox" value="ropа"> 🛢 Ropa</label>
+        <label style="cursor:pointer"><input type="checkbox" value="btc"> ₿ BTC</label>
+        <label style="cursor:pointer"><input type="checkbox" value="eth"> Ξ ETH</label>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button onclick="closeWatchlistModal()" class="btn btn-outline btn-sm">Anuluj</button>
+      <button onclick="saveWatchlistEntry()" class="btn btn-primary btn-sm" style="background:var(--green);border-color:var(--green);color:#000;font-weight:700">⭐ Zapisz</button>
+    </div>
+  </div>
+</div>
+
 </main>
 </div><!-- /body-row -->
 </div><!-- /layout -->
@@ -975,7 +1034,11 @@ header{
 // All timestamps from DB/VPS are UTC. This converts to browser's local timezone.
 function fmtTs(ts, opts = {}) {
   if (!ts) return '—';
-  let s = String(ts).trim().replace(' ', 'T');
+  let s = String(ts).trim();
+  // Strip " UTC" suffix — DB stores timestamps as "2026-06-05 20:32 UTC"
+  // Without this, "2026-06-05T20:32 UTCZ" fails to parse → shows raw UTC instead of local time
+  s = s.replace(/\s*UTC\s*$/i, '').trim();
+  s = s.replace(' ', 'T');
   // Append Z if no timezone info (DB stores UTC without Z)
   if (!s.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(s)) s += 'Z';
   try {
@@ -996,7 +1059,7 @@ function fmtTs(ts, opts = {}) {
 }
 
 // ── State ──────────────────────────────────────────────────────────────────
-let currentAlerts = {smart_money:[], volume:[], listings:[], tv_alerts:[], insider:[], kozaki:[]};
+let currentAlerts = {smart_money:[], volume:[], listings:[], tv_alerts:[], insider:[], kozaki:[], kozaki_snapshot:[]};
 let currentAlertTab = 'sm';
 let fgChartInstance = null;
 let reportContent = '';
@@ -2368,16 +2431,91 @@ function copyHistoryContent() {
   }
 }
 
+// ── User Watchlist ─────────────────────────────────────────────────────────
+let _watchlistAddrs = new Set();  // adresy już w watchliście (dla przycisku ✓)
+
+async function _loadWatchlistAddrs() {
+  try {
+    const d = await api('/watchlist');
+    _watchlistAddrs = new Set((d || []).map(w => (w.address||'').toLowerCase()));
+  } catch(e) {}
+}
+
+function openWatchlistModal(address, label, source) {
+  document.getElementById('wlAddress').textContent = address;
+  document.getElementById('wlLabel').textContent   = label || '—';
+  document.getElementById('wlComment').value = '';
+  // Odznacz wszystkie tagi
+  document.querySelectorAll('#wlTags input[type=checkbox]').forEach(cb => cb.checked = false);
+  document.getElementById('watchlistModal').style.display = 'flex';
+  document.getElementById('watchlistModal')._source = source || 'manual';
+  document.getElementById('wlComment').focus();
+}
+
+function closeWatchlistModal() {
+  document.getElementById('watchlistModal').style.display = 'none';
+}
+// Zamknij po kliknięciu tła
+document.getElementById('watchlistModal').addEventListener('click', function(e){
+  if (e.target === this) closeWatchlistModal();
+});
+
+async function saveWatchlistEntry() {
+  const address = document.getElementById('wlAddress').textContent.trim();
+  const label   = document.getElementById('wlLabel').textContent.trim();
+  const comment = document.getElementById('wlComment').value.trim();
+  const source  = document.getElementById('watchlistModal')._source || 'manual';
+  const tags    = Array.from(document.querySelectorAll('#wlTags input:checked')).map(cb => cb.value);
+  const r = await fetch('/api/watchlist', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({address, label, comment, source, tags}),
+  });
+  const d = await r.json();
+  if (d.ok) {
+    _watchlistAddrs.add(address.toLowerCase());
+    closeWatchlistModal();
+    // Odśwież przyciski "+"
+    document.querySelectorAll(`.wl-btn[data-addr="${CSS.escape(address.toLowerCase())}"]`).forEach(btn => {
+      btn.textContent = '✓'; btn.style.color = 'var(--green)'; btn.style.borderColor = 'var(--green)';
+    });
+    // Krótki toast
+    const toast = document.createElement('div');
+    toast.textContent = '⭐ Zapisano w watchliście';
+    toast.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--green);color:#000;padding:8px 20px;border-radius:20px;font-weight:700;z-index:99999;font-size:13px';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2500);
+  } else {
+    alert('Błąd zapisu: ' + (d.error || '?'));
+  }
+}
+
+// Helper: generuj przycisk "+" / "✓" dla adresu portfela
+function _wlBtn(address, label, source) {
+  const addr = (address||'').toLowerCase();
+  const inWl = _watchlistAddrs.has(addr);
+  const color = inWl ? 'var(--green)' : 'var(--txt3)';
+  const bdr   = inWl ? 'var(--green)' : 'var(--border)';
+  return `<button class="wl-btn" data-addr="${escHtml(addr)}"
+    onclick="event.stopPropagation();openWatchlistModal('${escHtml(address)}','${escHtml(label||'')}','${escHtml(source||'manual')}')"
+    title="${inWl?'Już w watchliście — kliknij żeby zaktualizować':'Dodaj do watchlisty'}"
+    style="background:none;border:1px solid ${bdr};border-radius:4px;color:${color};font-size:10px;padding:1px 5px;cursor:pointer;margin-left:5px;vertical-align:middle;font-weight:700;line-height:1.4"
+    >${inWl ? '✓' : '+'}</button>`;
+}
+
 // ── Alerts ─────────────────────────────────────────────────────────────────
 async function loadAlerts() {
   const el = document.getElementById('alertContent');
   el.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-  const data = await api('/alerts');
-  currentAlerts = data;
-  const total = (data.smart_money||[]).length + (data.volume||[]).length + (data.insider||[]).length + (data.kozaki||[]).length; // listings excluded from sidebar count
+  // Load watchlist addresses in parallel so "+" / "✓" buttons render correctly
+  await Promise.all([
+    api('/alerts').then(data => { currentAlerts = data; }),
+    _loadWatchlistAddrs(),
+  ]);
+  const data = currentAlerts;
+  const total = (data.smart_money||[]).length + (data.volume||[]).length + (data.insider||[]).length + (data.kozaki||[]).length;
   document.getElementById('alertCount').textContent = total;
   renderAlertTab(currentAlertTab);
-  // mini alerts in command center
   renderMiniAlerts(data);
 }
 
@@ -2385,7 +2523,7 @@ function showAlertTab(tab) {
   currentAlertTab = tab;
   document.querySelectorAll('.tabs .tab').forEach(t => t.classList.remove('active'));
   event.target.classList.add('active');
-  const titles = {sm:'Smart Money Alerts', kozaki:'Kozaki — Elite HL Wallets', vol:'Volume Anomalies', listing:'New Listings', insider:'Insider Tracker (Eddie / Maggie / Frank)', tv:'TV Webhook Signals'};
+  const titles = {sm:'Smart Money Alerts', kozaki:'Kozaki — Elite HL Wallets', watchlist:'⭐ Ulubieni — Moje Portfele', vol:'Volume Anomalies', listing:'New Listings', insider:'Insider Tracker (Eddie / Maggie / Frank)', tv:'TV Webhook Signals'};
   document.getElementById('alertTabTitle').textContent = titles[tab] || tab;
   renderAlertTab(tab);
 }
@@ -2454,8 +2592,150 @@ async function clearStratSignals(stratKey, symbol = null) {
   }
 }
 
+function _fmtNotional(v) {
+  v = Number(v);
+  if (!v) return '';
+  return v>=1e6 ? '$'+(v/1e6).toFixed(2)+'M' : v>=1e3 ? '$'+(v/1e3).toFixed(0)+'K' : '$'+v.toFixed(0);
+}
+
+function _renderKozakiSnapshot() {
+  const snap = currentAlerts.kozaki_snapshot || [];
+  if (!snap.length) return '';
+  const rows = snap.slice(0, 10).map(p => {
+    const sideClr = p.side==='LONG' ? 'var(--green)' : p.side==='SHORT' ? 'var(--red)' : 'var(--txt2)';
+    const emoji = p.side==='LONG' ? '🟢' : p.side==='SHORT' ? '🔴' : '⚪';
+    const entryStr = p.entry ? ` @ $${Number(p.entry).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}` : '';
+    const levStr = p.lev && p.lev !== '?' ? ` (${p.lev}x)` : '';
+    const upnlVal = Number(p.upnl||0);
+    const upnlStr = upnlVal ? ` <span style="color:${upnlVal>=0?'var(--green)':'var(--red)'}">uPnL: ${upnlVal>=0?'+':''}$${Math.abs(upnlVal).toLocaleString(undefined,{maximumFractionDigits:0})}</span>` : '';
+    const walletShort = p.wallet ? `${p.wallet.substring(0,10)}…${p.wallet.slice(-6)}` : '';
+    return `<div style="display:flex;align-items:flex-start;gap:6px;padding:5px 0;border-bottom:1px solid var(--border)">
+      <span style="font-size:12px;margin-top:1px">${emoji}</span>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+          <strong style="font-size:13px">${escHtml(p.coin||'?')}</strong>
+          <span style="font-size:12px;font-weight:700;color:${sideClr}">${escHtml(p.side||'')}</span>
+          <span style="font-size:12px;color:var(--txt2);font-weight:600">${escHtml(_fmtNotional(p.notional))}</span>
+          <span style="font-size:11px;color:var(--txt3)">${escHtml(entryStr+levStr)}</span>
+          ${upnlStr}
+        </div>
+        ${p.label ? `<div style="font-size:10px;color:var(--txt3);font-style:italic">${escHtml(p.label)}</div>` : ''}
+        <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--cyan);cursor:pointer;margin-top:1px"
+             title="${escHtml(p.wallet||'')} — kliknij aby skopiować" onclick="navigator.clipboard.writeText('${escHtml(p.wallet||'')}')">${escHtml(walletShort)}</div>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px">
+    <div style="font-size:11px;color:var(--txt3);font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">
+      📊 Aktywne pozycje (ostatni skan) — top ${Math.min(snap.length,10)} z ${snap.length}
+    </div>
+    ${rows}
+  </div>`;
+}
+
+// ── Watchlist tab ────────────────────────────────────────────────────────────
+async function renderWatchlistTab() {
+  const el = document.getElementById('alertContent');
+  el.innerHTML = '<div class="loading"><div class="spinner"></div> Ładuję ulubione...</div>';
+
+  let entries = [];
+  try { entries = await api('/watchlist/full'); } catch(e) {}
+
+  if (!entries || !entries.length) {
+    el.innerHTML = `<div class="empty">
+      <div class="icon">⭐</div>
+      <p>Brak ulubionych portfeli</p>
+      <p style="font-size:12px;color:var(--txt3);margin-top:6px">
+        Kliknij <b>+</b> przy adresie portfela w zakładce Kozaki lub Smart Money<br>
+        żeby dodać go tutaj z własnym komentarzem.
+      </p>
+    </div>`;
+    return;
+  }
+
+  const TAG_LABELS = {
+    copy_trade:'📋 Copy Trade', whale:'🐋 Whale', obserwuj:'👁 Obserwuj',
+    elite:'⭐ Elite', ropa:'🛢 Ropa', btc:'₿ BTC', eth:'Ξ ETH'
+  };
+
+  const html = entries.map(e => {
+    const addr = e.address || '';
+    const addrShort = addr ? addr.substring(0,14)+'…'+addr.slice(-8) : '';
+    const tags = (e.tags || []).map(t => `<span style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:2px 8px;font-size:10px;color:var(--cyan)">${escHtml(TAG_LABELS[t]||t)}</span>`).join(' ');
+    const since = fmtTs(e.added_at, {full:true});
+    const src = e.source === 'kozaki' ? '🦅 Kozaki' : e.source === 'smart_money' ? '🐋 Smart Money' : '✋ Ręcznie';
+
+    // Pozycje bieżące
+    const positions = e.positions || [];
+    const posHtml = positions.length
+      ? `<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">
+          ${positions.map(p => {
+            const sideClr = p.side==='LONG'?'var(--green)':'var(--red)';
+            const notStr = _fmtNotional(p.notional);
+            const entStr = p.entry ? ` @ $${Number(p.entry).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}` : '';
+            const levStr = p.lev && p.lev !== '?' ? ` (${p.lev}×)` : '';
+            const upnlVal = Number(p.upnl||0);
+            const upnlStr = upnlVal ? ` <span style="color:${upnlVal>=0?'var(--green)':'var(--red)'}">uPnL ${upnlVal>=0?'+':''}$${Math.abs(upnlVal).toLocaleString(undefined,{maximumFractionDigits:0})}</span>` : '';
+            return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:12px;display:flex;align-items:center;gap:6px">
+              <strong style="color:var(--txt1)">${escHtml(p.coin||'?')}</strong>
+              <span style="font-weight:700;color:${sideClr}">${escHtml(p.side||'')}</span>
+              <span style="color:var(--txt1);font-weight:600">${escHtml(notStr)}</span>
+              <span style="color:var(--txt3);font-size:11px">${escHtml(entStr+levStr)}</span>
+              ${upnlStr}
+            </div>`;
+          }).join('')}
+        </div>`
+      : `<div style="margin-top:6px;font-size:11px;color:var(--txt3);font-style:italic">Brak otwartych pozycji w ostatnim skanie</div>`;
+
+    return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:8px;width:100%;box-sizing:border-box">
+      <!-- Header: adres + źródło + data + akcje -->
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <span style="font-size:18px">⭐</span>
+        <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--cyan);cursor:pointer"
+              title="${escHtml(addr)}" onclick="navigator.clipboard.writeText('${escHtml(addr)}')">${escHtml(addrShort)}</span>
+        <span style="font-size:11px;color:var(--txt3)">${escHtml(src)}</span>
+        <span style="font-size:11px;color:var(--txt3)">Dodano: ${escHtml(since)}</span>
+        <div style="flex:1"></div>
+        <button onclick="openWatchlistModal('${escHtml(addr)}','${escHtml(e.label||'')}','${escHtml(e.source||'')}')"
+          style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--txt3);font-size:11px;padding:2px 8px;cursor:pointer">✏️ Edytuj</button>
+        <button onclick="deleteFromWatchlist('${escHtml(addr)}')"
+          style="background:none;border:1px solid rgba(255,71,87,.4);border-radius:4px;color:var(--red);font-size:11px;padding:2px 8px;cursor:pointer">🗑 Usuń</button>
+      </div>
+      <!-- Etykieta ze źródła -->
+      ${e.label ? `<div style="font-size:11px;color:#9ecfff;margin-bottom:4px" title="Etykieta z bazy kozaków / SM">${escHtml(e.label)}</div>` : ''}
+      <!-- Komentarz użytkownika -->
+      ${e.comment ? `<div style="background:rgba(255,215,0,.07);border-left:3px solid #FFD700;padding:6px 10px;border-radius:0 6px 6px 0;font-size:13px;color:var(--txt1);margin-bottom:6px">"${escHtml(e.comment)}"</div>` : ''}
+      <!-- Tagi -->
+      ${tags ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">${tags}</div>` : ''}
+      <!-- Bieżące pozycje -->
+      <div style="font-size:11px;color:var(--txt3);font-weight:600;text-transform:uppercase;letter-spacing:.4px">Aktualne pozycje:</div>
+      ${posHtml}
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `<div style="padding:4px 0">${html}</div>`;
+  el.scrollTop = 0;
+}
+
+async function deleteFromWatchlist(address) {
+  if (!confirm(`Usunąć ${address.substring(0,16)}… z watchlisty?`)) return;
+  const r = await fetch(`/api/watchlist/${encodeURIComponent(address)}`, { method: 'DELETE' });
+  const d = await r.json();
+  if (d.ok) {
+    _watchlistAddrs.delete(address.toLowerCase());
+    renderWatchlistTab();
+    // Zaktualizuj przycisk "+" → "-"
+    document.querySelectorAll(`.wl-btn[data-addr="${CSS.escape(address.toLowerCase())}"]`).forEach(btn => {
+      btn.textContent = '+'; btn.style.color = 'var(--txt3)'; btn.style.borderColor = 'var(--border)';
+    });
+  }
+}
+
 function renderAlertTab(tab) {
   const el = document.getElementById('alertContent');
+  // Watchlist ma własny async renderer
+  if (tab === 'watchlist') { renderWatchlistTab(); return; }
+
   let items = [];
   if (tab === 'sm')     items = (currentAlerts.smart_money || []);
   if (tab === 'vol')    items = (currentAlerts.volume || []);
@@ -2478,76 +2758,127 @@ function renderAlertTab(tab) {
       kozaki:  { icon: '🦅', msg: 'Brak zmian kozaków', sub: 'Monitor aktywny — żaden z 20 portfeli nie zmienił pozycji od ostatniego skanu' },
     };
     const lbl = emptyLabels[tab] || { icon: '🔕', msg: 'Brak alertów', sub: '' };
-    el.innerHTML = `<div class="empty">
-      <div class="icon">${lbl.icon}</div>
-      <p>${lbl.msg}</p>
-      ${lbl.sub ? `<p style="font-size:11px;color:var(--txt3);margin-top:4px">${lbl.sub}</p>` : ''}
-    </div>`;
+    // For kozaki: show snapshot even when no change alerts
+    const snapshotHtml = tab === 'kozaki' ? _renderKozakiSnapshot() : '';
+    if (snapshotHtml) {
+      el.innerHTML = snapshotHtml + `<div class="empty" style="margin-top:8px">
+        <div class="icon">${lbl.icon}</div>
+        <p>${lbl.msg}</p>
+        ${lbl.sub ? `<p style="font-size:11px;color:var(--txt3);margin-top:4px">${lbl.sub}</p>` : ''}
+      </div>`;
+    } else {
+      el.innerHTML = `<div class="empty">
+        <div class="icon">${lbl.icon}</div>
+        <p>${lbl.msg}</p>
+        ${lbl.sub ? `<p style="font-size:11px;color:var(--txt3);margin-top:4px">${lbl.sub}</p>` : ''}
+      </div>`;
+    }
     return;
   }
-  el.innerHTML = '<div class="alert-list">' + items.map(a => {
+  // For kozaki tab: prepend active snapshot section above alerts
+  const kozakiPrefix = tab === 'kozaki' ? _renderKozakiSnapshot() : '';
+
+  // ── Helper: format notional ────────────────────────────────────────────────
+  const _fN = v => { v=Number(v); if(!v) return ''; return v>=1e6?'$'+(v/1e6).toFixed(2)+'M':v>=1e3?'$'+(v/1e3).toFixed(0)+'K':'$'+v.toFixed(0); };
+
+  el.innerHTML = kozakiPrefix + '<div class="alert-list">' + items.map(a => {
+  // Note: el.scrollTop will be reset AFTER innerHTML is set (below)
     const sideClr = a.side==='LONG'?'var(--green)':a.side==='SHORT'?'var(--red)':'var(--txt2)';
+    const rawTs   = a.ts || a.received_at || '';
+    const time    = fmtTs(rawTs);
+    const utcHint = rawTs ? rawTs.replace(/\s*UTC\s*$/i,'').substring(0,16).replace('T',' ') + ' UTC' : '';
+
+    // ── Kozaki + Smart Money: nowy dwurzędowy layout ──────────────────────────
+    if (tab === 'kozaki' || tab === 'sm') {
+      const isKozaki = tab === 'kozaki';
+      const icon     = isKozaki ? '🦅' : '🐋';
+      const source   = isKozaki ? 'kozaki' : 'smart_money';
+
+      // Typ alertu
+      const atype     = (a.alert_type||'?').replace(/_/g,' ');
+      const atypeColors = {
+        'CONSENSUS_MOVE': 'var(--yellow)',
+        'NEW_POSITION':   'var(--green)',
+        'CLOSED_POSITION':'#888',
+        'SIZE_INCREASE':  'var(--cyan)',
+        'CLUSTER':        'var(--yellow)',
+      };
+      const atypeClr = atypeColors[a.alert_type] || 'var(--txt3)';
+
+      // Żółte pigułki z detali
+      let det = {};
+      try { det = typeof a.details === 'string' ? JSON.parse(a.details) : (a.details || {}); } catch(e) {}
+      const pills = [];
+      if (det.change_pct) pills.push(`+${Number(det.change_pct).toFixed(0)}%`);
+      if (det.entry)      pills.push(`wejście @ $${Number(det.entry).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`);
+      if (det.lev && det.lev !== '?') pills.push(`dźwignia ${det.lev}×`);
+      if (det.count)      pills.push(`${det.count} portfeli`);
+      const pillsHtml = pills.map(p => `<span class="al-pill">${escHtml(p)}</span>`).join('');
+
+      // Wallet
+      const wallet = a.wallet || '';
+      const wShort = wallet ? wallet.substring(0,12)+'…'+wallet.slice(-8) : '';
+      const wHtml  = wallet
+        ? `<span class="al-addr" title="${escHtml(wallet)}" onclick="navigator.clipboard.writeText('${escHtml(wallet)}')">${escHtml(wShort)}</span>${_wlBtn(wallet, a.label||a.coin||'', source)}`
+        : '';
+
+      // Etykieta — pełna, bez skracania
+      // Stare etykiety w DB były ucinane do 40 znaków przez Python — naprawiamy najczęstsze ucięcia w wyświetlaniu
+      let label = (a.label || '').trim();
+      // "$2.26M P" → "$2.26M PnL (zysk historyczny)"  |  "Avg hold 8" → "Avg hold 8 dni"
+      label = label.replace(/\$(\d[\d.]+[KMB]?)\s+P\b(?!nL)/g, (_, n) => `$${n} PnL (zysk hist.)`);
+      label = label.replace(/Avg hold\s+(\d+)\s*$/i, 'Śr. czas trzymania: $1 dni');
+      label = label.replace(/\bt\/dzien\b/gi, 'transakcji/dzień');
+      // Tooltip tłumaczący skróty etykiety
+      const labelTip = 'TCS = Trading Competition Score (0–100, wyżej lepiej) · ELITE = najwyższa spójność wyników · RELIABLE = dobra spójność · PATIENT/TACTICAL/ACTIVE = styl handlowania · PnL = całkowity zysk historyczny · Śr. czas trzymania = jak długo trzyma pozycje';
+
+      return `<div class="alert-item">
+        <div class="al-row">
+          <span class="al-icon">${icon}</span>
+          <span class="al-type" style="color:${atypeClr}">${escHtml(atype)}</span>
+          <strong class="al-coin">${escHtml(a.coin||'?')}</strong>
+          ${a.side ? `<span class="al-side" style="color:${sideClr}">${escHtml(a.side)}</span>` : ''}
+          ${pillsHtml}
+          <div class="al-spacer"></div>
+          <span class="al-time" title="${escHtml(utcHint)}">${escHtml(time)}</span>
+        </div>
+        <div class="al-row" style="padding-left:26px">
+          ${a.notional ? `<span class="al-notional">${escHtml(_fN(a.notional))}</span>` : ''}
+          ${label ? `<span class="al-label" title="${escHtml(labelTip)}">${escHtml(label)}</span>` : '<span class="al-spacer"></span>'}
+          ${wHtml}
+        </div>
+      </div>`;
+    }
+
+    // ── Pozostałe taby — stary layout ────────────────────────────────────────
     let icon, titleHtml, metaHtml;
-
-    if (tab === 'sm') {
-      icon = '🐋';
-      titleHtml = `<span style="color:var(--txt3);font-size:11px">[${escHtml((a.alert_type||'?').replace(/_/g,' '))}]</span> `
-               + `<strong style="font-size:14px">${escHtml(a.coin||'?')}</strong> `
-               + (a.side ? `<span style="color:${sideClr};font-weight:700;font-size:13px"> ${escHtml(a.side)}</span>` : '');
-      // Pełny adres w monosapce — klikalny
-      const walletFull = a.wallet || '';
-      const walletHtml = walletFull
-        ? `<span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--cyan);word-break:break-all;cursor:pointer"
-             title="Kliknij aby skopiować" onclick="navigator.clipboard.writeText('${escHtml(walletFull)}')">${escHtml(walletFull)}</span>`
-        : '';
-      metaHtml = [
-        a.notional ? `<span style="color:var(--txt2)">$${Number(a.notional).toLocaleString()}</span>` : '',
-        walletHtml,
-      ].filter(Boolean).join('<span style="color:var(--txt3)"> • </span>');
-
-    } else if (tab === 'kozaki') {
-      icon = '🦅';
-      const atype = (a.alert_type||'?').replace(/_/g,' ');
-      const atypeColor = a.alert_type==='CLUSTER' ? 'var(--yellow)' : a.alert_type==='NEW_POSITION' ? 'var(--green)' : a.alert_type==='CLOSED_POSITION' ? 'var(--txt3)' : 'var(--cyan)';
-      titleHtml = `<span style="color:${atypeColor};font-size:11px;font-weight:600">[${escHtml(atype)}]</span> `
-               + (a.coin ? `<strong style="font-size:14px">${escHtml(a.coin)}</strong> ` : '')
-               + (a.side ? `<span style="color:${sideClr};font-weight:700;font-size:13px">${escHtml(a.side)}</span>` : '');
-      const walletFull = a.wallet || '';
-      const walletHtml = walletFull
-        ? `<span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--cyan);word-break:break-all;cursor:pointer"
-             title="Kliknij aby skopiować" onclick="navigator.clipboard.writeText('${escHtml(walletFull)}')">${escHtml(walletFull)}</span>`
-        : '';
-      metaHtml = [
-        a.notional ? `<span style="color:var(--txt2)">$${Number(a.notional).toLocaleString()}</span>` : '',
-        a.label ? `<span style="color:var(--txt3);font-style:italic">${escHtml(a.label)}</span>` : '',
-        walletHtml,
-      ].filter(Boolean).join('<span style="color:var(--border)"> • </span>');
-
-    } else if (tab === 'insider') {
+    if (tab === 'insider') {
       icon = '🕵️';
       titleHtml = `<strong>${escHtml(a.ticker||'?')}</strong> `
                + (a.direction ? `<span style="color:${sideClr};font-weight:700">${escHtml(a.direction)}</span> ` : '')
                + `<span style="color:var(--txt3);font-size:11px">— ${escHtml(a.reason||'')}</span>`;
-      metaHtml = escHtml(`${a.scout||''} • pewność: ${a.confidence||''}`);
-
+      metaHtml = escHtml(`${a.scout||''} · pewność: ${a.confidence||''}`);
     } else {
       icon = tab === 'vol' ? '⚡' : tab === 'listing' ? '📋' : '📡';
-      titleHtml = escHtml(String(a.symbol || a.coin || a.ticker || '—').substring(0,80));
-      metaHtml = escHtml(
-        a.volume_usd ? `Vol: $${Number(a.volume_usd).toLocaleString()}` : a.exchange || a.venue || ''
-      );
+      titleHtml = escHtml(String(a.symbol || a.coin || a.ticker || '—'));
+      const volStr = a.volume_usd ? `Wolumen: $${Number(a.volume_usd).toLocaleString()}` : '';
+      const ratStr = a.ratio ? ` · ${a.ratio}× powyżej średniej` : '';
+      const excStr = a.exchange ? ` · ${a.exchange}` : a.venue ? ` · ${a.venue}` : '';
+      metaHtml = escHtml((volStr + ratStr + excStr) || a.title || '');
     }
-
-    const time = fmtTs(a.ts || a.received_at);
-    return `<div class="alert-item">
+    return `<div class="alert-item" style="flex-direction:row;align-items:flex-start">
       <div class="alert-icon">${icon}</div>
       <div class="alert-body">
         <div class="alert-title">${titleHtml}</div>
         <div class="alert-meta">${metaHtml}</div>
       </div>
-      <div class="alert-time">${escHtml(time)}</div>
+      <div class="alert-time" title="${escHtml(utcHint)}">${escHtml(time)}</div>
     </div>`;
   }).join('') + '</div>';
+  // Zawsze wracaj na górę po renderowaniu (browser może przywrócić stary scroll)
+  el.scrollTop = 0;
+  const panel = document.getElementById('panel-alerts');
+  if (panel) panel.scrollTop = 0;
 }
 
 function renderMiniAlerts(data) {
@@ -2578,7 +2909,7 @@ function renderMiniAlerts(data) {
       icon:'🦅', badge:(a.alert_type||'KOZAKI').replace(/_/g,' '),
       coin: a.coin||'?', side: a.side||'', value: a.notional ? '$'+(a.notional>=1e6?(a.notional/1e6).toFixed(1)+'M':a.notional>=1e3?(a.notional/1e3).toFixed(0)+'K':a.notional.toFixed(0)) : '', time: a.ts
     })),
-  ].sort((a,b) => (b.time||'').localeCompare(a.time||'')).slice(0,10);
+  ].sort((a,b) => (b.time||'').localeCompare(a.time||'')).slice(0,25);
 
   document.getElementById('alertCount').textContent = all.length;
   const badge = document.getElementById('navAlertBadge');

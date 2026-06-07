@@ -52,7 +52,7 @@ SAVE_HISTORY = {
 
 
 def init_db() -> None:
-    """Create analysis_history table if it doesn't exist."""
+    """Create all required tables if they don't exist."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     try:
         con = sqlite3.connect(DB_PATH)
@@ -64,6 +64,16 @@ def init_db() -> None:
             output TEXT,
             ok     INTEGER DEFAULT 1
         )''')
+        con.execute('''CREATE TABLE IF NOT EXISTS user_watchlist (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            address    TEXT    NOT NULL UNIQUE,
+            label      TEXT,
+            comment    TEXT,
+            source     TEXT,
+            added_at   TEXT    DEFAULT (strftime(\'%Y-%m-%dT%H:%M:%SZ\',\'now\')),
+            tags       TEXT    DEFAULT \'[]\'
+        )''')
+        con.execute('CREATE INDEX IF NOT EXISTS idx_watchlist_addr ON user_watchlist(address)')
         con.commit()
         con.close()
     except Exception:
@@ -188,6 +198,16 @@ def index():
 
 # ── Routes — Status ───────────────────────────────────────────────────────────
 
+def is_port_open(host: str, port: int, timeout: float = 1.0) -> bool:
+    """Check if a TCP port is accepting connections."""
+    import socket
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 @app.route('/api/status')
 def status():
     """Bot process status check."""
@@ -203,12 +223,36 @@ def status():
     except Exception:
         pass
 
+    vps_api_ok = is_port_open('92.112.181.37', 5008, timeout=2.0)
+
     return jsonify({
-        'tgtrade': claude_running,
-        'hermes': is_process_running('hermes.exe'),
-        'ngrok': ngrok_ok,
-        'ts': utc_now(),
+        'tgtrade':  claude_running,
+        'hermes':   is_process_running('hermes.exe'),
+        'ngrok':    ngrok_ok,
+        'tvhook':   is_port_open('127.0.0.1', 5005),
+        'vps_api':  vps_api_ok,
+        'ts':       utc_now(),
     })
+
+
+@app.route('/api/webhook/start', methods=['POST'])
+def webhook_start():
+    """Start tv_webhook.py in a new console window (Windows only)."""
+    if is_port_open('127.0.0.1', 5005):
+        return jsonify({'ok': True, 'msg': 'tv_webhook.py already running on port 5005'})
+    script = SCRIPTS / 'tv_webhook.py'
+    if not script.exists():
+        return jsonify({'ok': False, 'error': 'tv_webhook.py not found'}), 404
+    try:
+        import subprocess as _sp
+        _sp.Popen(
+            [PY, str(script)],
+            cwd=str(ROOT),
+            creationflags=_sp.CREATE_NEW_CONSOLE,  # opens visible console window
+        )
+        return jsonify({'ok': True, 'msg': 'tv_webhook.py uruchomiony — okno konsoli powinno się otworzyć'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 # ── Routes — Prices ───────────────────────────────────────────────────────────
@@ -445,6 +489,102 @@ def _fetch_vps(endpoint: str, timeout: float = 2.5) -> dict:
     return {}
 
 
+@app.route('/api/watchlist', methods=['GET'])
+def watchlist_get():
+    """Return all user-tracked wallets."""
+    rows = db_query(
+        "SELECT id, address, label, comment, source, added_at, tags FROM user_watchlist ORDER BY added_at DESC"
+    ) or []
+    return jsonify(rows)
+
+
+@app.route('/api/watchlist', methods=['POST'])
+def watchlist_add():
+    """Add or update a wallet in the personal watchlist."""
+    data = request.get_json(force=True, silent=True) or {}
+    address = (data.get('address') or '').strip().lower()
+    if not address:
+        return jsonify({'ok': False, 'error': 'address required'}), 400
+    label   = (data.get('label')   or '').strip()[:120]
+    comment = (data.get('comment') or '').strip()[:1000]
+    source  = (data.get('source')  or 'manual').strip()[:40]
+    tags    = json.dumps(data.get('tags') or [])
+    try:
+        con = sqlite3.connect(DB_PATH)
+        con.execute(
+            """INSERT INTO user_watchlist (address, label, comment, source, tags)
+               VALUES (?,?,?,?,?)
+               ON CONFLICT(address) DO UPDATE SET
+                 label=excluded.label, comment=excluded.comment,
+                 source=excluded.source, tags=excluded.tags""",
+            (address, label, comment, source, tags),
+        )
+        con.commit()
+        con.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/watchlist/full')
+def watchlist_full():
+    """Watchlista + aktualne pozycje z kozaki_snapshots dla każdego adresu."""
+    entries = db_query(
+        "SELECT id, address, label, comment, source, added_at, tags FROM user_watchlist ORDER BY added_at DESC"
+    ) or []
+    if not entries:
+        return jsonify([])
+
+    # Pobierz najnowsze pozycje dla adresów z watchlisty
+    addrs = [str(e.get('address', '')).lower() for e in entries if e.get('address')]
+    if addrs:
+        ph = ','.join('?' * len(addrs))
+        positions = db_query(
+            f"""SELECT LOWER(ks.wallet) AS wallet, ks.coin, ks.side, ks.notional, ks.entry, ks.lev, ks.upnl,
+                       COALESCE(ka.label,'') AS kz_label
+                FROM kozaki_snapshots ks
+                LEFT JOIN (SELECT wallet, MAX(label) AS label FROM kozaki_alerts GROUP BY wallet) ka
+                          ON LOWER(ka.wallet) = LOWER(ks.wallet)
+                WHERE ks.ts = (SELECT MAX(ts) FROM kozaki_snapshots)
+                  AND LOWER(ks.wallet) IN ({ph})
+                ORDER BY ks.notional DESC""",
+            tuple(addrs)
+        ) or []
+    else:
+        positions = []
+
+    pos_by_wallet: dict = {}
+    for p in positions:
+        w = (p.get('wallet') or '').lower()
+        pos_by_wallet.setdefault(w, []).append(dict(p))
+
+    result = []
+    for e in entries:
+        row = dict(e)
+        addr = (row.get('address') or '').lower()
+        row['positions'] = pos_by_wallet.get(addr, [])
+        try:
+            row['tags'] = json.loads(row.get('tags') or '[]')
+        except Exception:
+            row['tags'] = []
+        result.append(row)
+    return jsonify(result)
+
+
+@app.route('/api/watchlist/<path:address>', methods=['DELETE'])
+def watchlist_delete(address: str):
+    """Remove a wallet from the personal watchlist."""
+    address = address.strip().lower()
+    try:
+        con = sqlite3.connect(DB_PATH)
+        con.execute("DELETE FROM user_watchlist WHERE address = ?", (address,))
+        con.commit()
+        con.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
 @app.route('/api/alerts')
 def alerts():
     """Recent alerts: smart money, volume anomalies, listings, insider.
@@ -454,23 +594,35 @@ def alerts():
 
     sm = vps.get('smart_money') or db_query(
         "SELECT ts, alert_type, coin, side, wallet, notional, details FROM sm_alerts "
-        "ORDER BY ts DESC LIMIT 20"
+        "ORDER BY ts DESC LIMIT 50"
     ) or []
     vol = db_query(
         "SELECT ts, symbol, exchange, volume_usd, ratio, direction FROM volume_anomalies "
-        "ORDER BY ts DESC LIMIT 20"
+        "ORDER BY ts DESC LIMIT 30"
     ) or []
     listings = vps.get('listings') or db_query(
         "SELECT ts, ticker AS symbol, exchange, url AS announce_url, title, ann_type "
-        "FROM listing_announcements ORDER BY ts DESC LIMIT 20"
+        "FROM listing_announcements ORDER BY ts DESC LIMIT 30"
     ) or []
     insider = vps.get('insider') or db_query(
         "SELECT ts, scout, ticker, direction, confidence, reason FROM insider_signals "
-        "ORDER BY ts DESC LIMIT 20"
+        "ORDER BY ts DESC LIMIT 30"
     ) or []
     kozaki = vps.get('kozaki') or db_query(
         "SELECT ts, alert_type, wallet, label, coin, side, notional, details "
-        "FROM kozaki_alerts ORDER BY ts DESC LIMIT 30"
+        "FROM kozaki_alerts ORDER BY ts DESC LIMIT 50"
+    ) or []
+
+    # Kozaki snapshot — top aktywne pozycje z ostatniego skanu (jak heartbeat w Telegramie)
+    kozaki_snapshot = vps.get('kozaki_snapshot') or db_query(
+        """SELECT ks.wallet, ks.coin, ks.side, ks.notional, ks.entry, ks.lev, ks.upnl,
+                  ka.label
+           FROM kozaki_snapshots ks
+           LEFT JOIN (
+               SELECT wallet, MAX(label) AS label FROM kozaki_alerts GROUP BY wallet
+           ) ka ON ks.wallet = ka.wallet
+           WHERE ks.ts = (SELECT MAX(ts) FROM kozaki_snapshots)
+           ORDER BY ks.notional DESC LIMIT 20"""
     ) or []
 
     # TV webhook signals from local alerts.jsonl
@@ -478,13 +630,14 @@ def alerts():
     if ALERTS_FILE.exists():
         try:
             lines = ALERTS_FILE.read_text(encoding='utf-8').splitlines()
-            for line in lines[-20:]:
+            for line in lines[-30:]:
                 tv_alerts.append(json.loads(line))
         except Exception:
             pass
 
     return jsonify({'smart_money': sm, 'volume': vol, 'listings': listings,
-                    'tv_alerts': tv_alerts, 'insider': insider, 'kozaki': kozaki})
+                    'tv_alerts': tv_alerts, 'insider': insider,
+                    'kozaki': kozaki, 'kozaki_snapshot': kozaki_snapshot})
 
 
 # ── Routes — Reports ─────────────────────────────────────────────────────────

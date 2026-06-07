@@ -84,8 +84,25 @@ def load_kozaks() -> list[dict]:
         addr = entry.get("address", "")
         if not addr:
             continue
-        note = entry.get("note", "")
-        label = note.split("—")[0].strip()[:40] if note else "Discovery Elite"
+        # Build rich label from structured fields (nie z noty — żeby nie ucinać)
+        cl  = entry.get("consistency_label", "")                   # ELITE / RELIABLE
+        tcs = entry.get("tcs_score")                               # 0–100
+        wr  = entry.get("win_rate_pct")                            # % wygranych
+        td  = entry.get("avg_trades_per_day", 0)                   # transakcji/dzień
+        pnl = entry.get("pnl_usd", 0)                             # łączny PnL $
+        bias= entry.get("bias", "")                                # LONG_ONLY / SHORT_ONLY / MIXED
+        atl = entry.get("activity_label", "")                      # PATIENT / TACTICAL / ACTIVE
+        pnl_str = (f"${pnl/1e6:.2f}M PnL" if abs(pnl) >= 1e6
+                   else f"${pnl/1e3:.0f}K PnL" if abs(pnl) >= 1e3 else "")
+        parts = []
+        if cl:  parts.append(cl)
+        if tcs is not None: parts.append(f"TCS:{tcs}")
+        if wr  is not None: parts.append(f"{wr:.0f}% win")
+        if td:  parts.append(f"{td:.2f}t/dzień")
+        if bias and bias != "MIXED": parts.append(bias.replace("_ONLY","_only"))
+        if atl: parts.append(atl)
+        if pnl_str: parts.append(pnl_str)
+        label = " | ".join(parts) if parts else (entry.get("note","").split("—")[0].strip()[:80] or "Discovery Elite")
         kozaks.append({
             "address":     addr,
             "label":       label,

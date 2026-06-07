@@ -50,9 +50,9 @@ IGNORE = {
     "BTC", "ETH",  # too much data noise — always high volume
 }
 
-DEFAULT_THRESHOLD  = 3.0   # minimum multiplier to alert (24h window)
+DEFAULT_THRESHOLD  = 5.0   # minimum multiplier to alert (24h window)
 DEFAULT_TOP_N      = 10    # max tokens per alert message
-MIN_VOL_USD        = 500_000    # ignore tokens with <$500K 24h volume (was $1M)
+MIN_VOL_USD        = 500_000    # ignore tokens with <$500K 24h volume
 
 # Early-detection window (4h vs rolling hourly avg)
 EARLY_WINDOW_HOURS = 4     # compare last N hours vs historical hourly avg
@@ -261,45 +261,48 @@ def fetch_30d_avg_volume(symbol: str, market: str = "futures") -> float | None:
 
 # ── Core analysis ─────────────────────────────────────────────────────────────
 
-def find_anomalies(threshold: float) -> list[dict]:
+def find_anomalies(threshold: float, no_futures: bool = False) -> list[dict]:
     """Return list of volume anomalies above threshold multiplier.
 
-    For futures anomalies: also fetches spot volume for the same token
-    so the alert can show side-by-side Futures vs Spot comparison.
+    no_futures=True → skip Binance Futures entirely; scan Spot + Alpha directly.
+    no_futures=False → original behavior: Futures + standalone Spot + Alpha cross-check.
     """
     anomalies = []
+    futures_candidates: list[dict] = []
+    futures_ticker_set: set[str]   = set()
+    spot_map: dict[str, dict]      = {}
 
-    # Futures
-    print("  Futures...", end=" ", flush=True)
-    f_tickers = fetch_futures_tickers()
-    futures_candidates = []
-    for t in f_tickers:
-        sym    = t.get("symbol", "")
-        ticker = sym.replace("USDT", "").replace("PERP", "")
-        if ticker in IGNORE:
-            continue
-        try:
-            vol24  = float(t.get("quoteVolume", 0))
-            price  = float(t.get("lastPrice", 0))
-            chg    = float(t.get("priceChangePercent", 0))
-            if vol24 < MIN_VOL_USD:
+    # ── Futures (optional) ────────────────────────────────────────────────────
+    if not no_futures:
+        print("  Futures...", end=" ", flush=True)
+        f_tickers = fetch_futures_tickers()
+        for t in f_tickers:
+            sym    = t.get("symbol", "")
+            ticker = sym.replace("USDT", "").replace("PERP", "")
+            if ticker in IGNORE:
                 continue
-            futures_candidates.append({
-                "symbol": sym, "ticker": ticker,
-                "vol24": vol24, "price": price, "chg": chg,
-                "market": "futures",
-            })
-        except Exception:
-            continue
-    futures_candidates.sort(key=lambda x: -x["vol24"])
-    futures_ticker_set = {c["ticker"] for c in futures_candidates}
-    print(f"{len(futures_candidates)} candidates", end=" ", flush=True)
+            try:
+                vol24 = float(t.get("quoteVolume", 0))
+                price = float(t.get("lastPrice", 0))
+                chg   = float(t.get("priceChangePercent", 0))
+                if vol24 < MIN_VOL_USD:
+                    continue
+                futures_candidates.append({
+                    "symbol": sym, "ticker": ticker,
+                    "vol24": vol24, "price": price, "chg": chg,
+                    "market": "futures",
+                })
+            except Exception:
+                continue
+        futures_candidates.sort(key=lambda x: -x["vol24"])
+        futures_ticker_set = {c["ticker"] for c in futures_candidates}
+        print(f"{len(futures_candidates)} candidates", end=" ", flush=True)
+    else:
+        print("  Futures: WYŁĄCZONE (--no-futures)")
 
-    # Spot — fetch ALL tickers, build a lookup map
-    print("| Spot...", end=" ", flush=True)
+    # ── Spot — fetch ALL tickers, build a lookup map ──────────────────────────
+    print("| Spot..." if not no_futures else "  Spot...", end=" ", flush=True)
     s_tickers = fetch_spot_tickers()
-    # spot_map: ticker → {symbol, vol24, price, chg}
-    spot_map: dict[str, dict] = {}
     for t in s_tickers:
         sym    = t.get("symbol", "")
         ticker = sym.replace("USDT", "")
@@ -316,24 +319,31 @@ def find_anomalies(threshold: float) -> list[dict]:
         except Exception:
             continue
 
-    # Standalone spot candidates: tokens NOT listed on futures
+    # Spot candidates:
+    #   no_futures=True  → ALL spot tokens (no futures to deduplicate against)
+    #   no_futures=False → standalone only (not already listed on futures)
     spot_candidates = []
     for ticker, d in spot_map.items():
-        if ticker not in futures_ticker_set:
-            spot_candidates.append({
-                "symbol": d["symbol"], "ticker": ticker,
-                "vol24": d["vol24"], "price": d["price"], "chg": d["chg"],
-                "market": "spot",
-            })
+        if (not no_futures) and ticker in futures_ticker_set:
+            continue
+        spot_candidates.append({
+            "symbol": d["symbol"], "ticker": ticker,
+            "vol24": d["vol24"], "price": d["price"], "chg": d["chg"],
+            "market": "spot",
+        })
     spot_candidates.sort(key=lambda x: -x["vol24"])
-    print(f"{len(spot_map)} in map | {len(spot_candidates)} standalone")
+
+    if no_futures:
+        print(f"{len(spot_map)} in map | top {min(len(spot_candidates), 100)} for scan")
+        all_candidates = spot_candidates[:100]
+    else:
+        print(f"{len(spot_map)} in map | {len(spot_candidates)} standalone")
+        all_candidates = futures_candidates[:80] + spot_candidates[:40]
 
     # ── Pass 1: 24h window vs 30d daily average ──────────────────────────────
-    # Larger candidate pool: 80 futures + 40 spot (was 40+20)
-    all_candidates = futures_candidates[:80] + spot_candidates[:40]
     print(f"  Fetching 30d averages for {len(all_candidates)} tokens...", end=" ", flush=True)
 
-    found_24h: dict[str, dict] = {}  # ticker → anomaly (24h detections)
+    found_24h: dict[str, dict] = {}
     checked = 0
     for cand in all_candidates:
         avg = fetch_30d_avg_volume(cand["symbol"], cand["market"])
@@ -343,11 +353,11 @@ def find_anomalies(threshold: float) -> list[dict]:
         if multiplier >= threshold:
             entry = {
                 **cand,
-                "avg30d":       avg,
-                "multiplier":   multiplier,
-                "mult_24h":     multiplier,
-                "mult_4h":      None,
-                "detection":    "24h",
+                "avg30d":     avg,
+                "multiplier": multiplier,
+                "mult_24h":   multiplier,
+                "mult_4h":    None,
+                "detection":  "24h",
             }
             found_24h[cand["ticker"]] = entry
             anomalies.append(entry)
@@ -355,7 +365,6 @@ def find_anomalies(threshold: float) -> list[dict]:
     print(f"checked {checked}, found {len(found_24h)} via 24h window")
 
     # ── Pass 2: 4h early-detection window ────────────────────────────────────
-    # Run for ALL candidates — catches spikes that haven't yet dominated the 24h window
     print(
         f"  Early-detection 4h scan for {len(all_candidates)} tokens...",
         end=" ", flush=True,
@@ -371,17 +380,14 @@ def find_anomalies(threshold: float) -> list[dict]:
 
         ticker = cand["ticker"]
         if ticker in found_24h:
-            # Already flagged by 24h — just enrich with 4h data
-            found_24h[ticker]["mult_4h"] = mult_4h
+            found_24h[ticker]["mult_4h"]   = mult_4h
             found_24h[ticker]["detection"] = "both"
         else:
-            # NEW early detection — not yet visible in 24h window
-            # Fetch 30d avg for context (don't filter by it though)
             avg30d = fetch_30d_avg_volume(cand["symbol"], cand["market"]) or 0.0
             entry = {
                 **cand,
                 "avg30d":     avg30d,
-                "multiplier": mult_4h,   # show 4h multiplier as headline
+                "multiplier": mult_4h,
                 "mult_24h":   cand["vol24"] / avg30d if avg30d > 0 else None,
                 "mult_4h":    mult_4h,
                 "detection":  "4h",
@@ -390,78 +396,141 @@ def find_anomalies(threshold: float) -> list[dict]:
             early_found += 1
 
     print(f"found {early_found} additional early (4h-only) anomalies")
-    print(f"  Total anomalies: {len(anomalies)}")
+    print(f"  Total Spot anomalies so far: {len(anomalies)}")
     anomalies.sort(key=lambda x: -x["multiplier"])
-    anomalies.sort(key=lambda x: -x["multiplier"])
 
-    # ── Spot cross-check for futures anomalies ────────────────────────────────
-    # For each futures anomaly, look up its corresponding spot market
-    # and fetch spot 30d avg so we can compare futures spike vs spot spike.
-    futures_anomalies = [a for a in anomalies if a["market"] == "futures"]
-    if futures_anomalies:
-        print(
-            f"  Spot cross-check for {len(futures_anomalies)} futures anomalies...",
-            end=" ", flush=True,
-        )
-        done = 0
-        for anomaly in futures_anomalies:
-            ticker    = anomaly["ticker"]
-            spot_data = spot_map.get(ticker)
-            if not spot_data:
-                anomaly["spot_vol24"]  = None   # token not listed on spot
-                continue
-            spot_avg = fetch_30d_avg_volume(spot_data["symbol"], "spot")
-            if spot_avg and spot_avg > 0:
-                anomaly["spot_vol24"]  = spot_data["vol24"]
-                anomaly["spot_avg30d"] = spot_avg
-                anomaly["spot_mult"]   = spot_data["vol24"] / spot_avg
-            else:
-                anomaly["spot_vol24"]  = spot_data["vol24"]
-                anomaly["spot_avg30d"] = None
-                anomaly["spot_mult"]   = None
-            done += 1
-        print(f"done ({done}/{len(futures_anomalies)})")
+    # ── Cross-checks (only when Futures are active) ───────────────────────────
+    if not no_futures:
+        futures_anomalies = [a for a in anomalies if a["market"] == "futures"]
 
-    # ── Binance Alpha cross-check — for futures anomalies with NO Binance Spot ─
-    no_spot = [a for a in futures_anomalies if a.get("spot_vol24") is None]
-    if no_spot:
-        print(f"  Binance Alpha check for {len(no_spot)} tokens...", end=" ", flush=True)
-        alpha_map = fetch_alpha_token_map()
-        done_alpha = 0
-        for anomaly in no_spot:
-            token = alpha_map.get(anomaly["ticker"].upper())
-            if not token:
-                continue
-            alpha_id    = token.get("alphaId", "")
-            alpha_vol   = float(token.get("volume24h", 0))
-            alpha_chg   = float(token.get("percentChange24h", 0))
-            alpha_chain = token.get("chainName", "?")
-            alpha_avg   = fetch_alpha_30d_avg(alpha_id) if alpha_id else None
-            anomaly["alpha_vol24"]  = alpha_vol
-            anomaly["alpha_avg30d"] = alpha_avg
-            anomaly["alpha_mult"]   = (alpha_vol / alpha_avg) if alpha_avg else None
-            anomaly["alpha_chg"]    = alpha_chg
-            anomaly["alpha_chain"]  = alpha_chain
-            anomaly["alpha_id"]     = alpha_id
-            done_alpha += 1
-        print(f"done ({done_alpha}/{len(no_spot)})")
+        # Spot cross-check for futures anomalies
+        if futures_anomalies:
+            print(
+                f"  Spot cross-check for {len(futures_anomalies)} futures anomalies...",
+                end=" ", flush=True,
+            )
+            done = 0
+            for anomaly in futures_anomalies:
+                ticker    = anomaly["ticker"]
+                spot_data = spot_map.get(ticker)
+                if not spot_data:
+                    anomaly["spot_vol24"] = None
+                    continue
+                spot_avg = fetch_30d_avg_volume(spot_data["symbol"], "spot")
+                if spot_avg and spot_avg > 0:
+                    anomaly["spot_vol24"]  = spot_data["vol24"]
+                    anomaly["spot_avg30d"] = spot_avg
+                    anomaly["spot_mult"]   = spot_data["vol24"] / spot_avg
+                else:
+                    anomaly["spot_vol24"]  = spot_data["vol24"]
+                    anomaly["spot_avg30d"] = None
+                    anomaly["spot_mult"]   = None
+                done += 1
+            print(f"done ({done}/{len(futures_anomalies)})")
 
-    # ── 4-day price history for each anomaly (only top N, no extra cost for rest) ─
+        # Alpha cross-check — futures tokens with NO Binance Spot listing
+        no_spot = [a for a in futures_anomalies if a.get("spot_vol24") is None]
+        if no_spot:
+            print(f"  Binance Alpha check for {len(no_spot)} tokens...", end=" ", flush=True)
+            alpha_map = fetch_alpha_token_map()
+            done_alpha = 0
+            for anomaly in no_spot:
+                token = alpha_map.get(anomaly["ticker"].upper())
+                if not token:
+                    continue
+                alpha_id    = token.get("alphaId", "")
+                alpha_vol   = float(token.get("volume24h", 0))
+                alpha_chg   = float(token.get("percentChange24h", 0))
+                alpha_chain = token.get("chainName", "?")
+                alpha_avg   = fetch_alpha_30d_avg(alpha_id) if alpha_id else None
+                anomaly["alpha_vol24"]  = alpha_vol
+                anomaly["alpha_avg30d"] = alpha_avg
+                anomaly["alpha_mult"]   = (alpha_vol / alpha_avg) if alpha_avg else None
+                anomaly["alpha_chg"]    = alpha_chg
+                anomaly["alpha_chain"]  = alpha_chain
+                anomaly["alpha_id"]     = alpha_id
+                done_alpha += 1
+            print(f"done ({done_alpha}/{len(no_spot)})")
+
+    # ── Direct Alpha scan (only when no_futures) ──────────────────────────────
+    if no_futures:
+        alpha_anomalies = find_alpha_anomalies(threshold)
+        # Deduplicate: skip Alpha tokens we already found in Spot
+        spot_tickers_found = {a["ticker"] for a in anomalies}
+        for a in alpha_anomalies:
+            if a["ticker"] not in spot_tickers_found:
+                anomalies.append(a)
+        anomalies.sort(key=lambda x: -x["multiplier"])
+
+    # ── 4-day price history for top anomalies ─────────────────────────────────
     top_anomalies = anomalies[:DEFAULT_TOP_N]
     print(f"  4d price history for {len(top_anomalies)} anomalies...", end=" ", flush=True)
     for anomaly in top_anomalies:
         mkt      = anomaly["market"]
         sym      = anomaly["symbol"]
         alpha_id = anomaly.get("alpha_id", "")
-        # If token is futures-only but found on Alpha → use Alpha klines (more accurate)
-        if mkt == "futures" and anomaly.get("spot_vol24") is None and alpha_id:
+        if mkt == "alpha" and alpha_id:
+            changes = fetch_recent_pct_changes(sym, "alpha", alpha_id)
+        elif mkt == "futures" and anomaly.get("spot_vol24") is None and alpha_id:
             changes = fetch_recent_pct_changes(sym, "alpha", alpha_id)
         else:
-            changes = fetch_recent_pct_changes(anomaly["symbol"], mkt)
+            changes = fetch_recent_pct_changes(sym, mkt if mkt != "alpha" else "spot")
         if changes:
             anomaly["price_4d"] = changes
     print("done")
 
+    print(f"  ═══ TOTAL anomalii: {len(anomalies)} ═══")
+    return anomalies
+
+
+def find_alpha_anomalies(threshold: float) -> list[dict]:
+    """Directly scan Binance Alpha tokens for volume spikes (24h vs 30d avg)."""
+    print("  Alpha direct scan...", end=" ", flush=True)
+    alpha_map = fetch_alpha_token_map()
+
+    candidates = []
+    for sym, token in alpha_map.items():
+        vol24 = float(token.get("volume24h") or 0)
+        if vol24 < MIN_VOL_USD:
+            continue
+        alpha_id = token.get("alphaId", "")
+        chg      = float(token.get("percentChange24h") or 0)
+        price    = float(token.get("price") or 0)
+        chain    = token.get("chainName", "?")
+        if not alpha_id:
+            continue
+        candidates.append({
+            "symbol":      f"{alpha_id}USDT",
+            "ticker":      sym,
+            "vol24":       vol24,
+            "price":       price,
+            "chg":         chg,
+            "market":      "alpha",
+            "alpha_id":    alpha_id,
+            "alpha_chain": chain,
+        })
+    candidates.sort(key=lambda x: -x["vol24"])
+    candidates = candidates[:40]  # top 40 Alpha tokens by 24h volume
+    print(f"{len(candidates)} Alpha candidates", end=" ", flush=True)
+
+    anomalies = []
+    for cand in candidates:
+        avg = fetch_alpha_30d_avg(cand["alpha_id"])
+        if not avg or avg < 50_000:
+            continue
+        mult = cand["vol24"] / avg
+        if mult >= threshold:
+            anomalies.append({
+                **cand,
+                "avg30d":     avg,
+                "multiplier": mult,
+                "mult_24h":   mult,
+                "mult_4h":    None,
+                "detection":  "24h",
+            })
+
+    anomalies.sort(key=lambda x: -x["multiplier"])
+    print(f"| {len(anomalies)} Alpha anomalii")
     return anomalies
 
 
@@ -519,13 +588,18 @@ def format_alert(anomalies: list[dict], ts: str, threshold: float, part: int = 0
             mult_line += f"  (4h: {mult_4h:.1f}x)"
 
         if a["market"] == "futures":
-            market_label = "Futures"
+            market_label   = "Futures"
             exchange_label = "Binance Futures (PERP)"
-            trade_url = f"https://www.binance.com/en/futures/{sym}"
+            trade_url      = f"https://www.binance.com/en/futures/{sym}"
+        elif a["market"] == "alpha":
+            chain          = a.get("alpha_chain", "?")
+            market_label   = "Alpha"
+            exchange_label = f"Binance Alpha ({chain})"
+            trade_url      = "https://www.binance.com/en/alpha"
         else:
-            market_label = "Spot"
+            market_label   = "Spot"
             exchange_label = "Binance Spot"
-            trade_url = f"https://www.binance.com/en/trade/{a['ticker']}_USDT"
+            trade_url      = f"https://www.binance.com/en/trade/{a['ticker']}_USDT"
 
         # Spot / Alpha cross-check line — only for futures anomalies
         spot_line = ""
@@ -611,14 +685,21 @@ def format_alert(anomalies: list[dict], ts: str, threshold: float, part: int = 0
     return "\n".join(lines)
 
 
-def format_heartbeat(ts: str, threshold: float) -> str:
+def format_heartbeat(ts: str, threshold: float, interval_sec: int = 3600, no_futures: bool = False) -> str:
+    h = interval_sec // 3600
+    m = (interval_sec % 3600) // 60
+    if m == 0:
+        interval_label = f"{h}h"
+    else:
+        interval_label = f"{h}h {m}min"
+    markets = "Binance Spot + Alpha" if no_futures else "Binance Futures + Spot + Alpha"
     return (
         f"📡 <b>Volume Scanner</b> — {ts}\n"
         f"\n"
         f"✅ Brak anomalii powyzej {threshold}x sredniej 30d\n"
-        f"Monitorowane: Binance Futures + Spot\n"
+        f"Monitorowane: {markets}\n"
         f"\n"
-        f"<i>Nastepne sprawdzenie za 1h</i>"
+        f"<i>Nastepne sprawdzenie za {interval_label}</i>"
     )
 
 
@@ -674,13 +755,13 @@ def save_to_db(anomalies: list[dict], ts: str) -> None:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def run_once(threshold: float, dry_run: bool) -> int:
+def run_once(threshold: float, dry_run: bool, no_futures: bool = False, interval_sec: int = 3600) -> int:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    print(f"[{ts}] Scanning for volume anomalies (threshold: {threshold}x)...")
-    anomalies = find_anomalies(threshold)
+    mode = "Spot+Alpha" if no_futures else "Futures+Spot+Alpha"
+    print(f"[{ts}] Scanning (threshold: {threshold}x | mode: {mode})...")
+    anomalies = find_anomalies(threshold, no_futures=no_futures)
 
     if anomalies:
-        # Split into chunks so each Telegram message stays under the 4096-char limit
         chunk_size = DEFAULT_TOP_N
         chunks = [anomalies[i:i + chunk_size] for i in range(0, len(anomalies), chunk_size)]
         total = len(chunks)
@@ -690,21 +771,23 @@ def run_once(threshold: float, dry_run: bool) -> int:
         save_to_db(anomalies, ts)
         print(f"[{ts}] Alert sent: {len(anomalies)} anomalies in {total} message(s)")
     else:
-        hb = format_heartbeat(ts, threshold)
+        hb = format_heartbeat(ts, threshold, interval_sec=interval_sec, no_futures=no_futures)
         send_telegram(hb, dry_run=dry_run)
-        print(f"[{ts}] Heartbeat sent — no anomalies above {threshold}x")
+        print(f"[{ts}] Heartbeat — brak anomalii powyzej {threshold}x")
 
     return len(anomalies)
 
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Volume Anomaly Scanner")
-    p.add_argument("--interval",  type=int,   default=900,
-                   help="Scan interval seconds (default: 900 = 15min; was 3600)")
-    p.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD,
+    p.add_argument("--interval",    type=int,   default=10800,
+                   help="Scan interval seconds (default: 10800 = 3h)")
+    p.add_argument("--threshold",   type=float, default=DEFAULT_THRESHOLD,
                    help=f"Volume multiplier threshold (default: {DEFAULT_THRESHOLD}x)")
-    p.add_argument("--daemon",    action="store_true", help="Run forever")
-    p.add_argument("--dry-run",   action="store_true", help="No Telegram, print only")
+    p.add_argument("--daemon",      action="store_true", help="Run forever")
+    p.add_argument("--dry-run",     action="store_true", help="No Telegram, print only")
+    p.add_argument("--no-futures",  action="store_true",
+                   help="Skip Binance Futures; scan Spot + Alpha only (less noise)")
     args = p.parse_args()
 
     if args.daemon:
@@ -715,34 +798,38 @@ def main() -> None:
         if lockfile.exists():
             old_pid = int(lockfile.read_text().strip())
             try:
-                os.kill(old_pid, 0)   # sprawdź czy proces żyje
+                os.kill(old_pid, 0)
                 print(f"[WARN] Znaleziono stary daemon (PID {old_pid}) — zabijam...")
                 os.kill(old_pid, signal.SIGTERM)
                 time.sleep(2)
             except (ProcessLookupError, PermissionError):
-                pass  # stary PID nie istnieje — można nadpisać
+                pass
         lockfile.write_text(str(os.getpid()))
         print(f"[PID {os.getpid()}] Lockfile zapisany → {lockfile.name}")
 
-        print(f"Volume Scanner daemon — interval: {args.interval}s | "
-              f"threshold: {args.threshold}x | "
+        mode = "Spot+Alpha (bez Futures)" if args.no_futures else "Futures+Spot+Alpha"
+        print(f"Volume Scanner daemon — interval: {args.interval}s ({args.interval//60}min) | "
+              f"threshold: {args.threshold}x | mode: {mode} | "
               f"Telegram: {'DRY-RUN' if args.dry_run else 'LIVE'}")
         print("Tryb: fresh subprocess per scan (zmiany w kodzie widoczne automatycznie)")
         try:
             while True:
-                # Fresh subprocess — picks up any code changes without daemon restart
-                cmd = [sys.executable, __file__, "--threshold", str(args.threshold)]
+                cmd = [sys.executable, __file__,
+                       "--threshold", str(args.threshold),
+                       "--interval",  str(args.interval)]
                 if args.dry_run:
                     cmd.append("--dry-run")
+                if args.no_futures:
+                    cmd.append("--no-futures")
                 subprocess.run(cmd, cwd=Path(__file__).parent.parent)
                 print(f"Sleeping {args.interval}s ({args.interval//60}min)...")
                 time.sleep(args.interval)
         finally:
-            # Wyczyść lockfile przy zamknięciu
             if lockfile.exists() and lockfile.read_text().strip() == str(os.getpid()):
                 lockfile.unlink()
     else:
-        run_once(args.threshold, args.dry_run)
+        run_once(args.threshold, args.dry_run,
+                 no_futures=args.no_futures, interval_sec=args.interval)
 
 
 if __name__ == "__main__":

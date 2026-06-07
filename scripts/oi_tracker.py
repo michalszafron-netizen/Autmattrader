@@ -47,6 +47,7 @@ INSTRUMENTS = {
     "XRP":   ("XRPUSDT",  "XRPUSDT",  "XRP-USD"),
     "BNB":   ("BNBUSDT",  "BNBUSDT",  "BNB-USD"),
     "HYPE":  (None,        None,       "HYPE-USD"),   # DEX only
+    "LINK":  ("LINKUSDT",  "LINKUSDT", "LINK-USD"),   # Chainlink — Binance + Bybit + Extended
     "XAU":   (None,        None,       "XAU-USD"),    # TradFi on Extended
     "XAG":   (None,        None,       "XAG-USD"),    # TradFi on Extended
     "WTI":   (None,        None,       "WTI-USD"),    # TradFi on Extended

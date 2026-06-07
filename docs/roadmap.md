@@ -197,6 +197,37 @@ Już prawie gotowe — skrypt obsługuje `--days N`, tylko dodać ładny display
 
 ---
 
+### 1.3 Wallet Analyzer w dashboardzie — wklej adres → werdykt copy-trading
+
+**Co to:** Pole w dashboardzie (Alpha Desk): wklejasz adres portfela Hyperliquid (0x...),
+dostajesz gotową analizę „czy warto śledzić/kopiować" — bez ręcznego grzebania w Senpi.
+
+**Dane do wyciągnięcia (Senpi MCP — wszystko gotowe, zero nowej infry):**
+| Sekcja | Narzędzie Senpi | Co pokazać |
+|--------|-----------------|------------|
+| Track record | `discovery_get_top_traders` (addresses=[adres]) | ROI, win rate, max DD, Gain-to-Pain, etykiety |
+| Krzywa kapitału | `strategy_get_pnl_and_account_value_history` | **All-time PnL** (KLUCZ — ujawnia ukryte straty), miesięczny/tygodniowy |
+| Pozycje teraz | `discovery_get_trader_state` | co trzyma, dźwignie per pozycja, margin %, uPnL |
+| Styl handlu | `discovery_get_trader_history` (100 trades) | realne zamknięcia/dzień, mediana trzymania, rozkład dźwigni, top aktywa |
+| Hot teraz? | `leaderboard_get_top` | czy jest w oknie 4h momentum |
+
+**Kluczowa lekcja z researchu (2026-06-02) — MUSI być w logice analizatora:**
+- **Nie ufaj `maxDrawdown` z rankingu** — liczy wąskie okno. Trader `0xd8f3` miał „0% DD"
+  w rankingu, ale all-time PnL = **-$745k** (przeżył obsunięcie -$1.78M). Zawsze ciągnij
+  pełną krzywą all-time.
+- **`averageTradesPerDay` ≠ liczba transakcji** — liczy fille. Trader `0xe21b` miał „18/dzień"
+  w rankingu, realnie ~0.6 zamknięć/dzień (swing, mediana trzymania 2.8 dnia). Liczy fille
+  z drabinkowania zleceń. Liczbę realnych tradów bierz z `discovery_get_trader_history`.
+- **Werdykt:** dodatni all-time PnL + niski realny DD + sensowna częstotliwość = ŚLEDŹ.
+  Wysoki win rate sam w sobie = pułapka (bag-holder trzyma stratne pozycje miesiącami).
+
+**Output:** kafelek z werdyktem KOPIUJ / OBSERWUJ / UNIKAJ + uzasadnienie + sugerowany
+mnożnik dla danego kapitału (skalowanie w dół: Twój_kapitał / jego_konto × mnożnik).
+
+**Priorytet:** ⭐⭐⭐⭐ — bezpośrednio zasila decyzje copy-trading, zero nowej infrastruktury.
+
+---
+
 ## POZIOM 2 — Średnie (1-2 dni)
 
 ### 2.1 Whale tracker — rozszerzenie o CEX (Binance / Bybit)
