@@ -3113,7 +3113,7 @@ function _drawSMActivityChart(smAlerts) {
     bgColors.push(cumNet >= 0 ? 'rgba(0,255,136,0.45)' : 'rgba(255,71,87,0.45)');
   }
 
-  canvas.style.height = Math.max(180, points.length * 16 + 100) + 'px';
+  canvas.style.height = '260px';
 
   if (!points.length) {
     canvas.style.height = '60px';
@@ -3121,16 +3121,28 @@ function _drawSMActivityChart(smAlerts) {
   }
 
   _smChartInstance = new Chart(canvas, {
-    type: 'bar',
+    type: 'line',
     data: {
       labels: points.map(p => p.x),
       datasets: [{
-        label: _smSelectedCoin + ' net L/S',
+        label: _smSelectedCoin,
         data: points.map(p => p.y),
-        backgroundColor: bgColors,
-        borderColor: bgColors.map(c => c.replace('0.45','0.9')),
-        borderWidth: 1,
-        borderRadius: 3,
+        borderWidth: 2.5,
+        fill: true,
+        stepped: 'before',   // skok dokładnie w momencie zdarzenia
+        tension: 0,
+        pointRadius: 5,
+        pointHoverRadius: 7,
+        // Kolor punktu wg wartości w tym punkcie
+        pointBackgroundColor: points.map(p => p.y >= 0 ? '#00ff88' : '#ff4757'),
+        pointBorderColor:     points.map(p => p.y >= 0 ? '#00ff88' : '#ff4757'),
+        // Kolor linii i wypełnienia per segment (Chart.js v4)
+        segment: {
+          borderColor: ctx => ctx.p0.parsed.y >= 0 ? '#00ff88' : '#ff4757',
+          backgroundColor: ctx => ctx.p0.parsed.y >= 0
+            ? 'rgba(0,255,136,0.10)'
+            : 'rgba(255,71,87,0.12)',
+        },
       }]
     },
     options: {
@@ -3141,7 +3153,7 @@ function _drawSMActivityChart(smAlerts) {
         tooltip: {
           backgroundColor: 'rgba(6,12,22,0.95)',
           titleColor: '#dde6f0',
-          titleFont: { size: 13, family: "'Space Mono',monospace", weight: 'bold' },
+          titleFont: { size: 13, family: "'Space Mono',monospace", weight: '700' },
           bodyColor: '#aac8e8',
           bodyFont: { size: 13, family: "'Space Mono',monospace" },
           borderColor: 'rgba(255,255,255,0.1)',
@@ -3150,11 +3162,13 @@ function _drawSMActivityChart(smAlerts) {
           callbacks: {
             title: items => items[0]?.label || '',
             label: ctx => {
-              const v = ctx.parsed.y;
-              const pt = points[ctx.dataIndex];
-              const arrow = pt.side === 'LONG' ? '▲ LONG' : '▼ SHORT';
-              const net   = v > 0 ? `net: +${v} LONG` : v < 0 ? `net: ${v} SHORT` : 'net: 0 NEUTRAL';
-              return [`${arrow}`, `${net}`];
+              const v   = ctx.parsed.y;
+              const pt  = points[ctx.dataIndex];
+              const ev  = pt.side === 'LONG' ? '▲ LONG' : '▼ SHORT';
+              const net = v > 0 ? `net: +${v} LONG dominuje`
+                        : v < 0 ? `net: ${v} SHORT dominuje`
+                        : `net: 0 NEUTRAL`;
+              return [ev, net];
             }
           }
         }
@@ -3164,8 +3178,8 @@ function _drawSMActivityChart(smAlerts) {
           ticks: {
             color: '#7a8da0',
             font: { size: 11, family: "'Space Mono',monospace" },
-            maxRotation: 45,
-            maxTicksLimit: 12,
+            maxRotation: 0,
+            maxTicksLimit: 10,
           },
           grid: { color: 'rgba(255,255,255,0.04)' }
         },
@@ -3173,11 +3187,10 @@ function _drawSMActivityChart(smAlerts) {
           ticks: {
             color: '#7a8da0',
             font: { size: 12, family: "'Space Mono',monospace" },
-            callback: v => v > 0 ? `+${v} L` : v < 0 ? `${v} S` : '0',
+            callback: v => v > 0 ? `+${v}L` : v < 0 ? `${v}S` : '0',
           },
           grid: { color: 'rgba(255,255,255,0.05)' },
-          // linia zerowa
-          border: { color: 'rgba(255,255,255,0.15)', dash: [4,4] }
+          border: { color: 'rgba(255,255,255,0.15)', dash: [4, 4] }
         }
       }
     }

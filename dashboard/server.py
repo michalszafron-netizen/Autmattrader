@@ -594,7 +594,7 @@ def alerts():
 
     sm = vps.get('smart_money') or db_query(
         "SELECT ts, alert_type, coin, side, wallet, notional, details FROM sm_alerts "
-        "ORDER BY ts DESC LIMIT 50"
+        "ORDER BY ts DESC LIMIT 300"
     ) or []
     vol = db_query(
         "SELECT ts, symbol, exchange, volume_usd, ratio, direction FROM volume_anomalies "
