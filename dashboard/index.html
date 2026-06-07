@@ -1095,19 +1095,25 @@ function fmtTs(ts, opts = {}) {
     const now   = new Date();
     const today = now.toDateString() === d.toDateString();
     const yesterday = new Date(now - 86400000).toDateString() === d.toDateString();
-    const timePart = d.toLocaleTimeString('pl-PL', {hour:'2-digit', minute:'2-digit'});
-    if (opts.full) return d.toLocaleString('pl-PL', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-    if (opts.dateOnly) return d.toLocaleDateString('pl-PL', {day:'2-digit', month:'2-digit'});
-    if (today)     return timePart;
-    if (yesterday) return 'wczoraj ' + timePart;
-    return d.toLocaleDateString('pl-PL', {day:'2-digit', month:'2-digit'}) + ' ' + timePart;
+    const TZ = 'Europe/Warsaw';
+    const timePart = d.toLocaleTimeString('pl-PL', {hour:'2-digit', minute:'2-digit', timeZone: TZ});
+    if (opts.full) return d.toLocaleString('pl-PL', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit', timeZone: TZ});
+    if (opts.dateOnly) return d.toLocaleDateString('pl-PL', {day:'2-digit', month:'2-digit', timeZone: TZ});
+    // today/yesterday check musi też być w Warsaw timezone
+    const warsawDate = new Date(d.toLocaleString('en-US', {timeZone: TZ}));
+    const nowWarsaw  = new Date(new Date().toLocaleString('en-US', {timeZone: TZ}));
+    const todayW     = nowWarsaw.toDateString() === warsawDate.toDateString();
+    const yesterdayW = new Date(nowWarsaw - 86400000).toDateString() === warsawDate.toDateString();
+    if (todayW)     return timePart;
+    if (yesterdayW) return 'wczoraj ' + timePart;
+    return d.toLocaleDateString('pl-PL', {day:'2-digit', month:'2-digit', timeZone: TZ}) + ' ' + timePart;
   } catch(e) {
     return String(ts).substring(0, 16).replace('T', ' ');
   }
 }
 
 // ── State ──────────────────────────────────────────────────────────────────
-let currentAlerts = {smart_money:[], volume:[], listings:[], tv_alerts:[], insider:[], kozaki:[], kozaki_snapshot:[]};
+let currentAlerts = {smart_money:[], volume:[], listings:[], tv_alerts:[], insider:[], kozaki:[], kozaki_snapshot:[], sm_snapshot:[]};
 let currentAlertTab = 'sm';
 let fgChartInstance = null;
 let _smChartInstance = null;
@@ -2932,88 +2938,88 @@ function renderAlertTab(tab) {
   const panel = document.getElementById('panel-alerts');
   if (panel) panel.scrollTop = 0;
   // Odśwież panel boczny SM jeśli aktywny
-  if (tab === 'sm') renderSMSidePanel(currentAlerts.smart_money || []);
+  if (tab === 'sm') renderSMSidePanel(currentAlerts.smart_money || [], currentAlerts.sm_snapshot || []);
 }
 
 // ── SM Whale Thermometer + Activity Chart ────────────────────────────────────
 
-function renderSMSidePanel(smAlerts) {
+function renderSMSidePanel(smAlerts, smSnapshot) {
   const thermoEl = document.getElementById('smThermoContent');
   const infoEl   = document.getElementById('smChartInfo');
   if (!thermoEl) return;
 
-  if (!smAlerts || !smAlerts.length) {
-    thermoEl.innerHTML = '<div class="empty" style="padding:16px 0"><p>Brak danych SM</p></div>';
-    if (infoEl) infoEl.textContent = '0 alertów';
-    return;
+  const _fN = v => v>=1e6?'$'+(v/1e6).toFixed(1)+'M':v>=1e3?'$'+(v/1e3).toFixed(0)+'K':'$'+Math.round(v).toLocaleString();
+
+  // ── TERMOMETR: używa sm_snapshot (aktualne pozycje) ──────────────────────
+  const snap = (smSnapshot && smSnapshot.length) ? smSnapshot : null;
+
+  if (!snap) {
+    thermoEl.innerHTML = '<div class="empty" style="padding:16px 0"><span style="font-size:11px;color:var(--txt3)">Brak danych snapshot<br>(SM tracker nie uruchomiony)</span></div>';
+  } else {
+    // Agregacja per coin z danych snapshot (już pogrupowanych w SQL)
+    const coins = {};
+    let tNL = 0, tNS = 0, tWL = 0, tWS = 0;
+    for (const r of snap) {
+      const ticker = (r.coin || '?').toUpperCase();
+      const n = parseFloat(r.notional) || 0;
+      const w = parseInt(r.wallet_count) || 0;
+      if (!coins[ticker]) coins[ticker] = { nL:0, nS:0, wL:0, wS:0 };
+      if ((r.side||'').toUpperCase() === 'LONG') {
+        coins[ticker].nL += n; coins[ticker].wL += w; tNL += n; tWL += w;
+      } else {
+        coins[ticker].nS += n; coins[ticker].wS += w; tNS += n; tWS += w;
+      }
+    }
+    const totalN = tNL + tNS;
+    const pctL = totalN > 0 ? Math.round(tNL / totalN * 100) : 0;
+    const pctS = 100 - pctL;
+    const dom  = tNL >= tNS ? 'LONG' : 'SHORT';
+    const totalW = tWL + tWS;
+
+    const badge = document.getElementById('smThermoLabel');
+    if (badge) {
+      badge.textContent = dom;
+      badge.className = 'card-badge ' + (dom === 'LONG' ? 'badge-green' : 'badge-red');
+    }
+
+    // Posortuj po łącznym notional
+    const sorted = Object.entries(coins)
+      .sort((a,b) => (b[1].nL+b[1].nS) - (a[1].nL+a[1].nS))
+      .slice(0, 16);
+
+    let html = `
+      <div class="sm-thermo-bar">
+        <div class="sm-thermo-l" style="width:${pctL}%"></div>
+        <div class="sm-thermo-s"></div>
+      </div>
+      <div class="sm-thermo-pct">
+        <span style="color:var(--green)">${pctL}% LONG</span>
+        <span style="color:var(--red)">${pctS}% SHORT</span>
+      </div>
+      <div class="sm-thermo-sub">${_fN(tNL)} L · ${_fN(tNS)} S · ${totalW} portfeli</div>`;
+
+    for (const [ticker, c] of sorted) {
+      const coinN = c.nL + c.nS;
+      const pL = coinN > 0 ? Math.round(c.nL / coinN * 100) : 50;
+      const coinW = c.wL + c.wS;
+      const cDom = c.nL >= c.nS ? 'L' : 'S';
+      const cClr = cDom === 'L' ? 'var(--green)' : 'var(--red)';
+      html += `<div class="sm-coin-row">
+        <span class="sm-coin-name">${escHtml(ticker)}</span>
+        <div class="sm-coin-bar"><div class="sm-coin-bar-l" style="width:${pL}%"></div></div>
+        <span class="sm-coin-counts">
+          <span style="color:var(--green)">${c.wL}L</span>
+          <span style="color:var(--txt3)"> / </span>
+          <span style="color:var(--red)">${c.wS}S</span>
+        </span>
+        <span class="sm-coin-dom" style="color:${cClr}">●${cDom}</span>
+      </div>`;
+    }
+    thermoEl.innerHTML = html;
   }
 
-  // Agregacja per token
-  const coins = {};
-  for (const a of smAlerts) {
-    const ticker  = (a.coin || '?').toUpperCase();
-    const side    = (a.side || '').toUpperCase();
-    const notional = parseFloat(a.notional) || 0;
-    if (!coins[ticker]) coins[ticker] = { L:0, S:0, nL:0, nS:0 };
-    if (side === 'LONG')  { coins[ticker].L++; coins[ticker].nL += notional; }
-    else if (side === 'SHORT') { coins[ticker].S++; coins[ticker].nS += notional; }
-  }
-
-  // Sortuj wg notional (ciężar sygnałów)
-  const sorted = Object.entries(coins)
-    .sort((a,b) => (b[1].nL+b[1].nS) - (a[1].nL+a[1].nS))
-    .slice(0, 16);
-
-  // Ogólne statystyki
-  let tL=0, tS=0, tNL=0, tNS=0;
-  for (const [,c] of Object.entries(coins)) { tL+=c.L; tS+=c.S; tNL+=c.nL; tNS+=c.nS; }
-  const total = tL + tS;
-  const pctL  = total ? Math.round(tL/total*100) : 0;
-  const pctS  = 100 - pctL;
-  const domByNotional = tNL >= tNS ? 'LONG' : 'SHORT';
-
-  // Badge dominacji
-  const badge = document.getElementById('smThermoLabel');
-  if (badge) {
-    badge.textContent = domByNotional;
-    badge.className = 'card-badge ' + (domByNotional === 'LONG' ? 'badge-green' : 'badge-red');
-  }
-
-  const _fN = v => v>=1e6?'$'+(v/1e6).toFixed(1)+'M':v>=1e3?'$'+(v/1e3).toFixed(0)+'K':'$'+v.toFixed(0);
-
-  // Termometr ogólny
-  let html = `
-    <div class="sm-thermo-bar">
-      <div class="sm-thermo-l" style="width:${pctL}%"></div>
-      <div class="sm-thermo-s"></div>
-    </div>
-    <div class="sm-thermo-pct">
-      <span style="color:var(--green)">${pctL}% LONG</span>
-      <span style="color:var(--red)">${pctS}% SHORT</span>
-    </div>
-    <div class="sm-thermo-sub">${_fN(tNL)} L · ${_fN(tNS)} S · ${total} sygnałów</div>`;
-
-  // Wiersze per token
-  for (const [ticker, c] of sorted) {
-    const coinTotal = c.L + c.S;
-    const pL = coinTotal ? Math.round(c.L/coinTotal*100) : 50;
-    const dom = c.nL >= c.nS ? 'L' : 'S';
-    const domClr = dom==='L' ? 'var(--green)' : 'var(--red)';
-    html += `<div class="sm-coin-row">
-      <span class="sm-coin-name">${escHtml(ticker)}</span>
-      <div class="sm-coin-bar"><div class="sm-coin-bar-l" style="width:${pL}%"></div></div>
-      <span class="sm-coin-counts">
-        <span style="color:var(--green)">${c.L}L</span>
-        <span style="color:var(--txt3)"> / </span>
-        <span style="color:var(--red)">${c.S}S</span>
-      </span>
-      <span class="sm-coin-dom" style="color:${domClr}">●${dom}</span>
-    </div>`;
-  }
-
-  thermoEl.innerHTML = html;
-  if (infoEl) infoEl.textContent = `${smAlerts.length} alertów`;
-
+  // ── WYKRES: używa sm_alerts (timeline zmian) ──────────────────────────────
+  if (infoEl) infoEl.textContent = smAlerts.length ? `${smAlerts.length} alertów` : '—';
   _drawSMActivityChart(smAlerts);
 }
 

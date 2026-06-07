@@ -635,9 +635,22 @@ def alerts():
         except Exception:
             pass
 
+    # SM Snapshot — aktualne pozycje ze OSTATNIEGO skanu (nie zdarzenia, ale stan bieżący)
+    # Grupowane po coin+side, sumy notional i liczba portfeli → dane dla Whale Thermometru
+    sm_snapshot = vps.get('sm_snapshot') or db_query(
+        """SELECT coin, side,
+                  SUM(notional)        AS notional,
+                  COUNT(DISTINCT wallet) AS wallet_count
+           FROM sm_snapshots
+           WHERE ts = (SELECT MAX(ts) FROM sm_snapshots)
+           GROUP BY coin, side
+           ORDER BY notional DESC"""
+    ) or []
+
     return jsonify({'smart_money': sm, 'volume': vol, 'listings': listings,
                     'tv_alerts': tv_alerts, 'insider': insider,
-                    'kozaki': kozaki, 'kozaki_snapshot': kozaki_snapshot})
+                    'kozaki': kozaki, 'kozaki_snapshot': kozaki_snapshot,
+                    'sm_snapshot': sm_snapshot})
 
 
 # ── Routes — Reports ─────────────────────────────────────────────────────────
