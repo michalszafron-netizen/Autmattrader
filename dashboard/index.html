@@ -105,12 +105,14 @@ header{
 #panel-alerts .card{width:100%;box-sizing:border-box}
 
 /* ── SM WHALE SPLIT LAYOUT ── */
-#panel-alerts.active{display:flex;flex-direction:column;height:calc(100vh - 58px);overflow:hidden;padding-bottom:0}
-.sm-layout{display:flex;gap:12px;flex:1;min-height:0;overflow:hidden}
-.sm-left{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
-.sm-left .card{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
-#alertContent{flex:1;overflow-y:auto;min-height:0}
+#panel-alerts.active{display:flex;flex-direction:column;height:calc(100vh - 58px);padding:0}
+.sm-layout{display:flex;gap:12px;flex:1;min-height:0;padding:0 24px 0 24px}
+.sm-left{flex:1;min-width:0;display:flex;flex-direction:column}
+.sm-left .card{flex:1;display:flex;flex-direction:column;min-height:0}
+#alertContent{flex:1;overflow-y:auto;min-height:0;width:100%;overflow-anchor:none}
 #sm-side-panel{width:38%;min-width:380px;flex-shrink:0;display:flex;flex-direction:column;gap:10px;overflow:hidden}
+/* Tabs padding w panelu alertow (zamiast padding na panelu) */
+#panel-alerts.active .tabs{padding:12px 24px 0;margin-bottom:0}
 /* Thermometer */
 .sm-thermo-bar{height:12px;border-radius:6px;overflow:hidden;display:flex;margin:10px 0 6px;background:rgba(255,71,87,.25)}
 .sm-thermo-l{background:var(--green);transition:width .5s ease}
@@ -1025,7 +1027,7 @@ header{
             <button class="btn btn-outline btn-sm" onclick="loadAlerts()">↻ Odśwież</button>
           </div>
         </div>
-        <div id="alertContent" class="loading"><div class="spinner"></div> Ładuję...</div>
+        <div id="alertContent"><div class="loading"><div class="spinner"></div> Ładuję...</div></div>
       </div>
     </div>
     <!-- RIGHT: Whale Thermometer + SM Activity Chart (tylko dla SM tab) -->
@@ -2832,6 +2834,11 @@ async function deleteFromWatchlist(address) {
 
 function renderAlertTab(tab) {
   const el = document.getElementById('alertContent');
+  // KRYTYCZNE: usuń klasę "loading" z kontenera (zostaje z poczatkowego HTML / stanu ładowania).
+  // .loading{display:flex;align-items:center} centrowałoby pionowo cala (bardzo wysoka, ~25000px)
+  // .alert-list w 727px viewporcie -> polowa listy renderowala sie POWYZEJ widoku mimo scrollTop=0.
+  // To byla prawdziwa przyczyna "ucietych", "starych" danych w SM/Kozaki.
+  el.classList.remove('loading');
   // Synchronizuj widoczność panelu bocznego SM (może być wywołane z loadAlerts bez showAlertTab)
   const sidePanel = document.getElementById('sm-side-panel');
   if (sidePanel) sidePanel.style.display = tab === 'sm' ? 'flex' : 'none';
@@ -2979,11 +2986,8 @@ function renderAlertTab(tab) {
   }).join('') + '</div>';
   // Odśwież panel boczny SM jeśli aktywny
   if (tab === 'sm') renderSMSidePanel(currentAlerts.smart_money || [], currentAlerts.sm_snapshot || []);
-  // Jawne ustawienie wysokości + scroll na górę
-  requestAnimationFrame(() => {
-    _constrainAlertContent();
-    el.scrollTop = 0;
-  });
+  // Scroll na górę po renderze (CSS flex layout daje #alertContent realną wysokość — bez JS hacków)
+  requestAnimationFrame(() => { el.scrollTop = 0; });
   // Pokaż baner "↑ Nowsze alerty" gdy scroll > 0 i jest nowsza data niż widoczna
   _updateNewAlertsBar(el, items);
 }
@@ -3002,26 +3006,11 @@ function _updateNewAlertsBar(el, items) {
   }
 }
 
-function _constrainAlertContent() {
-  // Oblicz rzeczywistą dostępną wysokość i wymuś ją na #alertContent
-  const el = document.getElementById('alertContent');
-  if (!el) return;
-  const rect = el.getBoundingClientRect();
-  const available = window.innerHeight - rect.top - 8;
-  if (available > 80) {
-    el.style.height = available + 'px';
-    el.style.maxHeight = available + 'px';
-    el.style.overflowY = 'auto';
-    el.style.minHeight = '0';
-  }
-}
-
 function scrollToNewest() {
   const el = document.getElementById('alertContent');
-  if (el) {
-    _constrainAlertContent();
-    el.scrollTop = 0;
-  }
+  if (el) el.scrollTop = 0;
+  const bar = document.getElementById('smNewAlertsBar');
+  if (bar) bar.style.display = 'none';
 }
 
 // ── SM Whale Thermometer + Activity Chart ────────────────────────────────────
@@ -3900,20 +3889,21 @@ setInterval(loadStatus, 60_000);
 // Alerts every 2 min (bylo 5min)
 setInterval(loadAlerts, 2 * 60_000);
 
-// Baner "nowsze alerty" — słuchaj na .main (to on faktycznie scrolluje panel alertów)
+// Baner "nowsze alerty" — słuchaj na #alertContent (to on faktycznie scrolluje listę alertów,
+// dzięki flex layoutowi #panel-alerts.active → .sm-layout → .sm-left → .card → #alertContent)
 document.addEventListener('DOMContentLoaded', () => {
-  const mainEl = document.querySelector('.main');
-  if (mainEl) {
-    mainEl.addEventListener('scroll', () => {
-      if (currentAlertTab && document.getElementById('panel-alerts')?.classList.contains('active')) {
-        const alertEl = document.getElementById('alertContent');
-        const items = currentAlerts[currentAlertTab==='sm'?'smart_money':
-                      currentAlertTab==='kozaki'?'kozaki':
-                      currentAlertTab==='vol'?'volume': currentAlertTab] || [];
-        _updateNewAlertsBar(alertEl || mainEl, items);
-      }
-    }, { passive: true });
-  }
+  const alertEl = document.getElementById('alertContent');
+  const mainEl  = document.querySelector('.main');
+  const onAlertScroll = () => {
+    if (currentAlertTab && document.getElementById('panel-alerts')?.classList.contains('active')) {
+      const items = currentAlerts[currentAlertTab==='sm'?'smart_money':
+                    currentAlertTab==='kozaki'?'kozaki':
+                    currentAlertTab==='vol'?'volume': currentAlertTab] || [];
+      _updateNewAlertsBar(document.getElementById('alertContent') || mainEl, items);
+    }
+  };
+  if (alertEl) alertEl.addEventListener('scroll', onAlertScroll, { passive: true });
+  if (mainEl)  mainEl.addEventListener('scroll', onAlertScroll, { passive: true });
 });
 // Prices every 30s (header ticker)
 async function refreshTicker() {
