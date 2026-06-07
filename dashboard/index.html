@@ -105,7 +105,7 @@ header{
 #panel-alerts .card{width:100%;box-sizing:border-box}
 
 /* ── SM WHALE SPLIT LAYOUT ── */
-#panel-alerts.active{display:flex;flex-direction:column;height:100%;padding-bottom:0}
+#panel-alerts.active{display:flex;flex-direction:column;overflow:hidden;padding-bottom:0}
 .sm-layout{display:flex;gap:12px;flex:1;min-height:0;overflow:hidden}
 .sm-left{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
 .sm-left .card{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
@@ -2977,21 +2977,26 @@ function renderAlertTab(tab) {
   }).join('') + '</div>';
   // Odśwież panel boczny SM jeśli aktywny
   if (tab === 'sm') renderSMSidePanel(currentAlerts.smart_money || [], currentAlerts.sm_snapshot || []);
-  // Scroll reset — tylko gdy renderAlertTab wywołany z resetScroll=true (manual click / tab switch)
-  // Auto-refresh NIE resetuje scroll — żebyś mógł scrollować historię swobodnie
+  // Scroll reset — tylko gdy resetScroll=true (manual click / tab switch)
   if (renderAlertTab._resetScroll) {
     renderAlertTab._resetScroll = false;
-    requestAnimationFrame(() => { el.scrollTop = 0; });
+    requestAnimationFrame(() => {
+      el.scrollTop = 0;
+      const mainEl = document.querySelector('.main');
+      if (mainEl) mainEl.scrollTop = 0;
+    });
   }
   // Pokaż baner "↑ Nowsze alerty" gdy scroll > 0 i jest nowsza data niż widoczna
   _updateNewAlertsBar(el, items);
 }
 
 function _updateNewAlertsBar(el, items) {
-  let bar = document.getElementById('smNewAlertsBar');
+  const bar = document.getElementById('smNewAlertsBar');
   if (!bar) return;
-  // Sprawdź czy scrolled down (>50px)
-  const isDown = el.scrollTop > 50;
+  // Sprawdź scroll na .main (faktyczny scroller) LUB na el
+  const mainEl = document.querySelector('.main');
+  const scrollPos = (mainEl?.scrollTop || 0) + (el?.scrollTop || 0);
+  const isDown = scrollPos > 80;
   bar.style.display = isDown && items.length > 5 ? 'flex' : 'none';
   if (isDown && items.length > 0) {
     const newest = fmtTs(items[0]?.ts || '');
@@ -3000,8 +3005,14 @@ function _updateNewAlertsBar(el, items) {
 }
 
 function scrollToNewest() {
-  const el = document.getElementById('alertContent');
-  if (el) { el.scrollTop = 0; }
+  // Próbuj wszystkie możliwe scrollujące kontenery
+  ['alertContent'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.scrollTop = 0;
+  });
+  // .main jest głównym scrollerem gdy panel nie ma własnego scroll
+  const mainEl = document.querySelector('.main');
+  if (mainEl) mainEl.scrollTop = 0;
 }
 
 // ── SM Whale Thermometer + Activity Chart ────────────────────────────────────
@@ -3880,13 +3891,18 @@ setInterval(loadStatus, 60_000);
 // Alerts every 2 min (bylo 5min)
 setInterval(loadAlerts, 2 * 60_000);
 
-// Baner "nowsze alerty" — pojawia się gdy scrolled down
+// Baner "nowsze alerty" — słuchaj na .main (to on faktycznie scrolluje panel alertów)
 document.addEventListener('DOMContentLoaded', () => {
-  const alertEl = document.getElementById('alertContent');
-  if (alertEl) {
-    alertEl.addEventListener('scroll', () => {
-      const items = currentAlerts[currentAlertTab==='sm'?'smart_money':currentAlertTab] || [];
-      _updateNewAlertsBar(alertEl, items);
+  const mainEl = document.querySelector('.main');
+  if (mainEl) {
+    mainEl.addEventListener('scroll', () => {
+      if (currentAlertTab && document.getElementById('panel-alerts')?.classList.contains('active')) {
+        const alertEl = document.getElementById('alertContent');
+        const items = currentAlerts[currentAlertTab==='sm'?'smart_money':
+                      currentAlertTab==='kozaki'?'kozaki':
+                      currentAlertTab==='vol'?'volume': currentAlertTab] || [];
+        _updateNewAlertsBar(alertEl || mainEl, items);
+      }
     }, { passive: true });
   }
 });
