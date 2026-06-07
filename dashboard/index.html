@@ -110,7 +110,7 @@ header{
 .sm-left{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
 .sm-left .card{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
 #alertContent{flex:1;overflow-y:auto;min-height:0}
-#sm-side-panel{width:460px;flex-shrink:0;display:flex;flex-direction:column;gap:10px;overflow:hidden}
+#sm-side-panel{width:38%;min-width:380px;flex-shrink:0;display:flex;flex-direction:column;gap:10px;overflow:hidden}
 /* Thermometer */
 .sm-thermo-bar{height:12px;border-radius:6px;overflow:hidden;display:flex;margin:10px 0 6px;background:rgba(255,71,87,.25)}
 .sm-thermo-l{background:var(--green);transition:width .5s ease}
@@ -134,6 +134,11 @@ header{
 }
 .sm-coin-btn:hover{border-color:var(--green);color:var(--green)}
 .sm-coin-btn.active{background:var(--green-dim);border-color:var(--green);color:var(--green)}
+/* Chart mode tabs */
+.sm-mode-tabs{display:flex;gap:5px;margin-bottom:6px;flex-shrink:0}
+.sm-mode-tab{padding:4px 14px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--txt2);font-size:13px;font-weight:700;cursor:pointer;transition:all .12s;font-family:'Space Mono',monospace}
+.sm-mode-tab:hover{color:var(--cyan);border-color:var(--cyan)}
+.sm-mode-tab.active{background:var(--cyan-dim);border-color:var(--cyan);color:var(--cyan)}
 
 /* ── CARDS ── */
 .card{
@@ -1033,6 +1038,11 @@ header{
           <span class="card-title">📈 SM Activity — net L/S</span>
           <span id="smChartInfo" class="refresh-info">—</span>
         </div>
+        <!-- Tryb wykresu: Ilość / Wartość $ -->
+        <div class="sm-mode-tabs" style="flex-shrink:0">
+          <button class="sm-mode-tab active" data-mode="count"    onclick="_smSetChartMode('count')">Ilość</button>
+          <button class="sm-mode-tab"        data-mode="notional" onclick="_smSetChartMode('notional')">Wartość $</button>
+        </div>
         <!-- Selektor tokenów -->
         <div id="smCoinSelector" class="sm-coin-btns" style="flex-shrink:0;padding-left:2px;padding-right:2px"></div>
         <div style="flex:1;min-height:0;overflow-y:auto;padding:4px 0">
@@ -1129,6 +1139,7 @@ let currentAlertTab = 'sm';
 let fgChartInstance = null;
 let _smChartInstance = null;
 let _smSelectedCoin  = null;   // aktywnie wybrany token w SM Activity chart
+let _smChartMode     = 'count'; // 'count' | 'notional'
 let reportContent = '';
 let _waitTimer = null;
 
@@ -3035,6 +3046,15 @@ function renderSMSidePanel(smAlerts, smSnapshot) {
   _drawSMActivityChart(smAlerts);
 }
 
+// Przełącz tryb wykresu: Ilość / Wartość $
+function _smSetChartMode(mode) {
+  _smChartMode = mode;
+  document.querySelectorAll('.sm-mode-tab').forEach(b =>
+    b.classList.toggle('active', b.dataset.mode === mode)
+  );
+  _drawSMActivityChart(currentAlerts.smart_money || []);
+}
+
 // Klik na przycisk tokena w SM Activity chart
 function _smSelectCoin(coin) {
   _smSelectedCoin = coin;
@@ -3099,18 +3119,20 @@ function _drawSMActivityChart(smAlerts) {
     return `${dt} ${t}`;
   };
 
-  let cumNet = 0;
-  const points   = []; // {x, y, side} dla wybranego tokena
-  const bgColors = []; // kolor paska per punkt
+  let cumVal = 0;
+  const points = []; // {x, y, side, notional}
 
   for (const a of sorted) {
     const t = (a.coin||'?').toUpperCase();
     if (t !== _smSelectedCoin) continue;
-    const side  = (a.side||'').toUpperCase();
-    const delta = side === 'LONG' ? 1 : -1;
-    cumNet += delta;
-    points.push({ x: _lbl(a.ts), y: cumNet, side });
-    bgColors.push(cumNet >= 0 ? 'rgba(0,255,136,0.45)' : 'rgba(255,71,87,0.45)');
+    const side     = (a.side||'').toUpperCase();
+    const notional = parseFloat(a.notional) || 0;
+    if (_smChartMode === 'notional') {
+      cumVal += side === 'LONG' ? notional : -notional;
+    } else {
+      cumVal += side === 'LONG' ? 1 : -1;
+    }
+    points.push({ x: _lbl(a.ts), y: cumVal, side, notional });
   }
 
   canvas.style.height = '260px';
@@ -3162,13 +3184,23 @@ function _drawSMActivityChart(smAlerts) {
           callbacks: {
             title: items => items[0]?.label || '',
             label: ctx => {
-              const v   = ctx.parsed.y;
-              const pt  = points[ctx.dataIndex];
-              const ev  = pt.side === 'LONG' ? '▲ LONG' : '▼ SHORT';
-              const net = v > 0 ? `net: +${v} LONG dominuje`
-                        : v < 0 ? `net: ${v} SHORT dominuje`
-                        : `net: 0 NEUTRAL`;
-              return [ev, net];
+              const v  = ctx.parsed.y;
+              const pt = points[ctx.dataIndex];
+              const ev = pt.side === 'LONG' ? '▲ LONG' : '▼ SHORT';
+              let net;
+              if (_smChartMode === 'notional') {
+                const _fN = n => Math.abs(n)>=1e6 ? (n/1e6).toFixed(1)+'M' : Math.abs(n)>=1e3 ? (n/1e3).toFixed(0)+'K' : n.toFixed(0);
+                const ev2 = `${pt.side === 'LONG' ? '+' : '-'}${_fN(pt.notional)}`;
+                net = v > 0 ? `net: +${_fN(v)} $ LONG dominuje`
+                    : v < 0 ? `net: -${_fN(Math.abs(v))} $ SHORT dominuje`
+                    : 'net: 0 NEUTRAL';
+                return [`${ev} (${ev2})`, net];
+              } else {
+                net = v > 0 ? `net: +${v} LONG dominuje`
+                    : v < 0 ? `net: ${v} SHORT dominuje`
+                    : 'net: 0 NEUTRAL';
+                return [ev, net];
+              }
             }
           }
         }
@@ -3187,7 +3219,16 @@ function _drawSMActivityChart(smAlerts) {
           ticks: {
             color: '#7a8da0',
             font: { size: 12, family: "'Space Mono',monospace" },
-            callback: v => v > 0 ? `+${v}L` : v < 0 ? `${v}S` : '0',
+            callback: v => {
+              if (_smChartMode === 'notional') {
+                const a = Math.abs(v);
+                const s = v >= 0 ? '+' : '-';
+                if (a >= 1e6) return `${s}${(a/1e6).toFixed(0)}M`;
+                if (a >= 1e3) return `${s}${(a/1e3).toFixed(0)}K`;
+                return `${s}${a}`;
+              }
+              return v > 0 ? `+${v}L` : v < 0 ? `${v}S` : '0';
+            },
           },
           grid: { color: 'rgba(255,255,255,0.05)' },
           border: { color: 'rgba(255,255,255,0.15)', dash: [4, 4] }
