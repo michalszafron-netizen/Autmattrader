@@ -96,7 +96,7 @@ header{
 .nav-sep{width:48px;height:1px;background:var(--border);margin:4px 0}
 
 /* ── MAIN CONTENT ── */
-.main{flex:1;overflow-y:auto;overflow-x:hidden;padding:0;display:flex;flex-direction:column}
+.main{flex:1;overflow-y:auto;overflow-x:hidden;padding:0}
 .panel{display:none;padding:16px 24px;height:100%}
 .panel.active{display:block}
 /* ── Alerts panel: full width ── */
@@ -105,7 +105,7 @@ header{
 #panel-alerts .card{width:100%;box-sizing:border-box}
 
 /* ── SM WHALE SPLIT LAYOUT ── */
-#panel-alerts.active{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden;padding-bottom:0}
+#panel-alerts.active{display:flex;flex-direction:column;height:calc(100vh - 58px);overflow:hidden;padding-bottom:0}
 .sm-layout{display:flex;gap:12px;flex:1;min-height:0;overflow:hidden}
 .sm-left{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
 .sm-left .card{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
@@ -1022,7 +1022,7 @@ header{
           <div style="display:flex;align-items:center;gap:8px">
             <span id="alertRefreshTs" class="refresh-info" style="font-size:12px"></span>
             <button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" onclick="clearAlertTab(currentAlertTab)" title="Ukryj wszystkie obecne alerty (nie usuwa z DB)">🗑 Wyczyść</button>
-            <button class="btn btn-outline btn-sm" onclick="renderAlertTab._resetScroll=true; loadAlerts()">↻ Odśwież</button>
+            <button class="btn btn-outline btn-sm" onclick="loadAlerts()">↻ Odśwież</button>
           </div>
         </div>
         <div id="alertContent" class="loading"><div class="spinner"></div> Ładuję...</div>
@@ -2624,7 +2624,6 @@ function showAlertTab(tab) {
   // Pokaż/ukryj panel boczny Whale Thermometer (tylko dla SM)
   const sidePanel = document.getElementById('sm-side-panel');
   if (sidePanel) sidePanel.style.display = tab === 'sm' ? 'flex' : 'none';
-  renderAlertTab._resetScroll = true;  // tab switch → scroll do góry
   renderAlertTab(tab);
 }
 
@@ -2980,15 +2979,8 @@ function renderAlertTab(tab) {
   }).join('') + '</div>';
   // Odśwież panel boczny SM jeśli aktywny
   if (tab === 'sm') renderSMSidePanel(currentAlerts.smart_money || [], currentAlerts.sm_snapshot || []);
-  // Scroll reset — tylko gdy resetScroll=true (manual click / tab switch)
-  if (renderAlertTab._resetScroll) {
-    renderAlertTab._resetScroll = false;
-    requestAnimationFrame(() => {
-      el.scrollTop = 0;
-      const mainEl = document.querySelector('.main');
-      if (mainEl) mainEl.scrollTop = 0;
-    });
-  }
+  // Scroll zawsze na górę po renderze
+  requestAnimationFrame(() => { el.scrollTop = 0; });
   // Pokaż baner "↑ Nowsze alerty" gdy scroll > 0 i jest nowsza data niż widoczna
   _updateNewAlertsBar(el, items);
 }
