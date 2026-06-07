@@ -1014,7 +1014,8 @@ header{
       <div class="card">
         <div class="card-hdr">
           <span class="card-title" id="alertTabTitle">Smart Money Alerts</span>
-          <div style="display:flex;gap:6px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="alertRefreshTs" class="refresh-info" style="font-size:12px"></span>
             <button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" onclick="clearAlertTab(currentAlertTab)" title="Ukryj wszystkie obecne alerty (nie usuwa z DB)">🗑 Wyczyść</button>
             <button class="btn btn-outline btn-sm" onclick="loadAlerts()">↻ Odśwież</button>
           </div>
@@ -2593,6 +2594,18 @@ async function loadAlerts() {
   const data = currentAlerts;
   const total = (data.smart_money||[]).length + (data.volume||[]).length + (data.insider||[]).length + (data.kozaki||[]).length;
   document.getElementById('alertCount').textContent = total;
+  // Znacznik czasu ostatniego odświeżenia
+  const refreshTs = document.getElementById('alertRefreshTs');
+  if (refreshTs) {
+    const now = new Date();
+    const t = now.toLocaleTimeString('pl-PL', {hour:'2-digit', minute:'2-digit', timeZone:'Europe/Warsaw'});
+    // Najnowszy alert z VPS
+    const newestSM = (data.smart_money||[])[0]?.ts || '';
+    const newestLabel = newestSM ? ' · dane z ' + fmtTs(newestSM) : '';
+    refreshTs.textContent = `↻ ${t}${newestLabel}`;
+    refreshTs.style.color = 'var(--green)';
+    setTimeout(() => { if (refreshTs) refreshTs.style.color = ''; }, 3000);
+  }
   renderAlertTab(currentAlertTab);
   renderMiniAlerts(data);
 }
@@ -2956,10 +2969,12 @@ function renderAlertTab(tab) {
       <div class="alert-time" title="${escHtml(utcHint)}">${escHtml(time)}</div>
     </div>`;
   }).join('') + '</div>';
-  // Zawsze wracaj na górę po renderowaniu (browser może przywrócić stary scroll)
-  el.scrollTop = 0;
-  const panel = document.getElementById('panel-alerts');
-  if (panel) panel.scrollTop = 0;
+  // Scroll reset — requestAnimationFrame zapewnia że browser zdąży wyrenderować przed reset
+  requestAnimationFrame(() => {
+    el.scrollTop = 0;
+    const panel = document.getElementById('panel-alerts');
+    if (panel) panel.scrollTop = 0;
+  });
   // Odśwież panel boczny SM jeśli aktywny
   if (tab === 'sm') renderSMSidePanel(currentAlerts.smart_money || [], currentAlerts.sm_snapshot || []);
 }
