@@ -2979,8 +2979,11 @@ function renderAlertTab(tab) {
   }).join('') + '</div>';
   // Odśwież panel boczny SM jeśli aktywny
   if (tab === 'sm') renderSMSidePanel(currentAlerts.smart_money || [], currentAlerts.sm_snapshot || []);
-  // Scroll zawsze na górę po renderze
-  requestAnimationFrame(() => { el.scrollTop = 0; });
+  // Jawne ustawienie wysokości + scroll na górę
+  requestAnimationFrame(() => {
+    _constrainAlertContent();
+    el.scrollTop = 0;
+  });
   // Pokaż baner "↑ Nowsze alerty" gdy scroll > 0 i jest nowsza data niż widoczna
   _updateNewAlertsBar(el, items);
 }
@@ -2999,12 +3002,26 @@ function _updateNewAlertsBar(el, items) {
   }
 }
 
+function _constrainAlertContent() {
+  // Oblicz rzeczywistą dostępną wysokość i wymuś ją na #alertContent
+  const el = document.getElementById('alertContent');
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  const available = window.innerHeight - rect.top - 8;
+  if (available > 80) {
+    el.style.height = available + 'px';
+    el.style.maxHeight = available + 'px';
+    el.style.overflowY = 'auto';
+    el.style.minHeight = '0';
+  }
+}
+
 function scrollToNewest() {
   const el = document.getElementById('alertContent');
-  if (el) el.scrollTop = 0;
-  // fallback — na wypadek gdyby .main był scrollerem
-  const mainEl = document.querySelector('.main');
-  if (mainEl) mainEl.scrollTop = 0;
+  if (el) {
+    _constrainAlertContent();
+    el.scrollTop = 0;
+  }
 }
 
 // ── SM Whale Thermometer + Activity Chart ────────────────────────────────────
