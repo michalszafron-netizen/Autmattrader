@@ -235,7 +235,7 @@ Plik profilu: `C:\Users\markowyy\Documents\WindowsPowerShell\Microsoft.PowerShel
 | Skrypt | Interwał | Co robi | Alert na Telegram gdy |
 |---|---|---|---|
 | `volume_scanner.py` | 1h | Anomalie wolumenu Binance Futures+Spot | Volume > 3x średnia 30d |
-| `smart_money_tracker.py` | 1h | Top 20 HL traderów pozycje | Nowa pozycja >$50k, konsensus 3+ traderów |
+| `smart_money_tracker.py` | 1h | Hybrydowa lista HL traderów (top 20 wg PnL + top 20 wg account value) | Nowa pozycja >$50k, konsensus 3+ traderów |
 | `listings_scanner.py` | 6h | Nowe listingi na 5 giełdach | Nowy token na Binance/Bybit/Coinbase/Upbit/OKX |
 
 Start: `bots` w PowerShell
@@ -372,7 +372,7 @@ Plik: `data/trading.db` (gitignored)
 | `fear_greed_history` | Historia Fear & Greed — trend wielotygodniowy |
 | `oi_snapshots` | Snapshots Open Interest per coin per godzina |
 | `token_snapshots` | Token dashboard dane historyczne |
-| `sm_snapshots` | Smart money snapshots (top 20 traderów) |
+| `sm_snapshots` | Smart money snapshots (hybrydowa lista: top 20 wg PnL + top 20 wg account value) |
 | `sm_alerts` | Historia alertów smart money |
 | `listing_announcements` | Historia skanowanych listingów (baseline delta) |
 | `volume_anomalies` | Zarejestrowane anomalie wolumenu |
@@ -426,7 +426,7 @@ trading-ai/
 │   │
 │   ├── # ── WHALE / SMART MONEY ────────────────────────────────
 │   ├── hl_whale_tracker.py    # whale positions agregat weekly/daily
-│   ├── smart_money_tracker.py # daemon 1h: top 20 HL traderzy (nowe pozycje >$50k)
+│   ├── smart_money_tracker.py # daemon 1h: hybrydowa lista HL traderów — PnL + account value (nowe pozycje >$50k)
 │   ├── listings_scanner.py    # daemon 6h: nowe listingi na 5 giełdach
 │   ├── volume_scanner.py      # daemon 1h: anomalie wolumenu Binance 3x+
 │   │
@@ -552,6 +552,7 @@ trading-ai/
 | 2026-05-21 | **Solana / Jupiter DEX** executor — swappy, balance, token prices |
 | 2026-05-21 | **volume_scanner.py** — anomalie 3x+ Binance Futures+Spot (daemon 1h) |
 | 2026-05-21 | **smart_money_tracker.py** — top 20 HL traderów (daemon 1h) |
+| 2026-06-08 | **smart_money_tracker.py** — rozszerzono o hybrydową listę (top 20 PnL + top 20 account value) |
 | 2026-05-21 | **listings_scanner.py** — nowe listingi 5 giełd (daemon 6h) |
 | 2026-05-21 | **start_daemons.bat** + aliasy `bots`/`daemons` |
 | 2026-05-20 | **Extended Exchange** — StarkNet DEX, 4 pozycje, TPSL |

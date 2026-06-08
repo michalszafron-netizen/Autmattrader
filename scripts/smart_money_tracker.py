@@ -3,7 +3,12 @@
 Pure Python, zero AI tokens. Direct HL public API + Telegram Bot API.
 
 How it works:
-  1. Every --interval seconds (default 3600 = 1h), fetch top N HL traders
+  1. Every --interval seconds (default 3600 = 1h), build a HYBRID watch list:
+       - top --top traders by WEEKLY PnL   (skill signal — currently performing well)
+       - top --top-value traders by ACCOUNT VALUE (size signal — biggest whales,
+         even if their PnL this week is mediocre — these are the "grubasy" that
+         a pure-PnL ranking can miss)
+     Deduplicated by wallet address.
   2. Fetch their current positions
   3. Compare to previous snapshot in SQLite
   4. Send Telegram alert when significant changes detected
@@ -19,7 +24,7 @@ Usage:
     python scripts/smart_money_tracker.py              # one-shot (run once, no loop)
     python scripts/smart_money_tracker.py --daemon     # runs forever (1h interval)
     python scripts/smart_money_tracker.py --interval 1800  # 30min interval
-    python scripts/smart_money_tracker.py --top 30     # watch top 30 traders
+    python scripts/smart_money_tracker.py --top 30 --top-value 30  # widen hybrid watch list
     python scripts/smart_money_tracker.py --dry-run    # no Telegram, just print
 """
 
@@ -55,7 +60,8 @@ HL_STATS      = "https://stats-data.hyperliquid.xyz/Mainnet"
 TG_TOKEN      = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TG_CHAT_ID    = os.getenv("TELEGRAM_ALLOWED_USER_ID", "")
 MIN_NOTIONAL  = 50_000   # USD — ignore positions below this
-TOP_N_DEFAULT = 20
+TOP_N_DEFAULT = 20       # weekly-PnL leaders ("smart" — currently performing well)
+TOP_VALUE_DEFAULT = 20   # account-value leaders ("big" — whales by capital, regardless of weekly PnL)
 
 
 # ── HL API helpers ────────────────────────────────────────────────────────────
@@ -67,8 +73,17 @@ def _post(payload: dict) -> dict | list:
         return r.json()
 
 
-def fetch_leaderboard(top_n: int = TOP_N_DEFAULT) -> list[dict]:
-    """Top N traders by weekly PnL."""
+def fetch_leaderboard(top_pnl: int = TOP_N_DEFAULT,
+                       top_value: int = TOP_VALUE_DEFAULT) -> list[dict]:
+    """Hybrid watch list — combines two views of "smart money":
+
+      - top `top_pnl` traders by WEEKLY PnL    → skill signal (currently winning)
+      - top `top_value` traders by ACCOUNT VALUE → size signal (biggest whales —
+        catches large players who'd be invisible in a pure weekly-PnL ranking
+        because their *this week* performance happens to be average/negative)
+
+    Deduplicated by wallet address (PnL leaders ordered first).
+    """
     with httpx.Client(verify=_SSL, timeout=15) as c:
         r = c.get(f"{HL_STATS}/leaderboard", timeout=15)
         r.raise_for_status()
@@ -83,7 +98,23 @@ def fetch_leaderboard(top_n: int = TOP_N_DEFAULT) -> list[dict]:
                     return 0.0
         return 0.0
 
-    return sorted(rows, key=weekly_pnl, reverse=True)[:top_n]
+    def account_value(row: dict) -> float:
+        try:
+            return float(row.get("accountValue", 0))
+        except Exception:
+            return 0.0
+
+    by_pnl   = sorted(rows, key=weekly_pnl,     reverse=True)[:top_pnl]
+    by_value = sorted(rows, key=account_value,  reverse=True)[:top_value]
+
+    combined: list[dict] = []
+    seen: set[str] = set()
+    for row in by_pnl + by_value:
+        addr = row.get("ethAddress", "")
+        if addr and addr not in seen:
+            seen.add(addr)
+            combined.append(row)
+    return combined
 
 
 def fetch_positions(wallet: str) -> list[dict]:
@@ -422,13 +453,14 @@ def format_heartbeat(snapshot: dict[str, list[dict]], ts: str) -> str:
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
-def run_once(top_n: int, dry_run: bool, send_heartbeat: bool = True) -> None:
+def run_once(top_pnl: int, top_value: int, dry_run: bool, send_heartbeat: bool = True) -> None:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    print(f"[{ts}] Fetching top {top_n} traders...", end=" ", flush=True)
+    print(f"[{ts}] Fetching hybrid watch list (top {top_pnl} by weekly PnL "
+          f"+ top {top_value} by account value)...", end=" ", flush=True)
 
     try:
-        traders = fetch_leaderboard(top_n)
-        print(f"{len(traders)} found. Fetching positions...", end=" ", flush=True)
+        traders = fetch_leaderboard(top_pnl, top_value)
+        print(f"{len(traders)} unique wallets. Fetching positions...", end=" ", flush=True)
         curr_snapshot = snapshot_all(traders)
         print(f"done ({sum(len(v) for v in curr_snapshot.values())} positions across {len(curr_snapshot)} wallets)")
 
@@ -469,7 +501,11 @@ def main() -> None:
     p.add_argument("--interval",  type=int, default=3600,
                    help="Poll interval in seconds (default: 3600 = 1h)")
     p.add_argument("--top",       type=int, default=TOP_N_DEFAULT,
-                   help=f"Number of top traders to watch (default: {TOP_N_DEFAULT})")
+                   help=f"Number of top traders by WEEKLY PnL to watch (default: {TOP_N_DEFAULT})")
+    p.add_argument("--top-value", type=int, default=TOP_VALUE_DEFAULT,
+                   help="Number of top traders by ACCOUNT VALUE (size) to add to the "
+                        f"hybrid watch list — catches big whales missed by pure PnL ranking "
+                        f"(default: {TOP_VALUE_DEFAULT})")
     p.add_argument("--daemon",    action="store_true",
                    help="Run forever (loop every --interval seconds)")
     p.add_argument("--dry-run",   action="store_true",
@@ -479,14 +515,15 @@ def main() -> None:
     args = p.parse_args()
 
     if args.daemon:
-        print(f"Starting Smart Money Tracker daemon (interval: {args.interval}s, top: {args.top})")
+        print(f"Starting Smart Money Tracker daemon (interval: {args.interval}s, "
+              f"hybrid watch list: top {args.top} by weekly PnL + top {args.top_value} by account value)")
         print(f"Telegram: {'DRY-RUN' if args.dry_run else 'LIVE'}")
         while True:
-            run_once(args.top, args.dry_run, send_heartbeat=not args.no_heartbeat)
+            run_once(args.top, args.top_value, args.dry_run, send_heartbeat=not args.no_heartbeat)
             print(f"Sleeping {args.interval}s ({args.interval//60} min)...")
             time.sleep(args.interval)
     else:
-        run_once(args.top, args.dry_run, send_heartbeat=not args.no_heartbeat)
+        run_once(args.top, args.top_value, args.dry_run, send_heartbeat=not args.no_heartbeat)
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@
 
 | Daemon | Skrypt | Co robi | Interval |
 |--------|--------|---------|----------|
-| `trading-smart-money` | `smart_money_tracker.py` | Śledzi pozycje top 20 traderów HL. Wysyła alert gdy otworzą/zamkną/zwiększą pozycję ≥$50k | co 1h |
+| `trading-smart-money` | `smart_money_tracker.py` | Śledzi pozycje hybrydowej listy traderów HL: top 20 wg tygodniowego PnL + top 20 wg wartości konta (deduplikacja, ~30-40 unikalnych portfeli — łapie też "grubasów" pomijanych przez czyste rankingi PnL). Wysyła alert gdy otworzą/zamkną/zwiększą pozycję ≥$50k | co 1h |
 | `trading-listings` | `listings_scanner.py` | Skanuje nowe listingi na Binance, Coinbase, Bybit, OKX, Kraken | co 5 min |
 | `trading-volume` | `volume_scanner.py` | Anomalie wolumenowe Binance Futures+Spot (próg 3x). Alert na Telegram | co ~1 min |
 | `trading-webhook` | `tv_webhook.py` | TradingView alerty → Alpaca/HL executor. POST /tv na porcie 5005 | zawsze online |
