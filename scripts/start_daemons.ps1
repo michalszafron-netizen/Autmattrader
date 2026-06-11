@@ -1,5 +1,5 @@
-$py   = "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe"
-$base = "C:\Users\markowyy\trading-ai\scripts"
+$py   = "C:\Users\krypt\trading-ai\.venv\Scripts\python.exe"
+$base = "C:\Users\krypt\trading-ai\scripts"
 $env:PYTHONIOENCODING = "utf-8"
 
 Write-Host "=== Trading AI Daemons ===" -ForegroundColor Cyan
@@ -55,7 +55,7 @@ function Register-InsiderTask($name, $scout, $trigger) {
     try { $folder.DeleteTask($taskName, 0) } catch {}
     Register-ScheduledTask `
         -TaskName $taskName -TaskPath "$taskFolder\" `
-        -Action (New-ScheduledTaskAction -Execute $py -Argument "`"$insiderScript`" $scout" -WorkingDirectory "C:\Users\markowyy\trading-ai") `
+        -Action (New-ScheduledTaskAction -Execute $py -Argument "`"$insiderScript`" $scout" -WorkingDirectory "C:\Users\krypt\trading-ai") `
         -Trigger $trigger `
         -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 10)) `
         -Description "Insider Tracker · $name" | Out-Null

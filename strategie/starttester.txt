@@ -1,0 +1,2 @@
+& "C:\Users\krypt\trading-ai\.venv\Scripts\python.exe" "C:\Users\krypt\trading-ai\scripts\shadow_copy_tracker.py" --report
+& "C:\Users\krypt\trading-ai\.venv\Scripts\python.exe" "C:\Users\krypt\trading-ai\scripts\shadow_copy_tracker.py" --daemon

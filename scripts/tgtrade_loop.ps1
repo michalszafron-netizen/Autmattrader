@@ -1,12 +1,12 @@
 # tgtrade_loop.ps1 — pętla restart Claude + Telegram bridge
 # Uruchamiany przez funkcję tgtrade() z profilu PowerShell
 
-$env:SSL_CERT_FILE = "C:\Users\markowyy\.claude\windows-ca-bundle.pem"
-$env:NODE_EXTRA_CA_CERTS = "C:\Users\markowyy\.claude\windows-ca-bundle.pem"
+$env:SSL_CERT_FILE = "C:\Users\krypt\.claude\windows-ca-bundle.pem"
+$env:NODE_EXTRA_CA_CERTS = "C:\Users\krypt\.claude\windows-ca-bundle.pem"
 $env:NODE_TLS_REJECT_UNAUTHORIZED = "0"
 
 # Znajdź najnowszego claude.exe z instalacji Claude Desktop (nie npm — npm claude.exe jest nieaktywny)
-$claudeDir = "C:\Users\markowyy\AppData\Roaming\Claude\claude-code"
+$claudeDir = "C:\Users\krypt\AppData\Roaming\Claude\claude-code"
 $claude = Get-ChildItem $claudeDir -Filter "claude.exe" -Recurse -ErrorAction SilentlyContinue |
           Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
 
@@ -18,7 +18,7 @@ if (-not $claude) {
 }
 
 $host.UI.RawUI.WindowTitle = "tgtrade — Telegram Bridge"
-Set-Location C:\Users\markowyy\trading-ai
+Set-Location C:\Users\krypt\trading-ai
 
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host "  tgtrade — Telegram Bridge (auto-restart)  " -ForegroundColor Cyan

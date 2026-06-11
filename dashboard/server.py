@@ -44,10 +44,22 @@ load_dotenv(ROOT / '.env')
 
 # Scripts whose output is worth saving to history (exclude polling/ticker scripts)
 SAVE_HISTORY = {
-    'x_sentiment.py', 'token_dashboard.py', 'hl_whale_tracker.py',
+    # Raw data scripts — worth keeping as reference snapshots
+    'x_sentiment.py', 'token_dashboard.py',
     'smart_money_tracker.py', 'fear_greed.py', 'oi_tracker.py',
     'cot_tracker.py', 'blogwatcher.py', 'polymarket.py',
-    'macro_news.py', 'econ_calendar.py',
+    # NOTE: hl_whale_tracker.py intentionally excluded — raw diffs/snapshots are
+    # ugly ASCII tables; the Claude analysis (whale_analysis key) saves instead.
+    'macro_news.py', 'econ_calendar.py', 'fetch_positions.py',
+}
+
+# Category → script name prefixes used for filtering history
+_CAT_SCRIPTS: dict[str, tuple[str, ...]] = {
+    'whale':   ('whale_analysis', 'hl_whale_tracker', 'smart_money_tracker'),
+    'daily':   ('daily_brief',),
+    'data':    ('x_sentiment', 'fear_greed', 'oi_tracker', 'cot_tracker',
+                'token_dashboard', 'polymarket', 'econ_calendar', 'fetch_positions'),
+    'news':    ('blogwatcher', 'macro_news'),
 }
 
 
@@ -748,20 +760,43 @@ def run():
 
 @app.route('/api/history')
 def history_list():
-    """List recent saved analysis runs. Optional ?script= filter."""
+    """List recent saved analysis runs. Optional ?script= or ?cat= filter."""
     script_filter = request.args.get('script', '').strip()
+    cat_filter    = request.args.get('cat', '').strip()
+    cat_scripts   = _CAT_SCRIPTS.get(cat_filter)
+
     if script_filter:
         rows = db_query(
             "SELECT id, ts, script, label, substr(output,1,400) as preview "
-            "FROM analysis_history WHERE script=? ORDER BY ts DESC LIMIT 100",
+            "FROM analysis_history WHERE script=? ORDER BY ts DESC LIMIT 150",
             (script_filter,)
+        ) or []
+    elif cat_scripts:
+        placeholders = ','.join('?' for _ in cat_scripts)
+        rows = db_query(
+            f"SELECT id, ts, script, label, substr(output,1,400) as preview "
+            f"FROM analysis_history WHERE script IN ({placeholders}) ORDER BY ts DESC LIMIT 150",
+            cat_scripts
         ) or []
     else:
         rows = db_query(
             "SELECT id, ts, script, label, substr(output,1,400) as preview "
-            "FROM analysis_history ORDER BY ts DESC LIMIT 100"
+            "FROM analysis_history ORDER BY ts DESC LIMIT 150"
         ) or []
     return jsonify({'history': rows})
+
+
+@app.route('/api/history/save', methods=['POST'])
+def history_save():
+    """Explicitly save any Command Center result to analysis history."""
+    data   = request.get_json(force=True) or {}
+    script = (data.get('script') or 'manual').strip()[:60]
+    label  = (data.get('label')  or '').strip()[:250]
+    output = (data.get('output') or '').strip()
+    if not output or len(output) < 20:
+        return jsonify({'ok': False, 'error': 'output too short'})
+    _save_history(script, label, output)
+    return jsonify({'ok': True})
 
 
 @app.route('/api/history/<int:item_id>', methods=['GET', 'DELETE'])
@@ -801,10 +836,12 @@ def claude_run():
             'error': 'claude not found in PATH. Upewnij się że tgtrade był uruchamiany przynajmniej raz w tej sesji PS.'
         }), 500
 
-    cmd = [claude, '--dangerously-skip-permissions', '--print', prompt]
+    # Pass prompt via stdin ('-') instead of CLI argument — avoids Windows arg-length
+    # limits and encoding issues with multiline / Unicode-heavy prompts.
+    cmd = [claude, '--dangerously-skip-permissions', '--print', '-']
     try:
         r = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=720,   # 12 min — multi-step workflows need time
+            cmd, input=prompt, capture_output=True, text=True, timeout=720,
             cwd=str(ROOT), encoding='utf-8', errors='replace',
             env={**__import__('os').environ, 'PYTHONIOENCODING': 'utf-8',
                  'FORCE_COLOR': '0', 'NO_COLOR': '1'},
@@ -1128,10 +1165,10 @@ def research_claude():
         except Exception:
             pass
 
-    cmd = [claude, '--dangerously-skip-permissions', '--print', prompt]
+    cmd = [claude, '--dangerously-skip-permissions', '--print', '-']
     try:
         r = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=720,
+            cmd, input=prompt, capture_output=True, text=True, timeout=720,
             cwd=str(ROOT), encoding='utf-8', errors='replace',
             env={**os.environ, 'PYTHONIOENCODING': 'utf-8',
                  'FORCE_COLOR': '0', 'NO_COLOR': '1'},

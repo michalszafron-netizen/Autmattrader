@@ -1,0 +1,33 @@
+//@version=6
+strategy("Eliksir V2", overlay=true, initial_capital=1000, default_qty_type=strategy.percent_of_equity, default_qty_value=50, commission_type=strategy.commission.percent, commission_value=0.1, calc_on_every_tick=true, process_orders_on_close=true)
+
+// === BEST CONFIG FOUND ===
+// BTCUSDT 1H | Jan 2025 - May 2026
+// WR: 57.14% (20/35) | PF: 1.553 | Max DD: 2.98% | PnL: +69.44 USDT (+6.94%)
+
+rsiLen     = input.int(14, "RSI Length")
+osLevel    = input.int(37, "Oversold")
+obLevel    = input.int(63, "Overbought")
+maFastLen  = input.int(10, "Fast MA")
+maSlowLen  = input.int(40, "Slow MA")
+slMult     = input.float(2.0, "SL (ATR x)")
+tpMult     = input.float(3.5, "TP (ATR x)")
+atrLen     = input.int(14, "ATR Length")
+
+atr    = ta.atr(atrLen)
+rsi    = ta.rsi(close, rsiLen)
+maFast = ta.sma(close, maFastLen)
+maSlow = ta.sma(close, maSlowLen)
+
+enterLong  = ta.crossover(rsi, osLevel) and (maFast > maSlow) and strategy.position_size == 0
+enterShort = ta.crossunder(rsi, obLevel) and (maFast < maSlow) and strategy.position_size == 0
+
+if enterLong
+    strategy.entry("L", strategy.long)
+if enterShort
+    strategy.entry("S", strategy.short)
+
+if strategy.position_size > 0
+    strategy.exit("XL", "L", stop=strategy.position_avg_price - atr * slMult, limit=strategy.position_avg_price + atr * tpMult)
+if strategy.position_size < 0
+    strategy.exit("XS", "S", stop=strategy.position_avg_price + atr * slMult, limit=strategy.position_avg_price - atr * tpMult)

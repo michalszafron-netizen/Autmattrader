@@ -2,6 +2,23 @@
 
 This is a personal AI trading project. When working in this folder, follow these rules.
 
+## ⚠️ WAŻNE — migracja użytkownika Windows (markowyy → krypt, czerwiec 2026)
+
+System Windows został przeinstalowany i konto użytkownika zmieniło się z `markowyy` na `krypt`.
+Cały projekt (`trading-ai`, `tradingview`, pluginy Claude, profil PowerShell) fizycznie
+istnieje teraz pod `C:\Users\krypt\...`. Stare ścieżki `C:\Users\markowyy\...` **nie istnieją**.
+
+Jeśli przy debugowaniu natrafisz na:
+- błędy "path not found" / "module not found" / "cannot find file"
+- konfiguracje (`.mcp.json`, `.npmrc`, `bunfig.toml`, profil PowerShell, skróty/funkcje)
+  wskazujące na `C:\Users\markowyy\...`
+- crashe MCP serverów (np. tradingview, telegram) z powodu złej ścieżki
+
+→ to niemal na pewno pozostałość po migracji. Podmień `markowyy` → `krypt` w danej ścieżce
+i sprawdź sąsiednie pliki konfiguracyjne pod kątem tego samego problemu (już naprawione m.in.:
+`.mcp.json` w `tradingview/` i `trading-ai/`, `launch-tradingview-debug.bat`,
+`Microsoft.PowerShell_profile.ps1`, globalny `C:\Users\krypt\.npmrc` — cafile dla CA bundle).
+
 ## 📱 TELEGRAM (tgtrade) — zasada krytyczna
 
 Gdy pracujesz w sesji Telegram channel (`--channels plugin:telegram`):
@@ -14,11 +31,11 @@ Gdy pracujesz w sesji Telegram channel (`--channels plugin:telegram`):
 
 **Fallback Python via Bash** (jeśli PowerShell zwraca empty output):
 ```bash
-/mnt/c/Users/markowyy/trading-ai/.venv/Scripts/python.exe scripts/fetch_positions.py --no-solana
+/mnt/c/Users/krypt/trading-ai/.venv/Scripts/python.exe scripts/fetch_positions.py --no-solana
 ```
 Ewentualnie z WSL Python jeśli dostępny:
 ```bash
-cd /mnt/c/Users/markowyy/trading-ai && python3 scripts/fetch_positions.py --no-solana
+cd /mnt/c/Users/krypt/trading-ai && python3 scripts/fetch_positions.py --no-solana
 ```
 
 Nigdy nie kończ w ciszy — użytkownik jest poza komputerem i czeka na odpowiedź w Telegramie.
@@ -177,7 +194,7 @@ nie widzi lub nie łączy w całość]
 ## Reporting Policy (wszystkie rutyny)
 
 **Każdy output z rutyny MUSI być zapisany do pliku przed wysyłką na Telegram.**
-Folder: `C:\Users\markowyy\trading-ai\reports\`
+Folder: `C:\Users\krypt\trading-ai\reports\`
 
 | Rutyna | Plik |
 |---|---|
@@ -255,19 +272,19 @@ Filled in as skills/integrations are installed. Each entry: short label + exact 
 ### fetch_positions.py — Live positions from all 4 venues
 
 ```powershell
-$py = "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe"
+$py = "C:\Users\krypt\trading-ai\.venv\Scripts\python.exe"
 
 # Fetch all venues, save positions.json (standard run)
-& $py "C:\Users\markowyy\trading-ai\scripts\fetch_positions.py"
+& $py "C:\Users\krypt\trading-ai\scripts\fetch_positions.py"
 
 # Skip Solana RPC (faster — use when Solana wallet is empty or RPC is slow)
-& $py "C:\Users\markowyy\trading-ai\scripts\fetch_positions.py" --no-solana
+& $py "C:\Users\krypt\trading-ai\scripts\fetch_positions.py" --no-solana
 
 # Preview without saving
-& $py "C:\Users\markowyy\trading-ai\scripts\fetch_positions.py" --dry-run
+& $py "C:\Users\krypt\trading-ai\scripts\fetch_positions.py" --dry-run
 
 # Raw JSON to stdout (for piping into other scripts)
-& $py "C:\Users\markowyy\trading-ai\scripts\fetch_positions.py" --json
+& $py "C:\Users\krypt\trading-ai\scripts\fetch_positions.py" --json
 ```
 
 Venues: Hyperliquid (perps + xyz TradFi) | Extended (StarkNet DEX) | Solana (spot wallet) | Alpaca (paper stocks)
@@ -277,28 +294,28 @@ Picks up TP/SL automatically from open orders on HL and Extended.
 ### hermes.py — Daily Alpha Brief Orchestrator
 
 ```powershell
-$py = "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe"
+$py = "C:\Users\krypt\trading-ai\.venv\Scripts\python.exe"
 
 # Pełny brief (wszystkie moduły + LLM synthesis)
-& $py "C:\Users\markowyy\trading-ai\scripts\hermes.py"
+& $py "C:\Users\krypt\trading-ai\scripts\hermes.py"
 
 # Bez newsów (oszczędność Firecrawl credits)
-& $py "C:\Users\markowyy\trading-ai\scripts\hermes.py" --no-news
+& $py "C:\Users\krypt\trading-ai\scripts\hermes.py" --no-news
 
 # Z cached newsami (zero Firecrawl, użyj STAMP z .firecrawl/blogwatcher/)
-& $py "C:\Users\markowyy\trading-ai\scripts\hermes.py" --from-cache 20250524_1430
+& $py "C:\Users\krypt\trading-ai\scripts\hermes.py" --from-cache 20250524_1430
 
 # Tylko dane, bez LLM (szybki przegląd)
-& $py "C:\Users\markowyy\trading-ai\scripts\hermes.py" --dry-run
+& $py "C:\Users\krypt\trading-ai\scripts\hermes.py" --dry-run
 
 # Lepszy model LLM dla syntezy
-& $py "C:\Users\markowyy\trading-ai\scripts\hermes.py" --model grok-4.3 --no-news
+& $py "C:\Users\krypt\trading-ai\scripts\hermes.py" --model grok-4.3 --no-news
 
 # Tylko COT + OI + pozycje (bez newsów, bez whales)
-& $py "C:\Users\markowyy\trading-ai\scripts\hermes.py" --no-news --no-whales
+& $py "C:\Users\krypt\trading-ai\scripts\hermes.py" --no-news --no-whales
 
 # Zapisz do konkretnego pliku
-& $py "C:\Users\markowyy\trading-ai\scripts\hermes.py" --output "briefs\brief_2026-05-24.md"
+& $py "C:\Users\krypt\trading-ai\scripts\hermes.py" --output "briefs\brief_2026-05-24.md"
 ```
 
 Moduły zbierane równolegle: fear_greed | econ_calendar | oi_tracker | cot_tracker | hl_whale_tracker
@@ -309,31 +326,31 @@ Context: `context/my_edge.md` — aktywne obserwacje z edge_journal (dołączane
 ### edge_journal.py — Personal Market Edge Journal
 
 ```powershell
-$py = "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe"
+$py = "C:\Users\krypt\trading-ai\.venv\Scripts\python.exe"
 
 # Dodaj nową obserwację (z AI weryfikacją Grok)
-& $py "C:\Users\markowyy\trading-ai\scripts\edge_journal.py" add "tekst obserwacji" --type weekend_arb --assets USOIL GOLD --timeframe weekend
+& $py "C:\Users\krypt\trading-ai\scripts\edge_journal.py" add "tekst obserwacji" --type weekend_arb --assets USOIL GOLD --timeframe weekend
 
 # Dodaj bez Grok (szybko, bez kredytów)
-& $py "C:\Users\markowyy\trading-ai\scripts\edge_journal.py" add "tekst" --no-x
+& $py "C:\Users\krypt\trading-ai\scripts\edge_journal.py" add "tekst" --no-x
 
 # Lista aktywnych
-& $py "C:\Users\markowyy\trading-ai\scripts\edge_journal.py" list
+& $py "C:\Users\krypt\trading-ai\scripts\edge_journal.py" list
 
 # Szczegóły
-& $py "C:\Users\markowyy\trading-ai\scripts\edge_journal.py" view 1
+& $py "C:\Users\krypt\trading-ai\scripts\edge_journal.py" view 1
 
 # Zamknij jako potwierdzoną (z wynikiem)
-& $py "C:\Users\markowyy\trading-ai\scripts\edge_journal.py" close 1 --result "zadziałało w pon" --pnl 250.0
+& $py "C:\Users\krypt\trading-ai\scripts\edge_journal.py" close 1 --result "zadziałało w pon" --pnl 250.0
 
 # Inwaliduj (okazało się błędne)
-& $py "C:\Users\markowyy\trading-ai\scripts\edge_journal.py" invalidate 1 --reason "fałszywa korelacja"
+& $py "C:\Users\krypt\trading-ai\scripts\edge_journal.py" invalidate 1 --reason "fałszywa korelacja"
 
 # Wygeneruj/podgląd context/my_edge.md
-& $py "C:\Users\markowyy\trading-ai\scripts\edge_journal.py" context
+& $py "C:\Users\krypt\trading-ai\scripts\edge_journal.py" context
 
 # Ponowna weryfikacja AI
-& $py "C:\Users\markowyy\trading-ai\scripts\edge_journal.py" recheck 1
+& $py "C:\Users\krypt\trading-ai\scripts\edge_journal.py" recheck 1
 ```
 
 Typy edge'a: `weekend_arb` | `divergence` | `funding` | `macro` | `pattern` | `other`
@@ -345,13 +362,13 @@ Context file: `context/my_edge.md` — auto-generowany, dołączany do Hermes da
 
 Activate venv first (in any new shell):
 ```powershell
-C:\Users\markowyy\trading-ai\.venv\Scripts\activate
+C:\Users\krypt\trading-ai\.venv\Scripts\activate
 ```
 
 Or call the venv python directly (no activation needed):
 ```powershell
-$py = "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe"
-$script = "C:\Users\markowyy\trading-ai\scripts\hl_whale_tracker.py"
+$py = "C:\Users\krypt\trading-ai\.venv\Scripts\python.exe"
+$script = "C:\Users\krypt\trading-ai\scripts\hl_whale_tracker.py"
 
 # Top 20 traders by daily PnL
 & $py $script leaderboard --top 20 --by pnl --window day
@@ -381,8 +398,8 @@ HIP-3 formula: asset_index = 100000 + perp_dex_index(1) * 10000 + index_in_meta
 xyz:SILVER = 110026, xyz:GOLD = 110003, xyz:BRENTOIL = 110049
 
 ```powershell
-$py = "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe"
-$hl = "C:\Users\markowyy\trading-ai\scripts\hl_executor.py"
+$py = "C:\Users\krypt\trading-ai\.venv\Scripts\python.exe"
+$hl = "C:\Users\krypt\trading-ai\scripts\hl_executor.py"
 
 # List all assets (77 xyz TradFi + 230 standard perps)
 & $py $hl tickers
@@ -412,8 +429,8 @@ Safety: TRADING_MODE=paper → dry-run only. Set TRADING_MODE=live in .env for r
 ### Firecrawl (macro & news)
 
 ```powershell
-$py = "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe"
-$script = "C:\Users\markowyy\trading-ai\scripts\macro_news.py"
+$py = "C:\Users\krypt\trading-ai\.venv\Scripts\python.exe"
+$script = "C:\Users\krypt\trading-ai\scripts\macro_news.py"
 
 # Daily brief default (3 credits): coindesk + reuters_world + kitco
 & $py $script
@@ -461,8 +478,8 @@ Budget guide:
 - "/daily-alpha with-sentiment" → hermes.py --with-sentiment
 
 ```powershell
-$py = "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe"
-$script = "C:\Users\markowyy\trading-ai\scripts\x_sentiment.py"
+$py = "C:\Users\krypt\trading-ai\.venv\Scripts\python.exe"
+$script = "C:\Users\krypt\trading-ai\scripts\x_sentiment.py"
 
 # Crypto: BTC ETH SOL HYPE LINK (default)
 & $py $script sentiment
@@ -480,7 +497,7 @@ $script = "C:\Users\markowyy\trading-ai\scripts\x_sentiment.py"
 & $py $script trending
 
 # Daily Alpha z sentymentem (droższy wariant)
-& $py "C:\Users\markowyy\trading-ai\scripts\hermes.py" --with-sentiment
+& $py "C:\Users\krypt\trading-ai\scripts\hermes.py" --with-sentiment
 ```
 
 Asset groups:
@@ -495,8 +512,8 @@ grpcio BoringSSL AIA-fetching issue on Windows. Live on VPS = real tweets.
 ### COT Report (CFTC — institutional positioning for TradFi)
 
 ```powershell
-$py = "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe"
-$cot = "C:\Users\markowyy\trading-ai\scripts\cot_tracker.py"
+$py = "C:\Users\krypt\trading-ai\.venv\Scripts\python.exe"
+$cot = "C:\Users\krypt\trading-ai\scripts\cot_tracker.py"
 
 # All 6 assets (Gold, Silver, Oil, SP500, Nasdaq, Euro)
 & $py $cot
@@ -860,7 +877,7 @@ Workflow notes — OBOWIĄZKOWE (each rule is MUST, not SHOULD):
 - Wszystkie komendy uruchamiaj przez PowerShell tool (jest na Windows)
 - **NIGDY nie używaj Bash tool do uruchamiania python.exe** — Git Bash + Windows python.exe = OPENSSL_Uplink crash przy każdym podpisywaniu kluczem (zlecenia HL, eth-account). To nie jest błąd kodu — to konflikt DLL systemowy. Dotyczy WSZYSTKICH live orderów.
 - Bash tool = tylko do komend linuxowych (git przez WSL, curl). Nie do python.exe na Windows.
-- Format komendy PowerShell: `& "C:\Users\markowyy\trading-ai\.venv\Scripts\python.exe" "C:\Users\markowyy\trading-ai\scripts\NAZWA.py" ARGS`
+- Format komendy PowerShell: `& "C:\Users\krypt\trading-ai\.venv\Scripts\python.exe" "C:\Users\krypt\trading-ai\scripts\NAZWA.py" ARGS`
 - Jeśli PowerShell zwraca pusty output — NIE przełączaj na Bash. Spróbuj ponownie przekierowując do pliku tymczasowego: `... > C:\Temp\out.txt 2>&1; Get-Content C:\Temp\out.txt`
 
 **2. WYŚWIETLENIE W CHACIE — pełny brief, ZAWSZE, BEZWYJĄTKOWO**
@@ -960,5 +977,5 @@ List up to 5 such coins. Skip if no clear disagreement.
 
 - Polish language for chat replies.
 - Krótko, konkretnie, bez korpo-mowy.
-- Przed dotknięciem czegokolwiek, co może wpłynąć na istniejące pliki w `C:\Users\markowyy\tradingview\` — pytaj.
+- Przed dotknięciem czegokolwiek, co może wpłynąć na istniejące pliki w `C:\Users\krypt\tradingview\` — pytaj.
 - Wszystkie destrukcyjne operacje (rm, drop, force push) — confirm first.

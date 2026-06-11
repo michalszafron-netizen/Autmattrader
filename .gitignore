@@ -52,6 +52,17 @@ context/
 # Temp scripts (debug/test)
 tmp_*.py
 tmp_*.txt
+tmp_*.ps1
+
+# Runtime junk / local-only artifacts (nie naleza do repo)
+.codegraph/
+dashboard/history.db
+dashboard/*.db
+out2.txt
+out3.txt
+positions.json
+scripts/btc_1h_data.json
+*.zip
 
 # OS / build
 dist/

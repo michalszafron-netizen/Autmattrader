@@ -1,0 +1,104 @@
+Mam to. Przeczytałem wszystkie kluczowe skille. Oto perełka która powinna dać Ci kopa:
+
+---
+
+## 🤯 THE PEREŁKA: Hermes + TradingView MCP = Autonomiczny skaner sygnałów 24/7
+
+To jest ukryte w skilli `native-mcp`. Hermes może podłączyć się do **naszego TradingView MCP** (78 narzędzi) i działać z nim autonomicznie, bez Ciebie.
+
+### Co to oznacza w praktyce:
+
+```
+TERAZ (setup który mamy):
+Ty → budzisz się → uruchamiasz tgtrade → prosisz o daily-alpha
+Bot czyta wykresy → mówi Ci co widzi
+
+↓
+
+Z HERMESEM + native-mcp:
+Hermes co 4 godziny (cron) → sam czyta wykresy przez TV MCP
+→ widzi breakout na BTC 4H + whale consensus bullish + funding niski
+→ WYSYŁA CI ALERT na Telegram o 3:47 w nocy
+→ Ty odpowiadasz "tak" z łóżka
+→ Hermes uruchamia hl_executor.py → zlecenie złożone
+```
+
+**Nigdy więcej nie prześpisz breakoutu.**
+
+---
+
+## Kompletny obraz — 4 skille które nas interesują
+
+### 1. `native-mcp` ⭐⭐⭐⭐⭐ — NAJWAŻNIEJSZY
+
+Hermes podłącza się do naszych MCP jako narzędzia pierwszej klasy:
+
+```yaml
+# ~\.hermes\config.yaml — wystarczy dodać:
+mcp_servers:
+  tradingview:
+    command: "node"
+    args: ["C:/path/to/tradingview-mcp"]
+```
+
+Efekt: Hermes ma dostęp do wszystkich 78 narzędzi TV MCP — `chart_set_symbol`, `data_get_ohlcv`, `data_get_study_values`, `draw_shape`, `alert_create`... Wszystko co Claude robi ręcznie podczas `/raport`, Hermes może robić automatycznie co 4h.
+
+---
+
+### 2. `blogwatcher` ⭐⭐⭐⭐ — News intelligence 24/7
+
+Monitoruje RSS feedy. Można ustawić cron:
+
+```
+Co 30 minut → skanuj: coindesk, theblock, reuters, cointelegraph, decrypt
+→ filtruj po: Silver, Gold, BTC, Fed, Iran, OPEC
+→ jeśli coś trafia w nasze otwarte pozycje → Telegram natychmiast
+```
+
+vs teraz: newsy czytamy raz dziennie podczas daily brief.
+
+---
+
+### 3. `polymarket` ⭐⭐⭐ — Głębsza analiza prediction markets
+
+Nasz obecny `polymarket.py` pobiera tylko podstawowe dane. Skill Hermesa daje:
+- Orderbook depth (gdzie są duże zakłady)
+- Price history (jak zmieniało się prawdopodobieństwo w czasie)
+- Live stream zmian (alert gdy prawdopodobieństwo skacze >10% w ciągu godziny)
+
+---
+
+### 4. `cronjob` ⭐⭐⭐⭐ — Serce automatyzacji
+
+Wbudowany w Hermesa. Piszesz na Telegramie:
+> *"Co 4 godziny sprawdzaj wykresy BTC ETH SOL na 4H i alertuj mnie jeśli widzisz setup"*
+
+Hermes sam tworzy cronjob, sam go uruchamia, sam Ci pisze.
+
+---
+
+## Jak to zaimplementować — plan
+
+**Krok 1 (15 min):** Podłącz TradingView MCP do Hermesa przez `native-mcp`
+
+**Krok 2 (10 min):** Napisz do Hermesa na Telegramie instrukcje co ma sprawdzać i kiedy
+
+**Krok 3 (5 min):** Zainstaluj `blogwatcher-cli` i dodaj feedy
+
+**Efekt końcowy:** Trading stack który śpi tyle co Ty, ale nie przesypia ruchów.
+
+---
+
+Chcesz żebym zaczął od podłączenia TradingView MCP do Hermesa? To jest ten jeden krok który zmienia wszystko.
+=== 2026-05-26 ===
+[JUTRO] Consensus Engine (Sophie v2):
+- Połączyć sygnały: Eddie + Maggie + Frank + volume_scanner + whale_tracker
+- Ważone głosowanie (nie prosty "3 z 5")
+- Wynik → propozycja na Telegram z uzasadnieniem → czeka na "tak" od usera
+- Po akceptacji → Alpaca PAPER order
+- Plik: scripts/consensus_engine.py
+
+[JUTRO] Streamlit Dashboard:
+- Widżety: Fear&Greed, fetch_positions, whale snapshot diff
+- Prompt library z click-to-execute
+- Checkbox Telegram

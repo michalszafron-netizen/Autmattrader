@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "tradingview": {
+      "command": "node",
+      "args": [
+        "C:\\Users\\krypt\\tradingview\\tradingview-mcp\\src\\server.js"
+      ],
+      "env": {
+        "CDP_PORT": "9223"
+      }
+    }
+  }
+}

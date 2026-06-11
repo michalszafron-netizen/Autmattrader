@@ -148,7 +148,7 @@ uruchamianie skryptów i Claude z przeglądarki, wysyłka na Telegram.
 | `hermes` | Otwórz Hermesa w terminalu (TUI) |
 | `hermes gateway start/stop` | Zarządzaj bramką Telegram Hermesa |
 
-Plik profilu: `C:\Users\markowyy\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1`
+Plik profilu: `C:\Users\krypt\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1`
 
 ---
 

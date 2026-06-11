@@ -1,6 +1,6 @@
 # BlogWatcher v2 — Słownik komend
 > Skopiuj komendę → wklej w terminal → gotowe.
-> Wszystkie komendy uruchamiaj z katalogu `C:\Users\markowyy\trading-ai\`
+> Wszystkie komendy uruchamiaj z katalogu `C:\Users\krypt\trading-ai\`
 
 ---
 

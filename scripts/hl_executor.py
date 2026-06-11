@@ -63,6 +63,10 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 _SSL_CTX = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 os.environ.setdefault("REQUESTS_CA_BUNDLE", str(Path.home() / ".claude" / "windows-ca-bundle.pem"))
 os.environ.setdefault("SSL_CERT_FILE", os.environ["REQUESTS_CA_BUNDLE"])
+# hyperliquid-python-sdk uses `requests`, which ignores the httpx truststore
+# context above. Patch ssl globally so requests/urllib3 also trust the
+# Windows cert store (needed when local AV does TLS interception).
+truststore.inject_into_ssl()
 
 # ── Config ────────────────────────────────────────────────────────────────────
 HL_API = "https://api.hyperliquid.xyz"
@@ -322,6 +326,19 @@ def _get_market_price(coin: str, is_buy: bool) -> float:
     return mid * 1.01 if is_buy else mid * 0.99
 
 
+def _round_price(coin: str, px: float) -> float:
+    """Round to HL tick rules: max 5 significant figures, max (6 - szDecimals) decimals."""
+    sz_decimals = int(REGISTRY.meta(coin).get("szDecimals", 0))
+    max_decimals = max(0, 6 - sz_decimals)
+    px = round(px, max_decimals)
+    if px == int(px):
+        return px
+    digits = f"{px:.{max_decimals}f}".replace(".", "").lstrip("0")
+    if len(digits) > 5:
+        px = round(px, max(0, max_decimals - (len(digits) - 5)))
+    return px
+
+
 def cmd_order(args: argparse.Namespace) -> None:
     coin = REGISTRY.resolve(args.coin)
     is_buy = args.side.lower() in ("long", "buy", "b")
@@ -332,8 +349,7 @@ def cmd_order(args: argparse.Namespace) -> None:
     is_market = getattr(args, "market", False) or args.price == 0
     if is_market:
         px = _get_market_price(coin, is_buy)
-        # Round to 3 decimal places (HL xyz tick size)
-        px = round(px, 3)
+        px = _round_price(coin, px)
         tif = "Gtc"
         order_type = "MARKET"
     else:

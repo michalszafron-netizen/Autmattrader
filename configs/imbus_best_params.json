@@ -1,0 +1,42 @@
+{
+  "strategy": "IMBUS STRATEGY v1",
+  "symbol": "BITSTAMP:BTCUSD",
+  "timeframe": "15min",
+  "date": "2026-06-02",
+  "rank": 1,
+  "params": {
+    "sensitivity": 25,
+    "fixed_sl": true,
+    "sl_percent": 1.8,
+    "be_target": "1",
+    "risk_percent": 1,
+    "tp1_percent": 0.75,
+    "tp1_fix": 40,
+    "tp2_percent": 1.5,
+    "tp2_fix": 30,
+    "tp3_percent": 2.25,
+    "tp3_fix": 20,
+    "tp4_percent": 3.0,
+    "tp4_fix": 10
+  },
+  "results": {
+    "pf": 1.83,
+    "winrate": 61.15,
+    "profit_pct": 16.13,
+    "trades": 175,
+    "wins": 107,
+    "losses": 68
+  },
+  "runner_ups": [
+    {
+      "rank": 2,
+      "params": { "sensitivity": 25, "fixed_sl": true, "sl_percent": 1.4 },
+      "results": { "pf": 1.75, "winrate": 60.0, "profit_pct": 15.03, "trades": 175 }
+    },
+    {
+      "rank": 3,
+      "params": { "sensitivity": 25, "fixed_sl": true, "sl_percent": 1.6 },
+      "results": { "pf": 1.78, "winrate": 58.2, "profit_pct": 15.01, "trades": 177 }
+    }
+  ]
+}

@@ -281,6 +281,37 @@ header{
 .history-item-preview{font-size:12px;color:var(--txt2);line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:pre-wrap;font-family:'Space Mono',monospace}
 .history-del{flex-shrink:0;background:none;border:none;color:var(--txt3);cursor:pointer;font-size:15px;padding:2px 5px;border-radius:4px;line-height:1;transition:color .1s}
 .history-del:hover{color:var(--red)}
+/* ── HISTORY TABS ── */
+.hist-tabs{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px}
+.hist-tab{background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:4px 11px;font-size:11px;color:var(--txt2);cursor:pointer;transition:all .15s;white-space:nowrap;font-family:'Space Mono',monospace}
+.hist-tab:hover{border-color:var(--border2);color:var(--txt)}
+.hist-tab.active{border-color:var(--cyan);color:var(--cyan);background:var(--cyan-dim);font-weight:700}
+/* ── ANALYSIS MARKDOWN RENDER ── */
+.analysis-body{font-size:13px;line-height:1.7;font-family:'Inter',sans-serif;color:var(--txt)}
+.analysis-body h1{color:var(--green);font-size:17px;font-weight:800;margin:0 0 14px;padding-bottom:8px;border-bottom:1px solid var(--green-dim)}
+.analysis-body h2{color:var(--green);font-size:15px;font-weight:700;margin:18px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--green-dim)}
+.analysis-body h3{color:var(--cyan);font-size:13px;font-weight:600;margin:12px 0 6px;letter-spacing:.3px}
+.analysis-body h4{color:var(--orange);font-size:12px;font-weight:600;margin:10px 0 4px;text-transform:uppercase;letter-spacing:.5px}
+.analysis-body table{width:100%;border-collapse:collapse;margin:8px 0 14px;font-size:12px}
+.analysis-body th{background:var(--bg2);color:var(--cyan);padding:5px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}
+.analysis-body td{padding:5px 10px;border-bottom:1px solid var(--border);color:var(--txt);vertical-align:top}
+.analysis-body tr:hover td{background:rgba(0,212,255,0.04)}
+.analysis-body code{background:var(--bg2);padding:1px 6px;border-radius:4px;font-family:'Space Mono',monospace;font-size:11px;color:var(--orange)}
+.analysis-body pre{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;overflow-x:auto;margin:8px 0}
+.analysis-body pre code{background:none;padding:0;font-size:12px;color:var(--txt)}
+.analysis-body hr{border:none;border-top:1px solid var(--border2);margin:14px 0}
+.analysis-body strong{color:var(--txt);font-weight:700}
+.analysis-body em{color:var(--txt2)}
+.analysis-body p{margin:0 0 8px;color:var(--txt)}
+.analysis-body ul,.analysis-body ol{padding-left:18px;margin:4px 0 10px}
+.analysis-body li{margin:3px 0;color:var(--txt)}
+.analysis-body blockquote{border-left:3px solid var(--green);padding:6px 12px;margin:8px 0;background:var(--green-dim);border-radius:0 6px 6px 0;color:var(--txt2);font-style:italic}
+/* colour-coded keywords in analysis */
+.analysis-body td:has(.tag-long){color:var(--green)}
+.tag-long{color:var(--green);font-weight:700}
+.tag-short{color:var(--red);font-weight:700}
+.tag-flip{color:var(--orange);font-weight:700}
+.tag-new{color:var(--cyan);font-weight:700}
 
 /* ── REPORTS LIST ── */
 .report-list{display:flex;flex-direction:column;gap:6px}
@@ -547,6 +578,8 @@ header{
         </div>
         <!-- Prompt Chips -->
         <div class="prompts-grid" id="promptsGrid"></div>
+        <!-- Active chip description -->
+        <div id="cmdChipDesc" style="min-height:16px;font-size:11px;color:var(--txt2);font-family:'Space Mono',monospace;padding:4px 2px 0;line-height:1.4;opacity:.85"></div>
         <div class="divider"></div>
         <!-- Controls -->
         <div class="cmd-controls" style="margin-bottom:8px">
@@ -886,12 +919,20 @@ header{
 <!-- ═══ PANEL: HISTORIA ANALIZ ═══ -->
 <div id="panel-history" class="panel">
   <div class="grid2" style="height:calc(100vh - 120px)">
-    <div class="card" style="overflow-y:auto">
+    <div class="card" style="overflow-y:auto;display:flex;flex-direction:column">
       <div class="card-hdr">
         <span class="card-title">Historia Analiz</span>
         <button class="btn btn-outline btn-sm" onclick="loadHistory()">↻</button>
       </div>
-      <div id="historyList" class="history-list" style="padding:4px 0">
+      <!-- Category tabs -->
+      <div class="hist-tabs" id="histTabs">
+        <button class="hist-tab active" data-cat="" onclick="switchHistTab(this,'')">📚 Wszystkie</button>
+        <button class="hist-tab" data-cat="whale"  onclick="switchHistTab(this,'whale')">🐋 Whale</button>
+        <button class="hist-tab" data-cat="daily"  onclick="switchHistTab(this,'daily')">🧠 Daily</button>
+        <button class="hist-tab" data-cat="data"   onclick="switchHistTab(this,'data')">📊 Dane</button>
+        <button class="hist-tab" data-cat="news"   onclick="switchHistTab(this,'news')">📰 Newsy</button>
+      </div>
+      <div id="historyList" class="history-list" style="padding:4px 0;flex:1;overflow-y:auto">
         <span style="color:var(--txt3);font-size:13px">Kliknij ↻ aby załadować</span>
       </div>
     </div>
@@ -903,7 +944,7 @@ header{
           <button class="btn btn-outline btn-sm" id="btnHistoryDelete" style="display:none;color:var(--red)" onclick="deleteCurrentHistory()">🗑️ Usuń</button>
         </div>
       </div>
-      <div id="historyDetail" class="output-box" style="max-height:calc(100vh - 200px);border:none;background:none;padding:0">
+      <div id="historyDetail" style="max-height:calc(100vh - 200px);overflow-y:auto;padding:4px 0">
         <span style="color:var(--txt3);font-family:Inter,sans-serif;font-size:12px">← Kliknij analizę żeby zobaczyć pełną treść</span>
       </div>
     </div>
@@ -2422,44 +2463,96 @@ function copyReportContent() {
 }
 
 // ── Historia Analiz ────────────────────────────────────────────────────────
-let _currentHistoryId = null;
+let _currentHistoryId  = null;
 let _currentHistoryOutput = '';
+let _histCurrentCat    = '';
 
 const _SCRIPT_LABELS = {
-  'x_sentiment':      '😊 X Sentiment',
-  'token_dashboard':  '📊 Token Dashboard',
-  'hl_whale_tracker': '🐋 Whale Tracker',
-  'smart_money_tracker': '💰 Smart Money',
-  'fear_greed':       '😱 Fear & Greed',
-  'oi_tracker':       '📈 OI Tracker',
-  'cot_tracker':      '📋 COT',
-  'blogwatcher':      '📰 Blog Watcher',
-  'polymarket':       '📦 Polymarket',
-  'macro_news':       '🌍 Macro News',
-  'econ_calendar':    '📅 Econ Calendar',
-  'daily_brief':      '🧠 Daily Brief',
-  'whale_analysis':   '🐋 Whale Analysis',
+  'x_sentiment':        '😊 X Sentiment',
+  'token_dashboard':    '📊 Token Dashboard',
+  'hl_whale_tracker':   '🐋 Whale Tracker',
+  'smart_money_tracker':'💰 Smart Money',
+  'fear_greed':         '😱 Fear & Greed',
+  'oi_tracker':         '📈 OI Tracker',
+  'cot_tracker':        '📋 COT',
+  'blogwatcher':        '📰 Blog Watcher',
+  'polymarket':         '📦 Polymarket',
+  'macro_news':         '🌍 Macro News',
+  'econ_calendar':      '📅 Econ Calendar',
+  'daily_brief':        '🧠 Daily Brief',
+  'whale_analysis':     '🐋 Whale Analysis',
+  'fetch_positions':    '📋 Pozycje',
+  'manual':             '🤖 Claude',
 };
 
-async function loadHistory() {
+// Auto-detect script key from prompt text (for manual save label)
+function _promptToScriptKey(prompt) {
+  const p = prompt.toLowerCase();
+  if (p.includes('whale snapshot') || p.includes('snapshot save') || p.includes('snapshot diff')) return 'whale_analysis';
+  if (p.includes('flip detector') || p.includes('flip signal'))  return 'whale_analysis';
+  if (p.includes('conviction add'))   return 'whale_analysis';
+  if (p.includes('liquidation hunt')) return 'whale_analysis';
+  if (p.includes('smart money'))      return 'whale_analysis';
+  if (p.includes('daily brief') || p.includes('porann') || p.includes('morning') || p.includes('fetch_positions')) return 'daily_brief';
+  if (p.includes('my book') || p.includes('pozycj'))    return 'daily_brief';
+  if (p.includes('blogwatcher'))   return 'blogwatcher';
+  if (p.includes('x_sentiment') || p.includes('x sentiment')) return 'x_sentiment';
+  return 'manual';
+}
+
+// Render markdown analysis text as formatted HTML
+function renderAnalysis(rawText) {
+  const text = stripAnsi(rawText || '(brak treści)');
+  if (typeof marked !== 'undefined') {
+    try {
+      const renderer = new marked.Renderer();
+      // Colour-tag LONG/SHORT in table cells
+      renderer.tablecell = (content, flags) => {
+        let c = content;
+        c = c.replace(/\bLONG\b/g,  '<span class="tag-long">LONG</span>');
+        c = c.replace(/\bSHORT\b/g, '<span class="tag-short">SHORT</span>');
+        c = c.replace(/\bFLIP\b/g,  '<span class="tag-flip">FLIP</span>');
+        c = c.replace(/\bNEW\b/g,   '<span class="tag-new">NEW</span>');
+        const tag = flags.header ? 'th' : 'td';
+        return `<${tag}>${c}</${tag}>`;
+      };
+      marked.use({ renderer, breaks: true, gfm: true });
+      return `<div class="analysis-body">${marked.parse(text)}</div>`;
+    } catch(e) { /* fallback */ }
+  }
+  // Fallback: styled pre block
+  return `<div class="analysis-body"><pre style="white-space:pre-wrap;font-family:'Space Mono',monospace;font-size:12px;line-height:1.6">${escHtml(text)}</pre></div>`;
+}
+
+function switchHistTab(el, cat) {
+  document.querySelectorAll('.hist-tab').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  _histCurrentCat = cat;
+  loadHistory(cat);
+}
+
+async function loadHistory(cat) {
+  cat = cat !== undefined ? cat : _histCurrentCat;
   const list = document.getElementById('historyList');
   if (!list) return;
   list.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-  const data = await api('/history');
+  const qs   = cat ? `?cat=${encodeURIComponent(cat)}` : '';
+  const data = await api(`/history${qs}`);
   if (!data.history || !data.history.length) {
-    list.innerHTML = '<span style="color:var(--txt3);font-size:13px;padding:4px">Brak zapisanych analiz. Uruchom x_sentiment, token_dashboard lub inny skrypt analizy.</span>';
+    list.innerHTML = '<span style="color:var(--txt3);font-size:13px;padding:4px">Brak zapisanych analiz w tej kategorii.</span>';
     return;
   }
   list.innerHTML = data.history.map(h => {
     const key   = (h.script || '').replace('.py', '');
-    const label = h.label ? h.label.replace(/\.py$/, '') : (_SCRIPT_LABELS[key] || key);
-    const icon  = _SCRIPT_LABELS[key] ? _SCRIPT_LABELS[key].split(' ')[0] : '📄';
+    const rawLabel = h.label ? h.label.replace(/\.py$/, '') : (_SCRIPT_LABELS[key] || key);
+    const icon  = (_SCRIPT_LABELS[key] || '📄 ').split(' ')[0];
     const ts    = fmtTs(h.ts, {full:true});
-    const prev  = escHtml((h.preview || '').trim().substring(0, 180));
+    // Strip markdown/ansi from preview — show clean 2 lines
+    const prev  = escHtml(stripAnsi((h.preview || '').replace(/[#*`_>|]/g,' ').trim().substring(0, 200)));
     return `<div class="history-item" id="hi-${h.id}" onclick="showHistoryItem(${h.id}, this)">
       <div class="history-item-body">
         <div class="history-item-meta">
-          <span class="history-item-label">${icon} ${escHtml(label)}</span>
+          <span class="history-item-label">${escHtml(icon)} ${escHtml(rawLabel)}</span>
           <span>${ts}</span>
         </div>
         <div class="history-item-preview">${prev}</div>
@@ -2475,14 +2568,24 @@ async function showHistoryItem(id, el) {
   _currentHistoryId = id;
   const detail = document.getElementById('historyDetail');
   const title  = document.getElementById('historyDetailTitle');
-  if (detail) detail.textContent = '⏳ Ładuję...';
+  if (detail) detail.innerHTML = '<div style="color:var(--txt3);padding:8px">⏳ Ładuję...</div>';
   const data = await api(`/history/${id}`);
   if (data.error) { if (detail) detail.textContent = data.error; return; }
   _currentHistoryOutput = data.output || '';
   const key   = (data.script || '').replace('.py', '');
   const label = data.label ? data.label.replace(/\.py$/, '') : (_SCRIPT_LABELS[key] || key);
   if (title) title.textContent = label;
-  if (detail) detail.textContent = stripAnsi(_currentHistoryOutput || '(brak treści)');
+  // Claude-generated scripts produce markdown → renderAnalysis()
+  // Raw data scripts produce ASCII/plain text → styled <pre>
+  const _CLAUDE_KEYS = new Set(['whale_analysis','daily_brief','blogwatcher','macro_news','manual']);
+  const scriptKey = (data.script || '').replace('.py','');
+  if (detail) {
+    if (_CLAUDE_KEYS.has(scriptKey)) {
+      detail.innerHTML = renderAnalysis(_currentHistoryOutput);
+    } else {
+      detail.innerHTML = `<pre style="white-space:pre-wrap;font-family:'Space Mono',monospace;font-size:11px;line-height:1.55;color:var(--txt);background:var(--bg2);padding:10px;border-radius:6px;overflow-x:auto">${escHtml(stripAnsi(_currentHistoryOutput))}</pre>`;
+    }
+  }
   document.getElementById('btnHistoryCopy').style.display   = 'inline-flex';
   document.getElementById('btnHistoryDelete').style.display = 'inline-flex';
 }
@@ -2515,6 +2618,126 @@ function copyHistoryContent() {
       if (btn) { btn.textContent = '✓ Skopiowano'; setTimeout(() => btn.textContent = '📋 Kopiuj', 2000); }
     });
   }
+}
+
+// ── Whale Snapshot — pre-execution flow ──────────────────────────────────────
+// Runs scripts via /api/run (fast, direct Python), then sends data to Claude
+// for analysis only — no tool calls, avoids 12-min timeout.
+async function runWhaleSnapshot() {
+  const spinner    = document.getElementById('cmdSpinner');
+  const status     = document.getElementById('cmdStatus');
+  const responseBox = document.getElementById('responseBox');
+
+  spinner.style.display = 'inline-flex';
+
+  // ── Step 1: snapshot save ──
+  status.textContent = '📸 1/3 snapshot...';
+  responseBox.innerHTML = '<pre style="white-space:pre-wrap;font-family:\'Space Mono\',monospace;font-size:12px;color:var(--txt)">⏳ Krok 1/3 — zapisuję snapshot pozycji whale\'ów (~60s)...</pre>';
+  startWaitCounter(responseBox);
+
+  const saveRes = await api('/run', {
+    method: 'POST',
+    body: JSON.stringify({script:'hl_whale_tracker.py', args:['snapshot','save','--top','20','--window','week']})
+  });
+  stopWaitCounter();
+
+  if (!saveRes.ok && !saveRes.output) {
+    spinner.style.display = 'none';
+    status.textContent = '✗';
+    status.style.color = 'var(--red)';
+    responseBox.innerHTML = `<pre style="color:var(--red)">❌ Błąd snapshot save:\n${escHtml(saveRes.error || 'unknown')}</pre>`;
+    return;
+  }
+
+  // ── Step 2: diff ──
+  status.textContent = '🔍 2/3 diff...';
+  responseBox.innerHTML = `<pre style="white-space:pre-wrap;font-family:'Space Mono',monospace;font-size:12px;color:var(--txt)">✅ Snapshot zapisany.\n⏳ Krok 2/3 — porównuję z poprzednim snapshotem...</pre>`;
+
+  const diffRes = await api('/run', {
+    method: 'POST',
+    body: JSON.stringify({script:'hl_whale_tracker.py', args:['snapshot','diff']})
+  });
+
+  const snapshotData = stripAnsi(saveRes.output || '(brak danych snapshotu)');
+  const diffData     = stripAnsi(diffRes.output  || '(brak diffu lub brak poprzedniego snapshotu)');
+
+  // ── Step 3: Claude analysis (data already loaded — just format & analyze) ──
+  status.textContent = '🧠 3/3 Claude...';
+  responseBox.innerHTML = `<pre style="white-space:pre-wrap;font-family:'Space Mono',monospace;font-size:12px;color:var(--txt)">✅ Dane zebrane.\n⏳ Krok 3/3 — Claude formatuje raport analityczny (~60-90s)...</pre>`;
+  startWaitCounter(responseBox);
+
+  const analysisPrompt =
+`Masz poniżej gotowe dane z Hyperliquid Whale Tracker. Napisz po POLSKU pełny raport analityczny. Użyj markdownu (## nagłówki, | tabele |, **bold**, listy -).
+
+=== DANE SNAPSHOTU ===
+${snapshotData}
+
+=== DIFF Z POPRZEDNIM SNAPSHOTEM ===
+${diffData}
+
+=== FORMAT RAPORTU (wypełnij danymi powyżej) ===
+
+## 🐋 WHALE SNAPSHOT — [data i godzina z danych powyżej]
+
+**Wallets aktywne:** X/20 | **Coins tracked:** N | **Poprzedni snapshot:** [czas temu z diffa, jeśli jest]
+
+---
+
+## 🔄 ZMIANY OD POPRZEDNIEGO SNAPSHOTU
+
+Tabela ze wszystkimi istotnymi zmianami z diffa (pomiń drobne <$10k):
+| Coin | Sygnał | Bias | Ekspozycja $ | Portfele L/S |
+
+Nowe portfele które otworzyły pozycje (jeśli są w danych):
+- \`0xADRES\` (nazwa, PnL) → otworzył: COIN1, COIN2
+
+Jeśli nie ma diffu — napisz "Brak poprzedniego snapshotu — pierwszy run" i przejdź do Top Pozycji.
+
+---
+
+## 💰 TOP 10 POZYCJI SMART MONEY (wg wartości $)
+
+| Wallet | Coin | Side | Wartość $ | uPnL $ |
+|--------|------|------|-----------|--------|
+
+---
+
+## 🧠 EXPERT VIEW
+
+[3-5 zdań: konsensus smart money (co kupują / shortują), najważniejszy sygnał ze zmiany lub bieżących pozycji, 1 moneta do obserwacji z uzasadnieniem]`;
+
+  const analyzeRes = await api('/claude_run', {
+    method: 'POST',
+    body: JSON.stringify({prompt: analysisPrompt})
+  });
+  stopWaitCounter();
+
+  spinner.style.display = 'none';
+  status.textContent = analyzeRes.ok ? '✓' : '✗';
+  status.style.color = analyzeRes.ok ? 'var(--green)' : 'var(--red)';
+
+  const rawOut = analyzeRes.output || analyzeRes.error || 'Brak wyjścia';
+  responseBox.innerHTML = renderAnalysis(rawOut);
+
+  // Save to history
+  if (rawOut && rawOut.length > 80) {
+    saveResultToHistory(
+      '🐋 Whale Snapshot ' + new Date().toISOString().substring(0,16).replace('T',' '),
+      'whale_analysis',
+      rawOut
+    );
+  }
+}
+
+// Save any Command Center result to history (explicit, client-side trigger)
+async function saveResultToHistory(label, script, output) {
+  if (!output || output.length < 50) return;
+  try {
+    await api('/history/save', {
+      method: 'POST',
+      body: JSON.stringify({ label, script, output })
+    });
+  } catch(e) { /* silent — history save is best-effort */ }
 }
 
 // ── User Watchlist ─────────────────────────────────────────────────────────
@@ -3581,46 +3804,46 @@ async function loadStrategies() {
 // ── Command Center ─────────────────────────────────────────────────────────
 const PROMPTS = {
   daily: [
-    {label:'📅 Daily Alpha', text:'/daily-alpha'},
-    {label:'📊 Daily Brief', text:'Uruchom moją poranną zmianę: fetch_positions (wszystkie giełdy) + whale snapshot (hl_whale_tracker --top 20 --window week) + blogwatcher digest + OI i funding dla BTC/ETH/SOL/HYPE/LINK. Dla każdego aktywa wyjaśnij PO POLSKU: kto płaci funding (longi czy shorty) i co to oznacza dla kierunku ceny. Na końcu: TOP 1 LONG setup, TOP 1 SHORT setup, 1 watchlist, portfolio ranking.'},
-    {label:'💰 My Book', text:'Pokaż moje aktualne pozycje na wszystkich giełdach i oceń każdą: in confluence / neutral / fighting tape'},
-    {label:'📰 News Digest', text:'python scripts/blogwatcher.py --refresh'},
+    {label:'📅 Daily Alpha',  desc:'Skrócony sygnał dnia przez TG Trade (/daily-alpha)', text:'/daily-alpha'},
+    {label:'📊 Daily Brief',  desc:'fetch_positions + whale snapshot + blogwatcher + OI/funding → TOP LONG/SHORT setup dnia', text:'Uruchom moją poranną zmianę: fetch_positions (wszystkie giełdy) + whale snapshot (hl_whale_tracker --top 20 --window week) + blogwatcher digest + OI i funding dla BTC/ETH/SOL/HYPE/LINK. Dla każdego aktywa wyjaśnij PO POLSKU: kto płaci funding (longi czy shorty) i co to oznacza dla kierunku ceny. Na końcu: TOP 1 LONG setup, TOP 1 SHORT setup, 1 watchlist, portfolio ranking.'},
+    {label:'💰 My Book',      desc:'Aktualne pozycje na wszystkich giełdach z oceną: in confluence / neutral / fighting tape', text:'Pokaż moje aktualne pozycje na wszystkich giełdach i oceń każdą: in confluence / neutral / fighting tape'},
+    {label:'📰 News Digest',  desc:'Blogwatcher: świeże nagłówki z crypto blogów i mediów (--refresh)', text:'python scripts/blogwatcher.py --refresh'},
   ],
   whale: [
-    {label:'🐋 Whale Snapshot', text:'1) Zapisz aktualny snapshot: python scripts/hl_whale_tracker.py snapshot save --top 20 --window week\n2) Zrób diff z poprzednim: python scripts/hl_whale_tracker.py snapshot diff\nJeśli brak poprzedniego snapshotu (pierwszy run), pokaż obecny stan pozycji top 20 smart money. Tabela: Wallet, Coin, Side, Wartość $, uPnL. Zaznacz pozycje >$100k. Expert View: co nowe, co zamknięte, co się powiększyło.'},
-    {label:'🔄 Flip Detector', text:'Uruchom dwa razy: python scripts/hl_whale_tracker.py whales --top 20 --window day ORAZ --window week. Porównaj biasy. Znajdź każdą monetę gdzie window=day i window=week mają PRZECIWNE biasy (np. week=LONG ale day=SHORT). To jest flip signal — klasyczny setup odwrócenia. Tabela: Coin | Week Bias | Day Bias | Ocena.'},
-    {label:'💎 Conviction Add', text:'Uruchom: python scripts/hl_whale_tracker.py snapshot diff\nZ wyniku diff znajdź wallet który ZWIĘKSZYŁ pozycję (powiększył size lub otworzył nową) mimo że uPnL jest UJEMNE (pozycja na stracie). To conviction add — whale dokłada do przegranej pozycji. Sygnał silnej wiary w odwrócenie. Tabela: Wallet, Coin, Nowy Size, uPnL, % zmiana.'},
-    {label:'🎯 Liquidation Hunt', text:'Uruchom: python scripts/hl_whale_tracker.py whales --top 20 --window day\nZidentyfikuj: (1) gdzie jest największa koncentracja longów które mogą być zlikwidowane (entry vs mark, lewar), (2) monety gdzie smart money jest SHORT — to jest potencjalny likwidator longów retail. Tabela: Coin | Smart Money Bias | Szacowana strefa likwidacji retail | Ryzyko.'},
+    {label:'🐋 Whale Snapshot', desc:'KROK 1: pobiera snapshot top 20 portfeli HL (~60s) → KROK 2: diff zmian → KROK 3: raport Claude z tabelą, flipami i Expert View (~2-3 min łącznie)', action:'whale_snapshot'},
+    {label:'🔄 Flip Detector',  desc:'whales --window day vs --window week: szuka coinów z PRZECIWNYM biasem między oknami — klasyczny signal odwrócenia trendu', text:'Uruchom dwa razy: python scripts/hl_whale_tracker.py whales --top 20 --window day ORAZ --window week. Porównaj biasy. Znajdź każdą monetę gdzie window=day i window=week mają PRZECIWNE biasy (np. week=LONG ale day=SHORT). To jest flip signal — klasyczny setup odwrócenia. Tabela: Coin | Week Bias | Day Bias | Ocena.'},
+    {label:'💎 Conviction Add', desc:'snapshot diff: szuka walletów które DOKŁADAJĄ do stratnej pozycji (ujemne uPnL) — conviction add = whale z silną wiarą w odwrócenie', text:'Uruchom: python scripts/hl_whale_tracker.py snapshot diff\nZ wyniku diff znajdź wallet który ZWIĘKSZYŁ pozycję (powiększył size lub otworzył nową) mimo że uPnL jest UJEMNE (pozycja na stracie). To conviction add — whale dokłada do przegranej pozycji. Sygnał silnej wiary w odwrócenie. Tabela: Wallet, Coin, Nowy Size, uPnL, % zmiana.'},
+    {label:'🎯 Liquidation Hunt', desc:'whales --window day: identyfikuje strefy likwidacji retail longów na podstawie koncentracji smart money po stronie SHORT', text:'Uruchom: python scripts/hl_whale_tracker.py whales --top 20 --window day\nZidentyfikuj: (1) gdzie jest największa koncentracja longów które mogą być zlikwidowane (entry vs mark, lewar), (2) monety gdzie smart money jest SHORT — to jest potencjalny likwidator longów retail. Tabela: Coin | Smart Money Bias | Szacowana strefa likwidacji retail | Ryzyko.'},
   ],
   positions: [
-    {label:'📋 Position Check', text:'python scripts/fetch_positions.py'},
-    {label:'⚠️ Risk Audit', text:'Przed wejściem w nową pozycję: sprawdź moją obecną ekspozycję (fetch_positions). Ile mogę jeszcze otworzyć nie łamiąc reguły 2%/6%?'},
-    {label:'🧟 Zombie Killer', text:'Pozycje otwarte >7 dni z |uPnL| <0.5R. To zombie trades. Dla każdej: close / set tight SL / exit at scratch.'},
-    {label:'📊 Cross-venue', text:'Czy mam tę samą pozycję na różnych venue? Porównaj funding rates — gdzie trzymać taniej?'},
+    {label:'📋 Position Check', desc:'fetch_positions.py: pobiera live pozycje z HL, Extended, Alpaca i Solana', text:'python scripts/fetch_positions.py'},
+    {label:'⚠️ Risk Audit',     desc:'Sprawdza ekspozycję vs reguła 2%/6% — ile jeszcze możesz otworzyć bezpiecznie', text:'Przed wejściem w nową pozycję: sprawdź moją obecną ekspozycję (fetch_positions). Ile mogę jeszcze otworzyć nie łamiąc reguły 2%/6%?'},
+    {label:'🧟 Zombie Killer',  desc:'Pozycje otwarte >7 dni z |uPnL| <0.5R: martwe trade\'y bez impulsu — close/scratch/tight SL', text:'Pozycje otwarte >7 dni z |uPnL| <0.5R. To zombie trades. Dla każdej: close / set tight SL / exit at scratch.'},
+    {label:'📊 Cross-venue',    desc:'Porównuje te same pozycje na różnych giełdach i sprawdza funding rates — gdzie trzymać taniej', text:'Czy mam tę samą pozycję na różnych venue? Porównaj funding rates — gdzie trzymać taniej?'},
   ],
   setup: [
-    {label:'⚡ Full Stack BTC', text:'Pełna synteza dla BTC: TradingView state (S/R, EMAs, ADX) + whales + Senpi top traders + blogwatcher 14d sentiment. Jedna decyzja: LONG/SHORT/NO TRADE z confidence 1-10.'},
-    {label:'🎯 Pre-trade Audit', text:'Przed zleceniem [coin] [direction]: (1) liq cluster wielorybów (2) ATR vs mój SL (3) R:R do nearest level — jeśli <1.8 powiedz SKIP.'},
-    {label:'📏 Ladder Builder', text:'Zbuduj ladder entry na [coin]: 30% market, 30% przy -0.5ATR, 40% przy -1ATR. SL pod całą strukturą, TP1=1R (50%), TP2=2R (30%), runner 20%.'},
-    {label:'🏆 C5 Full Stack', text:'Dla [coin]: TV state + whales --coin + Senpi top traders + blogwatcher 14d. Jedna decyzja z poziomami i confidence 1-10.'},
+    {label:'⚡ Full Stack BTC', desc:'TV state + whales + Senpi + blogwatcher 14d → jedna decyzja LONG/SHORT/NO TRADE z confidence 1-10', text:'Pełna synteza dla BTC: TradingView state (S/R, EMAs, ADX) + whales + Senpi top traders + blogwatcher 14d sentiment. Jedna decyzja: LONG/SHORT/NO TRADE z confidence 1-10.'},
+    {label:'🎯 Pre-trade Audit', desc:'Przed zleceniem: liq cluster + ATR vs SL + R:R — jeśli R:R < 1.8 → SKIP', text:'Przed zleceniem [coin] [direction]: (1) liq cluster wielorybów (2) ATR vs mój SL (3) R:R do nearest level — jeśli <1.8 powiedz SKIP.'},
+    {label:'📏 Ladder Builder',  desc:'Buduje ladder entry: 30%/30%/40% z TP1=1R, TP2=2R, runner 20%', text:'Zbuduj ladder entry na [coin]: 30% market, 30% przy -0.5ATR, 40% przy -1ATR. SL pod całą strukturą, TP1=1R (50%), TP2=2R (30%), runner 20%.'},
+    {label:'🏆 C5 Full Stack',   desc:'TV + whales --coin + Senpi + blogwatcher 14d → pełna synteza z poziomami dla dowolnego coina', text:'Dla [coin]: TV state + whales --coin + Senpi top traders + blogwatcher 14d. Jedna decyzja z poziomami i confidence 1-10.'},
   ],
   compound: [
-    {label:'🔺 Silent Accumulation', text:'C1: Znajdź monetę gdzie HL whales +>$3M long 48h + blogwatcher ≤2 wzmianki + token_research bez insider distribution. Pre-narrative accumulation.'},
-    {label:'🎰 Regime Change', text:'C3: Flag monetę z (a) whale bias FLIP 24h (b) funding zmienił znak (c) smart_money świeże entry. Tripla = regime change.'},
-    {label:'🔴 C8 Counter-Crowd', text:'C8: Max kontrariański scan: rekt heavy LONG + HL smart SHORT + funding dodatni + Senpi >70% SHORT. Perfekcyjny contrarian short.'},
-    {label:'💀 C4 Honest Broker', text:'C4: Brutalna ocena 30 ostatnich tradów vs whale alignment. Czy mój edge jest faktyczny czy losowy? Każda otwarta pozycja: in edge / outside / fighting.'},
+    {label:'🔺 Silent Accumulation', desc:'C1: whales +$3M long 48h + ≤2 wzmianki w mediach + brak insider distribution → pre-narrative accumulation', text:'C1: Znajdź monetę gdzie HL whales +>$3M long 48h + blogwatcher ≤2 wzmianki + token_research bez insider distribution. Pre-narrative accumulation.'},
+    {label:'🎰 Regime Change',       desc:'C3: whale bias FLIP + funding zmienił znak + smart_money świeże entry → triple confirmation regime change', text:'C3: Flag monetę z (a) whale bias FLIP 24h (b) funding zmienił znak (c) smart_money świeże entry. Tripla = regime change.'},
+    {label:'🔴 C8 Counter-Crowd',    desc:'C8: rekt heavy LONG + HL smart SHORT + funding+ + Senpi >70% SHORT → perfekcyjny contrarian short', text:'C8: Max kontrariański scan: rekt heavy LONG + HL smart SHORT + funding dodatni + Senpi >70% SHORT. Perfekcyjny contrarian short.'},
+    {label:'💀 C4 Honest Broker',    desc:'C4: ocena 30 ostatnich tradów vs whale alignment — czy Twój edge jest realny czy losowy?', text:'C4: Brutalna ocena 30 ostatnich tradów vs whale alignment. Czy mój edge jest faktyczny czy losowy? Każda otwarta pozycja: in edge / outside / fighting.'},
   ],
   scripts: [
-    {label:'💱 ccxt prices', text:'python scripts/ccxt_prices.py --brief'},
-    {label:'📊 quotes', text:'python scripts/quotes.py --brief'},
-    {label:'😱 fear_greed', text:'python scripts/fear_greed.py --days 7'},
-    {label:'📈 oi_tracker', text:'python scripts/oi_tracker.py --brief'},
-    {label:'📅 econ_calendar', text:'python scripts/econ_calendar.py --upcoming'},
-    {label:'😊 x_sentiment', text:'python scripts/x_sentiment.py sentiment --coins BTC ETH HYPE'},
-    {label:'😊 x_sent ALL', text:'python scripts/x_sentiment.py sentiment --group all'},
-    {label:'📦 polymarket', text:'python scripts/polymarket.py --brief'},
-    {label:'📊 token_dashboard', text:'python scripts/token_dashboard.py'},
-    {label:'🔍 cot_tracker', text:'python scripts/cot_tracker.py --brief'},
+    {label:'💱 ccxt prices',    desc:'Aktualne ceny z CCXT (brief)', text:'python scripts/ccxt_prices.py --brief'},
+    {label:'📊 quotes',         desc:'Quotes brief — szybki przegląd kursów', text:'python scripts/quotes.py --brief'},
+    {label:'😱 fear_greed',     desc:'Fear & Greed Index z ostatnich 7 dni', text:'python scripts/fear_greed.py --days 7'},
+    {label:'📈 oi_tracker',     desc:'Open Interest tracker — brief', text:'python scripts/oi_tracker.py --brief'},
+    {label:'📅 econ_calendar',  desc:'Najbliższe wydarzenia makro z kalendarza ekonomicznego', text:'python scripts/econ_calendar.py --upcoming'},
+    {label:'😊 x_sentiment',    desc:'Sentyment X dla BTC, ETH, HYPE (ostatnie 24h)', text:'python scripts/x_sentiment.py sentiment --coins BTC ETH HYPE'},
+    {label:'😊 x_sent ALL',     desc:'Sentyment X dla wszystkich obserwowanych coinów', text:'python scripts/x_sentiment.py sentiment --group all'},
+    {label:'📦 polymarket',     desc:'Polymarket: aktualne rynki predykcji brief', text:'python scripts/polymarket.py --brief'},
+    {label:'📊 token_dashboard', desc:'Token dashboard: przegląd wszystkich monitorowanych tokenów', text:'python scripts/token_dashboard.py'},
+    {label:'🔍 cot_tracker',    desc:'COT (Commitment of Traders) brief — pozycje instytucjonalne', text:'python scripts/cot_tracker.py --brief'},
   ],
 };
 
@@ -3638,8 +3861,11 @@ function renderPrompts() {
   const prompts = PROMPTS[currentCategory] || [];
   // Store texts in data-idx to avoid broken inline onclick with JSON strings
   grid.innerHTML = prompts.map((p, i) =>
-    `<div class="prompt-chip" data-cat="${escHtml(currentCategory)}" data-idx="${i}">${escHtml(p.label)}</div>`
+    `<div class="prompt-chip" data-cat="${escHtml(currentCategory)}" data-idx="${i}" title="${escHtml(p.desc||p.label)}">${escHtml(p.label)}</div>`
   ).join('');
+  // Clear desc when category changes
+  const descEl = document.getElementById('cmdChipDesc');
+  if (descEl) descEl.textContent = '';
   grid.querySelectorAll('.prompt-chip').forEach(el => {
     el.addEventListener('click', () => {
       // Keep active highlight on selected chip
@@ -3648,13 +3874,25 @@ function renderPrompts() {
       const cat = el.dataset.cat;
       const idx = parseInt(el.dataset.idx, 10);
       const p = PROMPTS[cat] && PROMPTS[cat][idx];
-      if (p) usePrompt(p.text);
+      if (p) {
+        // Show description below textarea
+        if (descEl) descEl.textContent = p.desc ? '▸ ' + p.desc : '';
+        if (p.action) {
+          // Special action — show label in input, action handled on Uruchom
+          document.getElementById('cmdInput').value = `[${p.label}]`;
+          document.getElementById('cmdInput').dataset.action = p.action;
+        } else {
+          usePrompt(p.text);
+          document.getElementById('cmdInput').dataset.action = '';
+        }
+      }
     });
   });
 }
 
 function usePrompt(text) {
   document.getElementById('cmdInput').value = text;
+  document.getElementById('cmdInput').dataset.action = '';
   document.getElementById('cmdInput').focus();
 }
 
@@ -3668,8 +3906,17 @@ async function sendToTelegram(text) {
 }
 
 async function runCommand() {
-  const input = document.getElementById('cmdInput').value.trim();
+  const inputEl = document.getElementById('cmdInput');
+  const input   = inputEl.value.trim();
   if (!input) return;
+
+  // ── Special actions (pre-execution pipelines, not plain claude --print) ──
+  const pendingAction = inputEl.dataset.action || '';
+  if (pendingAction === 'whale_snapshot') {
+    document.getElementById('lastRunTime').textContent = new Date().toLocaleTimeString('pl-PL');
+    return await runWhaleSnapshot();
+  }
+
   const bot = document.getElementById('botSelect').value;
   const outputMode = document.getElementById('outputSelect').value;
   const spinner    = document.getElementById('cmdSpinner');
@@ -3780,7 +4027,34 @@ async function runCommand() {
 
   status.textContent = result.ok ? '✓' : '✗';
   status.style.color = result.ok ? 'var(--green)' : 'var(--red)';
-  responseBox.textContent = stripAnsi(result.output || result.error || 'Brak wyjścia');
+
+  const rawOut = result.output || result.error || 'Brak wyjścia';
+
+  // ── Render: use markdown for claude_run results, plain text for scripts ──
+  const isClaude = bot === 'tgtrade' && !input.startsWith('python') && !/^[\w_]+\.py(\s|$)/.test(input.trim());
+  if (isClaude && result.ok) {
+    responseBox.innerHTML = renderAnalysis(rawOut);
+  } else {
+    responseBox.innerHTML = `<pre style="white-space:pre-wrap;font-family:'Space Mono',monospace;font-size:12px;line-height:1.6;color:var(--txt)">${escHtml(stripAnsi(rawOut))}</pre>`;
+  }
+
+  // ── Auto-save ALL substantial results to Historia Analiz ──
+  if (result.output && result.output.length > 80) {
+    // Determine label from active prompt chip or input
+    let saveLabel = '';
+    const activeChip = document.querySelector('.prompt-chip.active');
+    if (activeChip) {
+      saveLabel = activeChip.textContent.trim();
+    } else {
+      saveLabel = input.trim().substring(0, 60) + (input.length > 60 ? '…' : '');
+    }
+    const saveScript = isClaude ? _promptToScriptKey(input) : (input.split(/\s/)[0].replace(/^python scripts\//,'').replace('python ','') || 'manual');
+    saveResultToHistory(
+      saveLabel + ' ' + new Date().toISOString().substring(0,16).replace('T',' '),
+      saveScript,
+      result.output
+    );
+  }
 }
 
 function clearResponse() {

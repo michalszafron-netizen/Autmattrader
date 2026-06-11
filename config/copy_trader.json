@@ -1,0 +1,26 @@
+{
+  "_comment": "Multi-trader shadow/paper copy. Bot sledzi kazdego osobno, wlasny wirtualny portfel per trader. Po paru dniach porownujemy i wybieramy. ZERO realnych pieniedzy (paper).",
+  "my_capital_usd": 200.0,
+  "multiplier": 1.0,
+  "hl_min_notional_usd": 10.0,
+  "traders": [
+    {
+      "address": "0xe21be5bb37a3af716174cdc5d095ab224b3ef9de",
+      "label": "0xe21b — Snajper HYPE (ELITE, +$408k, ale ZNIKA na dni)",
+      "active": true
+    },
+    {
+      "address": "0xba939edf38c0ae0cc689c98b492e0535f43e4550",
+      "label": "0xba93 — Konserwatywny (2.5 roku, DD-10%, WR93%, 5/dzien)",
+      "active": true
+    },
+    {
+      "address": "0x4b1c09fa8322548360a76a3747e32a60a864bc38",
+      "label": "0x4b1c — Maszyna HFT ($2M, DD-4.5%, 26 pozycji, zawsze aktywny)",
+      "active": true
+    }
+  ],
+  "_legacy_single": "trader_address/trader_label ponizej zostawione dla kompatybilnosci ze starym kodem — bot multi czyta 'traders'",
+  "trader_address": "0xe21be5bb37a3af716174cdc5d095ab224b3ef9de",
+  "trader_label": "0xe21b — Snajper HYPE"
+}

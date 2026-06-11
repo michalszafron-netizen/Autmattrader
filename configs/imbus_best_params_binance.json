@@ -1,0 +1,30 @@
+{
+  "exchange": "BINANCE",
+  "symbol": "BTCUSDT",
+  "timeframe": "15min",
+  "date": "2026-06-02",
+  "params": {
+    "preset": "MANUAL",
+    "sensitivity": 28,
+    "risk_percent": 1,
+    "be_target": "1",
+    "fixed_sl": true,
+    "sl_percent": 2.0,
+    "tp1_percent": 1.0,
+    "tp1_split": 40,
+    "tp2_percent": 2.0,
+    "tp2_split": 30,
+    "tp3_percent": 3.0,
+    "tp3_split": 20,
+    "tp4_percent": 4.0,
+    "tp4_split": 10
+  },
+  "results": {
+    "total_trades": 118,
+    "wins": 74,
+    "losses": 44,
+    "win_rate": 62.72,
+    "profit_percent": 14.09,
+    "profit_factor": 1.70
+  }
+}
