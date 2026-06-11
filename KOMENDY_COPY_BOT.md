@@ -3,9 +3,50 @@
 Własny copy-trading na Hyperliquid, **bez Senpi** (zero opłat za pośrednika).
 Tryb **PAPER** = symulacja, ZERO realnych pieniędzy. Egzekucja live = dopiero Sesja 2.
 
+> **Bot działa teraz 24/7 na VPS** (usługa `trading-copybot`). Sekcja A poniżej = serwer
+> (główny tryb). Sekcja B = lokalnie na laptopie (tylko do testów/debugowania).
+
 ---
 
-## ⚡ NAJWAŻNIEJSZE — uruchomienie (kopiuj-wklej)
+# 🖥️ SEKCJA A — SERWER VPS (główny, 24/7)
+
+Bot chodzi jako usługa systemd `trading-copybot`, wstaje sam po restarcie serwera.
+Komendy przez SSH na Hostinger. Pełny opis: `SERWER.md` → sekcja "Copy Bot".
+
+```bash
+# Status usługi
+systemctl status trading-copybot --no-pager
+
+# Log na żywo (Ctrl+C = wyjście z podglądu, NIE zatrzymuje bota)
+tail -f /trading-ai/logs/copybot.log
+
+# Restart (po git pull z nowym kodem)
+systemctl restart trading-copybot
+
+# Stop / Start
+systemctl stop trading-copybot
+systemctl start trading-copybot
+
+# Podgląd portfeli 3 traderów (jednorazowo)
+cd /trading-ai && HL_TRADING_MODE=paper TRADING_MODE=paper .venv/bin/python scripts/copy_bot.py --status
+
+# Reset portfeli (start od zera, np. po zmianie traderów) + restart
+cd /trading-ai && HL_TRADING_MODE=paper TRADING_MODE=paper .venv/bin/python scripts/copy_bot.py --reset && systemctl restart trading-copybot
+```
+
+**Aktualizacja kodu serwera (po zmianach z laptopa):**
+```bash
+cd /trading-ai && git pull && systemctl restart trading-copybot
+```
+
+---
+
+# 💻 SEKCJA B — LOKALNIE na laptopie (tylko testy)
+
+> Normalnie NIEpotrzebne — bot żyje na serwerze. Używaj lokalnie tylko do debugowania
+> zmian w kodzie zanim wrzucisz na VPS. Ścieżka: `C:\Users\krypt\trading-ai`.
+
+## ⚡ Uruchomienie (kopiuj-wklej)
 
 ### KROK 1 — ustaw tryb paper (ZAWSZE najpierw, w każdym nowym oknie!)
 

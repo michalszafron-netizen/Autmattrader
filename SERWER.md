@@ -13,6 +13,7 @@
 | `trading-volume` | `volume_scanner.py` | Anomalie wolumenowe Binance Futures+Spot (próg 3x). Alert na Telegram | co ~1 min |
 | `trading-webhook` | `tv_webhook.py` | TradingView alerty → Alpaca/HL executor. POST /tv na porcie 5005 | zawsze online |
 | `trading-ngrok` | ngrok (snap) | Tunel HTTPS → port 5005. Publiczny URL dla TradingView webhooków | zawsze online |
+| `trading-copybot` | `copy_bot.py --daemon` | **Copy trading (PAPER)** — śledzi kilku traderów HL naraz, symuluje mirror (target-position reconciliation), alert na Telegram przy OPEN/CLOSE/ADD/REDUCE. Bez Senpi. Traderzy w `config/copy_trader.json` | co 60s |
 
 ### Cron (Eddie / Maggie / Frank — Insider Intelligence)
 
@@ -46,6 +47,7 @@ systemctl restart trading-listings
 systemctl restart trading-volume
 systemctl restart trading-webhook
 systemctl restart trading-ngrok
+systemctl restart trading-copybot
 ```
 
 ### Stop / Start
@@ -67,6 +69,74 @@ git pull
 systemctl restart trading-smart-money trading-listings trading-volume trading-webhook
 systemctl status trading-smart-money trading-listings trading-volume trading-webhook trading-ngrok --no-pager
 ```
+
+> ⚠️ Gdy `git pull` narzeka *"local changes would be overwritten"* na pliku który serwer sam zapisuje (np. `alerts.jsonl`, `annual.txt`) — porzuć lokalną wersję i ponów: `git checkout -- alerts.jsonl && git pull`. To tylko logi, odtworzą się.
+
+---
+
+## 🤖 Copy Bot (trading-copybot) — copy trading PAPER
+
+Śledzi kilku traderów HL naraz i symuluje mirror (bez Senpi, bez realnych pieniędzy).
+Traderzy + kapitał + mnożnik: `config/copy_trader.json`. Tryb paper wymuszony w pliku
+`.service` (`Environment=HL_TRADING_MODE=paper`). Dane: SQLite `data/trading.db`
+(tabele `copybot_positions`, `copybot_actions`). Log: `/trading-ai/logs/copybot.log`.
+
+### Komendy zarządzania
+```bash
+# Status usługi
+systemctl status trading-copybot --no-pager
+
+# Log na żywo (Ctrl+C wychodzi z podglądu, NIE zatrzymuje bota)
+tail -f /trading-ai/logs/copybot.log
+
+# Restart (po git pull z nowym kodem copy bota)
+systemctl restart trading-copybot
+
+# Stop / Start
+systemctl stop trading-copybot
+systemctl start trading-copybot
+
+# Podgląd portfeli (status traderów, jednorazowo)
+cd /trading-ai && HL_TRADING_MODE=paper TRADING_MODE=paper .venv/bin/python scripts/copy_bot.py --status
+
+# Reset wirtualnych portfeli (start od zera — np. po zmianie traderów w configu)
+cd /trading-ai && HL_TRADING_MODE=paper TRADING_MODE=paper .venv/bin/python scripts/copy_bot.py --reset && systemctl restart trading-copybot
+```
+
+### Śledzeni traderzy (stan: 2026-06-11)
+| Adres | Profil |
+|-------|--------|
+| `0xe21b` | Snajper HYPE (ELITE, all-time +$408k, ale ZNIKA na całe dni) |
+| `0xba93` | Konserwatywny (konto 2.5 roku, DD-10%, WR93%, ~5 tradów/dzień) |
+| `0x4b1c` | Maszyna HFT ($2M, DD-4.5%, ~26 pozycji naraz, zawsze aktywny) |
+
+Zmiana traderów: edytuj `config/copy_trader.json` (`"active": true/false`) → `git push` z laptopa → `git pull` na VPS → `systemctl restart trading-copybot`.
+
+### PIERWSZE WDROŻENIE (zrobione 2026-06-11 — dokumentacja dla odtworzenia)
+Plik `/etc/systemd/system/trading-copybot.service`:
+```ini
+[Unit]
+Description=Copy Bot — paper copy-trading (multi-trader, bez Senpi)
+After=network.target
+
+[Service]
+WorkingDirectory=/trading-ai
+Environment=HL_TRADING_MODE=paper
+Environment=TRADING_MODE=paper
+ExecStart=/trading-ai/.venv/bin/python scripts/copy_bot.py --daemon
+Restart=always
+RestartSec=10
+StandardOutput=append:/trading-ai/logs/copybot.log
+StandardError=append:/trading-ai/logs/copybot.log
+
+[Install]
+WantedBy=multi-user.target
+```
+Aktywacja: `systemctl daemon-reload && systemctl enable --now trading-copybot`
+
+> ⚠️ **PAPER only.** Egzekucja na realne pieniądze (live) NIE jest jeszcze zaimplementowana
+> w `copy_bot.py` — bot blokuje start w trybie live. Przejście na live = osobna sesja
+> (maker-limity, kill switch -3%, obowiązkowy SL).
 
 ---
 
