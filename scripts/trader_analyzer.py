@@ -218,9 +218,21 @@ def verdict(state, pnl, style, track, capital, min_notional=10.0) -> dict:
     closes30 = style.get("closes_30d", 0)
     days30 = style.get("active_days_30d", 0)
     last_h = style.get("last_trade_h")
+    cpw = style.get("closes_per_week", 0)
+
+    # 2a. Czestotliwosc — KLUCZOWE: scalper nie nadaje sie do kopiowania polling-based systemem
+    is_scalper = cpw > 50
+    if is_scalper:
+        flags_bad.append(
+            f"SCALPER — {cpw}/tydz (~{cpw/7:.1f}/dzien): polling-based copy system nie nadazy; "
+            f"obserwuj wyniki, ale NIE kopiuj automatycznie")
+    elif cpw > 20:
+        flags_warn.append(
+            f"Wysoka czestotliwosc: {cpw}/tydz (~{cpw/7:.1f}/dzien) — krotkie pozycje moga uciec przed polling cycle")
+
     if style.get("active"):
         flags_good.append(
-            f"Aktywny: {closes30} zamkniec/30d (~{style.get('closes_per_week')}/tydz), "
+            f"Aktywny: {closes30} zamkniec/30d (~{cpw}/tydz), "
             f"handlowal w {days30}/30 dni, ost. trade {last_h}h temu")
         if days30 >= 15:
             flags_good.append(f"Regularny — handluje wiekszosc dni ({days30}/30)")
@@ -267,8 +279,15 @@ def verdict(state, pnl, style, track, capital, min_notional=10.0) -> dict:
 
     # ── Decyzja ──
     score = len(flags_good) - 1.5 * len(flags_bad) - 0.5 * len(flags_warn)
-    if any("All-time PnL UJEMNY" in f for f in flags_bad) or any("NIEAKTYWNY" in f or "znikl" in f for f in flags_bad):
+    has_ujemny  = any("All-time PnL UJEMNY" in f for f in flags_bad)
+    has_martwy  = any("NIEAKTYWNY" in f or "znikl" in f for f in flags_bad)
+
+    if has_ujemny or has_martwy:
         v = "UNIKAJ" if score < 1 else "OBSERWUJ"
+    elif is_scalper:
+        # Scalper: nawet jesli zarabia — nie da sie wiernie kopiowac polling systemem.
+        # Jesli all-time+ i aktywny: wart obserwacji jako inspiracja, ale nie auto-copy.
+        v = "OBSERWUJ" if score >= 2 else "UNIKAJ"
     elif score >= 3:
         v = "KOPIUJ"
     elif score >= 1:
