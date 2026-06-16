@@ -9,6 +9,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -110,7 +112,9 @@ header{
 .sm-left{flex:1;min-width:0;display:flex;flex-direction:column}
 .sm-left .card{flex:1;display:flex;flex-direction:column;min-height:0}
 #alertContent{flex:1;overflow-y:auto;min-height:0;width:100%;overflow-anchor:none}
-#sm-side-panel{width:38%;min-width:380px;flex-shrink:0;display:flex;flex-direction:column;gap:10px;overflow:hidden}
+#sm-side-panel{width:38%;min-width:380px;flex-shrink:0;display:flex;flex-direction:column;gap:10px;overflow-y:auto;scrollbar-width:thin;padding-bottom:16px}
+#sm-side-panel::-webkit-scrollbar{width:5px}
+#sm-side-panel::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 /* Tabs padding w panelu alertow (zamiast padding na panelu) */
 #panel-alerts.active .tabs{padding:12px 24px 0;margin-bottom:0}
 /* Thermometer */
@@ -128,11 +132,14 @@ header{
 .sm-coin-dom{font-size:12px;font-weight:800;width:32px;text-align:center;flex-shrink:0;letter-spacing:.5px}
 .sm-thermo-scroll{overflow-y:auto;max-height:220px}
 /* Coin selector buttons */
-.sm-coin-btns{display:flex;flex-wrap:wrap;gap:5px;padding:8px 0 6px;border-bottom:1px solid var(--border);margin-bottom:6px}
+.sm-coin-btns{display:flex;flex-wrap:nowrap;flex-shrink:0;gap:5px;padding:8px 0 6px;border-bottom:1px solid var(--border);margin-bottom:6px;overflow-x:auto;scrollbar-width:thin}
+.sm-coin-btns::-webkit-scrollbar{height:5px}
+.sm-coin-btns::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 .sm-coin-btn{
   padding:4px 11px;border-radius:6px;border:1px solid var(--border);
   background:none;color:var(--txt2);font-size:13px;font-weight:700;
   cursor:pointer;transition:all .12s;font-family:'Space Mono',monospace;
+  flex-shrink:0;white-space:nowrap;
 }
 .sm-coin-btn:hover{border-color:var(--green);color:var(--green)}
 .sm-coin-btn.active{background:var(--green-dim);border-color:var(--green);color:var(--green)}
@@ -141,6 +148,30 @@ header{
 .sm-mode-tab{padding:4px 14px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--txt2);font-size:13px;font-weight:700;cursor:pointer;transition:all .12s;font-family:'Space Mono',monospace}
 .sm-mode-tab:hover{color:var(--cyan);border-color:var(--cyan)}
 .sm-mode-tab.active{background:var(--cyan-dim);border-color:var(--cyan);color:var(--cyan)}
+/* Chart range toggle (3D/7D/14D) */
+.sm-range-tab{padding:4px 9px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--txt3);font-size:11px;font-weight:700;cursor:pointer;transition:all .12s;font-family:'Space Mono',monospace}
+.sm-range-tab:hover{color:var(--cyan);border-color:var(--cyan)}
+.sm-range-tab.active{background:var(--cyan-dim);border-color:var(--cyan);color:var(--cyan)}
+/* Whale Conviction Signals table */
+.sig-table{width:100%;border-collapse:collapse;font-size:12px;font-family:'Space Mono',monospace}
+.sig-table th{font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.6px;padding:4px 6px;border-bottom:1px solid var(--border);text-align:left;font-weight:600}
+.sig-table td{padding:5px 6px;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:middle;white-space:nowrap}
+.sig-table tr:hover td{background:rgba(255,255,255,.03)}
+.sig-table tr:last-child td{border-bottom:none}
+.sig-score{font-size:13px;font-weight:800;color:var(--txt1)}
+.sig-coin{font-weight:800;font-size:13px;letter-spacing:.5px;color:var(--txt1)}
+.sig-long{color:var(--green);font-weight:700;font-size:11px;background:var(--green-dim);padding:2px 7px;border-radius:4px;display:inline-block}
+.sig-short{color:var(--red);font-weight:700;font-size:11px;background:rgba(255,71,87,.15);padding:2px 7px;border-radius:4px;display:inline-block}
+.sig-koz-ok{color:var(--green);font-size:13px}
+.sig-koz-no{color:var(--txt3);font-size:12px;opacity:.5}
+.sig-fresh-hot{color:var(--yellow,#ffd32a);font-weight:700}
+.sig-fresh-warm{color:var(--txt2)}
+.sig-purity-bar{display:inline-block;width:36px;height:6px;border-radius:3px;background:var(--border);vertical-align:middle;position:relative;overflow:hidden}
+.sig-purity-fill{height:100%;border-radius:3px;position:absolute;left:0;top:0}
+.sig-filter-row{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+.sig-filter-btn{padding:3px 10px;border-radius:5px;border:1px solid var(--border);background:none;color:var(--txt3);font-size:11px;font-weight:700;cursor:pointer;font-family:'Space Mono',monospace;transition:all .12s}
+.sig-filter-btn:hover{color:var(--txt1);border-color:var(--txt2)}
+.sig-filter-btn.active{background:rgba(255,255,255,.08);border-color:var(--txt2);color:var(--txt1)}
 
 /* ── CARDS ── */
 .card{
@@ -580,6 +611,29 @@ header{
         <div class="prompts-grid" id="promptsGrid"></div>
         <!-- Active chip description -->
         <div id="cmdChipDesc" style="min-height:16px;font-size:11px;color:var(--txt2);font-family:'Space Mono',monospace;padding:4px 2px 0;line-height:1.4;opacity:.85"></div>
+
+        <!-- Legenda: Kalendarz ekonomiczny -->
+        <details id="econLegend" style="margin-top:10px;border:1px solid var(--border);border-radius:6px;background:var(--bg3)">
+          <summary style="cursor:pointer;padding:10px 12px;font-size:13px;font-weight:700;color:var(--cyan)">📅 Legenda: Kalendarz ekonomiczny — który przycisk i kiedy?</summary>
+          <div style="padding:2px 14px 14px;font-size:13px;line-height:1.7;color:var(--txt2)">
+            <div style="margin:8px 0 4px;font-weight:700;color:var(--txt)">🔧 Zakładka Skrypty</div>
+            <div style="margin-bottom:6px"><b style="color:var(--green)">📊 econ pełny dzień</b> — GŁÓWNE narzędzie na <b>DZIŚ</b> (US/EU/DE/JP). Co już wyszło: wynik vs prognoza + tabela wpływu na BTC/ETH/SOL/HYPE/LINK/Złoto/Srebro/Ropę/SP500/USD. Co dopiero wyjdzie: oba scenariusze WYŻEJ/NIŻEJ. Do każdego: "Co to jest" po ludzku + Horyzont (krótko/długoterminowy). Za darmo, bez Claude.</div>
+            <div style="margin-bottom:6px"><b style="color:var(--txt)">📅 econ dziś</b> — szybka checklista co jeszcze dziś wyjdzie (KRYTYCZNY/WYSOKI/ŚREDNI/NISKI), bez analizy wpływu.</div>
+            <div style="margin-bottom:6px"><b style="color:var(--txt)">📅 econ 3 dni</b> — pełny kalendarz na 3 dni do przodu (9 krajów) + ocena ryzyka dnia (EXPERT VIEW).</div>
+            <div style="margin-bottom:8px"><b style="color:var(--txt)">📐 econ impact</b> — ręczne "co jeśli": podaj wynik i prognozę dla dowolnego wydarzenia (też spoza US/EU/DE/JP) i zobacz wpływ na aktywa.</div>
+
+            <div style="margin:8px 0 4px;font-weight:700;color:var(--txt)">📅 Zakładka Daily</div>
+            <div style="margin-bottom:8px"><b style="color:var(--green)">🌍 Econ → Aktywa</b> — spojrzenie NA PRZÓD (3 dni, US/EU/DE/JP): Claude łączy nadchodzące wydarzenia z Twoim portfolio i ocenia kierunek dla BTC/ETH/SOL/HYPE/LINK/GOLD/SILVER/OIL/SP500.</div>
+
+            <div style="margin:8px 0 4px;font-weight:700;color:var(--txt)">🏠 Strona główna</div>
+            <div style="margin-bottom:8px"><b style="color:var(--txt)">Karta "Econ Calendar"</b> — szybki, na żywo aktualizowany podgląd dzisiejszych wydarzeń (US/EU/DE/FR/GB) z filtrem ważności. Osobne, lżejsze źródło danych — bez analizy wpływu.</div>
+
+            <div style="font-size:11.5px;color:var(--txt3);border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
+              💡 Jeśli "econ pełny dzień" pokaże <i>"bez zmian od ostatniego sprawdzenia"</i> — FRED/ECB jeszcze nie zaktualizował danych dla tego wydarzenia (bywa opóźniony 1-2 dni). Pokazana analiza może być nadal oparta o POPRZEDNI odczyt — stąd ostrzeżenie przy danym wydarzeniu.
+            </div>
+          </div>
+        </details>
+
         <div class="divider"></div>
         <!-- Controls -->
         <div class="cmd-controls" style="margin-bottom:8px">
@@ -835,6 +889,8 @@ header{
         <span class="card-title" id="rDetailTitle">Wybierz raport z historii lub uruchom nowy</span>
         <div style="display:flex;gap:6px;align-items:center">
           <span style="font-size:11px;color:var(--txt3);font-family:'Space Mono',monospace" id="rDetailMeta"></span>
+          <button class="btn btn-outline btn-sm" id="btnRPng" onclick="exportResearchImages()" style="display:none">🖼️ PNG</button>
+          <button class="btn btn-outline btn-sm" id="btnRPdf" onclick="exportResearchPdf()" style="display:none">📄 PDF</button>
           <button class="btn btn-outline btn-sm" id="btnRCopy" onclick="copyResearchReport()" style="display:none">📋 Kopiuj</button>
         </div>
       </div>
@@ -1050,6 +1106,7 @@ header{
     <div class="tab" onclick="showAlertTab('listing')">📋 Listings</div>
     <div class="tab" onclick="showAlertTab('insider')">🕵️ Insider</div>
     <div class="tab" onclick="showAlertTab('tv')">📡 TV Webhook</div>
+    <div class="tab" onclick="showAlertTab('searcher')">🔎 Kozaki Searcher</div>
   </div>
   <div class="sm-layout">
     <!-- LEFT: lista alertów -->
@@ -1073,29 +1130,75 @@ header{
     </div>
     <!-- RIGHT: Whale Thermometer + SM Activity Chart (tylko dla SM tab) -->
     <div id="sm-side-panel" style="display:none">
+      <!-- 🎯 Whale Conviction Signals -->
+      <div class="card" style="flex-shrink:0">
+        <div class="card-hdr" style="padding-bottom:6px">
+          <span class="card-title">🎯 Whale Conviction Signals</span>
+          <span id="sigInfo" class="refresh-info">—</span>
+        </div>
+        <div style="font-size:10px;color:var(--txt3);padding:0 2px 7px;line-height:1.4">
+          Ranking wg: portfele × czystość × świeżość × Kozaki. Score ~4–6 = dobry, 7+ = silny. 🔥 = wejście w ostatnich 6h.
+        </div>
+        <!-- Filtry -->
+        <div class="sig-filter-row" id="sigFilterRow">
+          <button class="sig-filter-btn active" data-sig-filter="all"   onclick="_sigFilter('all')">Wszystkie</button>
+          <button class="sig-filter-btn"        data-sig-filter="long"  onclick="_sigFilter('long')">LONG</button>
+          <button class="sig-filter-btn"        data-sig-filter="short" onclick="_sigFilter('short')">SHORT</button>
+          <button class="sig-filter-btn"        data-sig-filter="fresh" onclick="_sigFilter('fresh')">🔥 Fresh 6h</button>
+          <button class="sig-filter-btn"        data-sig-filter="kozaki" onclick="_sigFilter('kozaki')">✓ Kozaki</button>
+        </div>
+        <!-- Tabela -->
+        <div style="overflow-y:auto;max-height:240px">
+          <table class="sig-table">
+            <thead>
+              <tr>
+                <th>Coin</th>
+                <th>Side</th>
+                <th title="Score = portfele × czystość × świeżość × Kozaki">Score</th>
+                <th title="Portfele po dominującej / łącznie">W</th>
+                <th>Notional</th>
+                <th title="Nowe wejścia w ostatnich 24h / 6h">Fresh</th>
+                <th title="Kozaki po tej samej stronie">Koz</th>
+              </tr>
+            </thead>
+            <tbody id="sigTableBody"></tbody>
+          </table>
+        </div>
+      </div>
       <!-- Termometr -->
       <div class="card" style="flex-shrink:0">
         <div class="card-hdr" style="padding-bottom:8px">
           <span class="card-title">🐋 Whale Thermometer</span>
           <span id="smThermoLabel" class="card-badge badge-red">SHORT</span>
         </div>
+        <div style="font-size:10px;color:var(--txt3);padding:0 2px 6px;line-height:1.4">
+          Bieżący stan: aktualne pozycje (≥$50k) ~40 top portfeli Smart Money z ostatniego skanu, sumowane $ dla wszystkich monet razem.
+        </div>
         <div id="smThermoContent" class="sm-thermo-scroll"></div>
       </div>
       <!-- Wykres aktywności -->
-      <div class="card" style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column">
+      <div class="card" style="flex-shrink:0;overflow:hidden;display:flex;flex-direction:column;min-height:360px">
         <div class="card-hdr" style="padding-bottom:6px;flex-shrink:0">
           <span class="card-title">📈 SM Activity — net L/S</span>
           <span id="smChartInfo" class="refresh-info">—</span>
+        </div>
+        <div style="font-size:10px;color:var(--txt3);padding:0 2px 6px;line-height:1.4;flex-shrink:0">
+          Historia: liczba/wartość nowych alertów (zdarzeń otwarcia pozycji) dla wybranej monety, ostatnie 14 dni.
         </div>
         <!-- Tryb wykresu: Ilość / Wartość $ -->
         <div class="sm-mode-tabs" style="flex-shrink:0">
           <button class="sm-mode-tab active" data-mode="count"    onclick="_smSetChartMode('count')">Ilość</button>
           <button class="sm-mode-tab"        data-mode="notional" onclick="_smSetChartMode('notional')">Wartość $</button>
+          <div style="margin-left:auto;display:flex;gap:4px">
+            <button class="sm-range-tab"        data-range="3"  onclick="_smSetChartRange(3)">3D</button>
+            <button class="sm-range-tab active" data-range="7"  onclick="_smSetChartRange(7)">7D</button>
+            <button class="sm-range-tab"        data-range="14" onclick="_smSetChartRange(14)">14D</button>
+          </div>
         </div>
         <!-- Selektor tokenów -->
         <div id="smCoinSelector" class="sm-coin-btns" style="flex-shrink:0;padding-left:2px;padding-right:2px"></div>
-        <div style="flex:1;min-height:0;overflow-y:auto;padding:4px 0">
-          <canvas id="smActivityCanvas" style="width:100%"></canvas>
+        <div style="padding:4px 0">
+          <canvas id="smActivityCanvas" style="width:100%;height:280px"></canvas>
         </div>
       </div>
     </div>
@@ -1183,12 +1286,13 @@ function fmtTs(ts, opts = {}) {
 }
 
 // ── State ──────────────────────────────────────────────────────────────────
-let currentAlerts = {smart_money:[], volume:[], listings:[], tv_alerts:[], insider:[], kozaki:[], kozaki_snapshot:[], sm_snapshot:[]};
+let currentAlerts = {smart_money:[], smart_money_chart:[], volume:[], listings:[], tv_alerts:[], insider:[], kozaki:[], kozaki_snapshot:[], sm_snapshot:[], sm_signals:[]};
 let currentAlertTab = 'sm';
 let fgChartInstance = null;
 let _smChartInstance = null;
 let _smSelectedCoin  = null;   // aktywnie wybrany token w SM Activity chart
 let _smChartMode     = 'count'; // 'count' | 'notional'
+let _smChartRange    = 7;       // 3 | 7 | 14 (dni)
 let reportContent = '';
 let _waitTimer = null;
 
@@ -1413,6 +1517,8 @@ function _showResearchResult(data, label) {
   const title = document.getElementById('rDetailTitle');
   const meta  = document.getElementById('rDetailMeta');
   const btn   = document.getElementById('btnRCopy');
+  const pdfBtn = document.getElementById('btnRPdf');
+  const pngBtn = document.getElementById('btnRPng');
 
   if (data.markdown) {
     // Prefer saved .md file (richer formatting)
@@ -1432,6 +1538,8 @@ function _showResearchResult(data, label) {
   title.textContent = label;
   meta.textContent  = data.file || '';
   btn.style.display = _researchReport ? 'inline-flex' : 'none';
+  pdfBtn.style.display = _researchReport ? 'inline-flex' : 'none';
+  pngBtn.style.display = _researchReport ? 'inline-flex' : 'none';
 }
 
 async function runTokenResearch() {
@@ -1581,6 +1689,178 @@ function copyResearchReport() {
       if (btn) { btn.textContent = '✓ Skopiowano'; setTimeout(() => btn.textContent = '📋 Kopiuj', 2000); }
     });
   }
+}
+
+function _slugifyResearchTitle(text) {
+  return (text || 'research')
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').substring(0, 60) || 'report';
+}
+
+// Renders #rDetail into an off-screen wrapper that mirrors the report's dark
+// styling (with a small title header) and returns the resulting canvas.
+async function _renderResearchCanvas() {
+  const det   = document.getElementById('rDetail');
+  const title = document.getElementById('rDetailTitle');
+  const meta  = document.getElementById('rDetailMeta');
+
+  const wrapper = document.createElement('div');
+  wrapper.style.position = 'fixed';
+  wrapper.style.top = '0';
+  wrapper.style.left = '-99999px';
+  wrapper.style.width = '760px';
+  wrapper.style.maxHeight = 'none';
+  wrapper.style.overflow = 'visible';
+  wrapper.style.background = '#0c1525';
+  wrapper.style.padding = '28px 32px';
+  wrapper.className = 'md-report';
+
+  const header = document.createElement('div');
+  header.style.marginBottom = '16px';
+  header.style.paddingBottom = '12px';
+  header.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
+  header.innerHTML = `
+    <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--cyan);letter-spacing:1px;text-transform:uppercase">Alpha Desk — Research Report</div>
+    <div style="font-family:'Space Mono',monospace;font-size:15px;color:var(--txt);margin-top:4px">${escHtml(title.textContent || '')}</div>
+    <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--txt3);margin-top:2px">${escHtml(meta.textContent || '')}</div>
+  `;
+  wrapper.appendChild(header);
+
+  const content = document.createElement('div');
+  content.innerHTML = det.innerHTML;
+  wrapper.appendChild(content);
+  document.body.appendChild(wrapper);
+
+  try {
+    return await html2canvas(wrapper, {
+      backgroundColor: '#0c1525',
+      scale: 2,
+      useCORS: true
+    });
+  } finally {
+    document.body.removeChild(wrapper);
+  }
+}
+
+async function exportResearchPdf() {
+  if (!_researchReport) return;
+  if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
+    alert('Biblioteka PDF nie została wczytana (sprawdź połączenie z internetem).');
+    return;
+  }
+
+  const btn   = document.getElementById('btnRPdf');
+  const title = document.getElementById('rDetailTitle');
+  const origLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Generuję...';
+
+  try {
+    const canvas = await _renderResearchCanvas();
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF('p', 'pt', 'a4');
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const imgW = pageW;
+    const imgH = (canvas.height * imgW) / canvas.width;
+    const imgData = canvas.toDataURL('image/jpeg', 0.95);
+
+    let heightLeft = imgH;
+    let position = 0;
+    pdf.setFillColor(12, 21, 37);
+    pdf.rect(0, 0, pageW, pageH, 'F');
+    pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
+    heightLeft -= pageH;
+
+    while (heightLeft > 0) {
+      position -= pageH;
+      pdf.addPage();
+      pdf.setFillColor(12, 21, 37);
+      pdf.rect(0, 0, pageW, pageH, 'F');
+      pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
+      heightLeft -= pageH;
+    }
+
+    pdf.save(`research_${_slugifyResearchTitle(title.textContent)}.pdf`);
+  } catch (e) {
+    alert('Błąd eksportu PDF: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origLabel;
+  }
+}
+
+// Exports the report as PNG image(s) — ready to post directly on X/Twitter
+// (which doesn't accept PDF attachments). Long reports are split into
+// multiple images (part1, part2, ...) so they fit X's per-image size limits
+// and can be posted as a carousel/thread.
+async function exportResearchImages() {
+  if (!_researchReport) return;
+  if (typeof html2canvas === 'undefined') {
+    alert('Biblioteka eksportu nie została wczytana (sprawdź połączenie z internetem).');
+    return;
+  }
+
+  const btn   = document.getElementById('btnRPng');
+  const title = document.getElementById('rDetailTitle');
+  const origLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Generuję...';
+
+  try {
+    const canvas = await _renderResearchCanvas();
+    const slug = _slugifyResearchTitle(title.textContent);
+    // Square-ish slices (width == height) read much better on X than one
+    // long vertical strip — text wraps into "card"-sized chunks.
+    const sliceH = canvas.width;
+
+    if (canvas.height <= sliceH * 1.15) {
+      _downloadCanvasPng(canvas, `research_${slug}.png`);
+    } else {
+      const slices = Math.ceil(canvas.height / sliceH);
+      if (typeof document.fonts !== 'undefined') {
+        try { await document.fonts.load('28px "Space Mono"'); } catch (_) {}
+      }
+      for (let i = 0; i < slices; i++) {
+        const sy = i * sliceH;
+        const sh = Math.min(sliceH, canvas.height - sy);
+        const slice = document.createElement('canvas');
+        slice.width = canvas.width;
+        slice.height = sh;
+        const ctx = slice.getContext('2d');
+        ctx.fillStyle = '#0c1525';
+        ctx.fillRect(0, 0, slice.width, slice.height);
+        ctx.drawImage(canvas, 0, sy, canvas.width, sh, 0, 0, canvas.width, sh);
+
+        // Footer bar with page indicator so the order is clear when posting
+        const barH = 56;
+        ctx.fillStyle = 'rgba(6,12,22,0.92)';
+        ctx.fillRect(0, sh - barH, slice.width, barH);
+        ctx.fillStyle = '#3d4f62';
+        ctx.fillRect(0, sh - barH, slice.width, 2);
+        ctx.fillStyle = '#00d4ff';
+        ctx.font = '28px "Space Mono", monospace';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`${title.textContent}  ·  część ${i + 1}/${slices}`, 28, sh - barH / 2);
+
+        _downloadCanvasPng(slice, `research_${slug}_${i + 1}z${slices}.png`);
+        await new Promise(r => setTimeout(r, 250));
+      }
+    }
+  } catch (e) {
+    alert('Błąd eksportu PNG: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origLabel;
+  }
+}
+
+function _downloadCanvasPng(canvas, filename) {
+  const a = document.createElement('a');
+  a.download = filename;
+  a.href = canvas.toDataURL('image/png');
+  a.click();
 }
 
 // ── Costs ──────────────────────────────────────────────────────────────────
@@ -1782,7 +2062,10 @@ async function loadStatus() {
 
   set('claude',  data.tgtrade, data.tgtrade ? 'Running ✓' : 'Stopped');
   set('hermes',  data.hermes,  data.hermes  ? 'Running ✓' : 'Stopped');
-  set('ngrok',   data.ngrok,   data.ngrok   ? 'Online ✓'  : 'Offline');
+  const _nMode  = (data.ngrok_mode || '').toLowerCase();
+  window._ngrokMode = _nMode;
+  const _nLabel = data.ngrok ? ('Online ✓ ' + (_nMode === 'live' ? '[LIVE]' : _nMode === 'paper' ? '[PAPER]' : '')) : 'Offline';
+  set('ngrok', data.ngrok, _nLabel);
 
   // VPS API banner (92.112.181.37:5008) — alerts/kozaki/smart money depend on it
   const vpsOk = !!data.vps_api;
@@ -2524,6 +2807,90 @@ function renderAnalysis(rawText) {
   return `<div class="analysis-body"><pre style="white-space:pre-wrap;font-family:'Space Mono',monospace;font-size:12px;line-height:1.6">${escHtml(text)}</pre></div>`;
 }
 
+// Render plain-text Rich output ("Dane"/"Newsy" scripts) with light syntax
+// highlighting — section headers, importance tags, direction arrows, tables —
+// so it's readable without relying on ANSI colour codes (which Rich never
+// emits to a piped subprocess on Windows).
+function highlightDataOutput(rawText) {
+  let h = escHtml(stripAnsi(rawText || '(brak treści)'));
+
+  // == SECTION HEADERS ==
+  h = h.replace(/^(==.+==)$/gm, '<span style="color:var(--cyan);font-weight:700;font-size:13px">$1</span>');
+
+  // Event title lines: "[NISKI] 06:00 UTC ... EU — Event Name" → bold the name
+  h = h.replace(/^(\[(?:KRYTYCZNY|WYSOKI|SREDNI|ŚREDNI|NISKI)\].*?—\s*)(.+)$/gm,
+    '$1<b style="color:var(--txt)">$2</b>');
+
+  // Box-drawing borders/tables → muted
+  h = h.replace(/([─-╿]+)/g, '<span style="color:var(--txt3)">$1</span>');
+
+  // "Wynik: X | Prognoza: Y | Poprzednio: Z" — Wynik kolorowany wg porownania
+  // z Prognoza (zielony = wyzej, czerwony = nizej, bialy/bold = bez zmian),
+  // Prognoza/Poprzednio jako wyrozniony "chip" (cyan). Musi sie wykonac PRZED
+  // ogolnymi regexami signed-percentages, zeby nie kolorowaly tych liczb
+  // jeszcze raz wg samego znaku.
+  h = h.replace(
+    /Wynik: ([+-]?[\d.,]+[KMB%]?)(\s*\|\s*Prognoza: ([+-]?[\d.,]+[KMB%]?))?(\s*\|\s*Poprzednio: ([+-]?[\d.,]+[KMB%]?))?/g,
+    (_full, wynikRaw, _g2, prognozaRaw, _g4, poprzednioRaw) => {
+      const escSign = s => s ? s.replace(/^-/, '&minus;').replace(/^\+/, '&#43;') : s;
+      const num = s => s == null ? null : parseFloat(String(s).replace(/[%KMB]/g, '').replace(',', '.'));
+      const w = num(wynikRaw), p = num(prognozaRaw);
+      let color = 'var(--txt)';
+      if (p !== null && w !== null) {
+        if (w > p) color = 'var(--green)';
+        else if (w < p) color = 'var(--red)';
+      }
+      let out = `<span style="color:${color};font-weight:700">Wynik: ${escSign(wynikRaw)}</span>`;
+      if (prognozaRaw) out += ` <span style="color:var(--txt2)">| Prognoza:</span> <span style="color:var(--cyan);font-weight:700">${escSign(prognozaRaw)}</span>`;
+      if (poprzednioRaw) out += ` <span style="color:var(--txt2)">| Poprzednio:</span> <span style="color:var(--cyan);font-weight:700">${escSign(poprzednioRaw)}</span>`;
+      return out;
+    }
+  );
+
+  // Category header "» Inflacja HICP (...)" → wyrozniony podtytul
+  h = h.replace(/^(\s*)(».+)$/gm, '$1<span style="color:var(--orange);font-weight:700">$2</span>');
+
+  // "ZASKOCZENIE: ..." → mocno podswietlony blok wyniku
+  h = h.replace(/^(\s*)(ZASKOCZENIE:.+)$/gm,
+    '<div style="margin:4px 0;padding:3px 8px;border-left:3px solid var(--cyan);background:var(--bg3);font-weight:700">$2</div>');
+
+  // "Brak zaskoczenia ..." → neutralny blok
+  h = h.replace(/^(\s*)(Brak zaskoczenia.+)$/gm,
+    '<div style="margin:4px 0;padding:3px 8px;border-left:3px solid var(--txt3);background:var(--bg3);color:var(--txt2)">$2</div>');
+
+  // "Co to jest:" / "(dana dla ...)" / "(zrodlo: ...)" → przygaszone tlo wyjasnienia
+  h = h.replace(/^(\s*Co to jest:.+)$/gm, '<span style="color:var(--txt2);font-style:italic">$1</span>');
+  h = h.replace(/^(\s*\(dana dla.+)$/gm, '<span style="color:var(--txt2)">$1</span>');
+  h = h.replace(/^(\s*\(zrodlo:.+)$/gm, '<span style="color:var(--txt3)">$1</span>');
+
+  // Importance tags
+  h = h.replace(/\[KRYTYCZNY\]/g, '<span style="background:var(--red);color:#fff;font-weight:700;border-radius:3px;padding:0 4px">[KRYTYCZNY]</span>');
+  h = h.replace(/\[WYSOKI\]/g,    '<span style="color:var(--red);font-weight:700">[WYSOKI]</span>');
+  h = h.replace(/\[(SREDNI|ŚREDNI)\]/g, '<span style="color:var(--orange);font-weight:700">[$1]</span>');
+  h = h.replace(/\[NISKI\]/g,     '<span style="color:var(--green)">[NISKI]</span>');
+
+  // Direction arrows
+  h = h.replace(/W GORE\s*\(\+\)/g, '<span style="color:var(--green);font-weight:700">W GORE  (+)</span>');
+  h = h.replace(/W DOL\s*\(-\)/g,   '<span style="color:var(--red);font-weight:700">W DOL   (-)</span>');
+  h = h.replace(/NEUTRALNIE\s*\(=\)/g, '<span style="color:var(--txt2)">NEUTRALNIE (=)</span>');
+
+  // "JESLI WYZEJ / NIZEJ" scenario lines
+  h = h.replace(/-&gt;\s*JESLI WYZEJ/g, '<span style="color:var(--green);font-weight:700">-&gt; JESLI WYZEJ</span>');
+  h = h.replace(/-&gt;\s*JESLI NIZEJ/g, '<span style="color:var(--red);font-weight:700">-&gt; JESLI NIZEJ</span>');
+
+  // LONG / SHORT / FLIP / NEW tags
+  h = h.replace(/\bLONG\b/g,  '<span class="tag-long">LONG</span>');
+  h = h.replace(/\bSHORT\b/g, '<span class="tag-short">SHORT</span>');
+  h = h.replace(/\bFLIP\b/g,  '<span class="tag-flip">FLIP</span>');
+  h = h.replace(/\bNEW\b/g,   '<span class="tag-new">NEW</span>');
+
+  // Signed percentages (pozostale liczby spoza linii Wynik/Prognoza/Poprzednio)
+  h = h.replace(/(\+\d[\d.,]*\s?%)/g, '<span style="color:var(--green)">$1</span>');
+  h = h.replace(/(-\d[\d.,]*\s?%)/g,  '<span style="color:var(--red)">$1</span>');
+
+  return `<pre style="white-space:pre-wrap;font-family:'Space Mono',monospace;font-size:12px;line-height:1.65;color:var(--txt);background:var(--bg2);padding:14px;border-radius:8px;overflow-x:auto;border:1px solid var(--border)">${h}</pre>`;
+}
+
 function switchHistTab(el, cat) {
   document.querySelectorAll('.hist-tab').forEach(b => b.classList.remove('active'));
   el.classList.add('active');
@@ -2583,7 +2950,7 @@ async function showHistoryItem(id, el) {
     if (_CLAUDE_KEYS.has(scriptKey)) {
       detail.innerHTML = renderAnalysis(_currentHistoryOutput);
     } else {
-      detail.innerHTML = `<pre style="white-space:pre-wrap;font-family:'Space Mono',monospace;font-size:11px;line-height:1.55;color:var(--txt);background:var(--bg2);padding:10px;border-radius:6px;overflow-x:auto">${escHtml(stripAnsi(_currentHistoryOutput))}</pre>`;
+      detail.innerHTML = highlightDataOutput(_currentHistoryOutput);
     }
   }
   document.getElementById('btnHistoryCopy').style.display   = 'inline-flex';
@@ -2844,7 +3211,7 @@ function showAlertTab(tab) {
   currentAlertTab = tab;
   document.querySelectorAll('.tabs .tab').forEach(t => t.classList.remove('active'));
   event.target.classList.add('active');
-  const titles = {sm:'Smart Money Alerts', kozaki:'Kozaki — Elite HL Wallets', watchlist:'⭐ Ulubieni — Moje Portfele', vol:'Volume Anomalies', listing:'New Listings', insider:'Insider Tracker (Eddie / Maggie / Frank)', tv:'TV Webhook Signals'};
+  const titles = {sm:'Smart Money Alerts', kozaki:'Kozaki — Elite HL Wallets', watchlist:'⭐ Ulubieni — Moje Portfele', vol:'Volume Anomalies', listing:'New Listings', insider:'Insider Tracker (Eddie / Maggie / Frank)', tv:'TV Webhook Signals', searcher:'🔎 Kozaki Searcher — analiza adresu'};
   document.getElementById('alertTabTitle').textContent = titles[tab] || tab;
   // Pokaż/ukryj panel boczny Whale Thermometer (tylko dla SM)
   const sidePanel = document.getElementById('sm-side-panel');
@@ -2894,9 +3261,22 @@ function clearAlertTab(tab) {
 }
 
 // ── Clear TV/strategy signals from alerts.jsonl ───────────────────────────────
-async function clearStratSignals(stratKey, symbol = null) {
-  const label = symbol ? symbol : (stratKey === '__all__' ? 'WSZYSTKIE' : stratKey);
-  if (!confirm(`Trwale usunąć sygnały (${label}) z pliku alerts.jsonl?\n\nTej operacji nie można cofnąć.`)) return;
+const _clearConfirmPending = {};
+async function clearStratSignals(stratKey, symbol = null, btnEl = null) {
+  const key = (stratKey || '') + '|' + (symbol || '');
+  // Two-click confirm: first click arms, second executes
+  if (!_clearConfirmPending[key]) {
+    _clearConfirmPending[key] = true;
+    if (btnEl) { btnEl.textContent = '⚠ Potwierdź'; btnEl.style.background = 'var(--red)'; btnEl.style.color = '#fff'; }
+    setTimeout(() => {
+      delete _clearConfirmPending[key];
+      if (btnEl) { btnEl.textContent = btnEl._origText || '🗑 Wyczyść'; btnEl.style.background = ''; btnEl.style.color = ''; }
+    }, 3000);
+    return;
+  }
+  delete _clearConfirmPending[key];
+  if (btnEl) { btnEl.textContent = '⏳ Czyszczę...'; btnEl.disabled = true; }
+
   const params = [];
   if (stratKey && stratKey !== '__all__') params.push(`strategy=${encodeURIComponent(stratKey)}`);
   if (symbol) params.push(`symbol=${encodeURIComponent(symbol)}`);
@@ -2905,14 +3285,15 @@ async function clearStratSignals(stratKey, symbol = null) {
     const r = await fetch(url, { method: 'DELETE' });
     const d = await r.json();
     if (d.ok) {
-      loadStrategies();
       currentAlerts.tv_alerts = [];
       renderAlertTab('tv');
+      await loadStrategies();
+      if (btnEl) { btnEl.textContent = `✓ Usunięto ${d.cleared}`; setTimeout(() => { if(btnEl){btnEl.textContent=btnEl._origText||'🗑 Wyczyść';btnEl.disabled=false;} }, 2000); }
     } else {
-      alert('Błąd: ' + (d.error || 'Nieznany błąd'));
+      if (btnEl) { btnEl.textContent = '✗ Błąd'; btnEl.disabled = false; }
     }
   } catch(e) {
-    alert('Błąd sieci: ' + e.message);
+    if (btnEl) { btnEl.textContent = '✗ Sieć'; btnEl.disabled = false; }
   }
 }
 
@@ -3055,6 +3436,92 @@ async function deleteFromWatchlist(address) {
   }
 }
 
+// ── Kozaki Searcher: wklej adres -> werdykt copy-trading ─────────────────────
+function renderSearcherTab() {
+  const el = document.getElementById('alertContent');
+  el.classList.remove('loading');
+  el.innerHTML = `
+    <div style="padding:4px 2px 12px">
+      <div style="font-size:12px;color:var(--txt3);margin-bottom:10px;line-height:1.5">
+        Wklej adres portfela HL (0x...) ktory zaobserwowales w Kozaki/Smart Money.
+        Dostaniesz werdykt <b>KOPIUJ / OBSERWUJ / UNIKAJ</b> + analize (all-time PnL,
+        pozycje, aktywnosc, track record Senpi).
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input id="searcherAddr" type="text" placeholder="0x..." spellcheck="false"
+          style="flex:1;min-width:320px;background:var(--bg2);border:1px solid var(--bd);
+          border-radius:8px;padding:10px 12px;color:var(--txt);font-family:monospace;font-size:13px"
+          onkeydown="if(event.key==='Enter')runKozakiSearch()">
+        <input id="searcherCap" type="number" value="200" min="10" step="50" title="Twoj kapital ($)"
+          style="width:90px;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;
+          padding:10px;color:var(--txt);font-size:13px">
+        <button class="btn btn-outline btn-sm" onclick="runKozakiSearch()"
+          style="padding:10px 18px">🔎 Analizuj</button>
+      </div>
+      <div id="searcherResult" style="margin-top:14px"></div>
+    </div>`;
+}
+
+async function runKozakiSearch() {
+  const addr = (document.getElementById('searcherAddr').value || '').trim();
+  const cap  = parseFloat(document.getElementById('searcherCap').value) || 200;
+  const out  = document.getElementById('searcherResult');
+  if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) {
+    out.innerHTML = `<div style="color:var(--red);font-size:13px">⚠️ Nieprawidlowy adres (0x + 40 znakow hex).</div>`;
+    return;
+  }
+  out.innerHTML = `<div class="loading"><div class="spinner"></div> Analizuje ${addr.slice(0,8)}…</div>`;
+  try {
+    const r = await fetch('/api/kozaki_search', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({address: addr, capital: cap})
+    });
+    const j = await r.json();
+    if (!j.ok) { out.innerHTML = `<div style="color:var(--red)">❌ ${j.error||'Blad'}</div>`; return; }
+    out.innerHTML = renderSearcherResult(j.analysis);
+  } catch (e) {
+    out.innerHTML = `<div style="color:var(--red)">❌ Blad polaczenia: ${e}</div>`;
+  }
+}
+
+function renderSearcherResult(a) {
+  if (a.error) return `<div style="color:var(--red)">❌ ${a.error}</div>`;
+  const vColors = {KOPIUJ:'var(--green)', OBSERWUJ:'#e0a800', UNIKAJ:'var(--red)'};
+  const vEmoji  = {KOPIUJ:'🟢', OBSERWUJ:'🟡', UNIKAJ:'🔴'};
+  const c = vColors[a.verdict] || 'var(--txt)';
+  const fmt = v => (v>=0?'+$':'-$') + Math.round(Math.abs(v)).toLocaleString();
+  const p = a.pnl||{}, s = a.state||{}, st = a.style||{}, tr = a.track;
+  let h = `<div style="border:2px solid ${c};border-radius:10px;padding:14px;background:var(--bg2)">
+    <div style="font-size:20px;font-weight:800;color:${c};margin-bottom:4px">${vEmoji[a.verdict]||''} ${a.verdict}</div>
+    <div style="font-size:12px;color:var(--txt3);font-family:monospace;margin-bottom:10px">${a.short} · kapital $${a.capital}</div>
+    <div style="font-size:12px;color:var(--txt2);line-height:1.7;margin-bottom:10px">
+      Konto: <b>$${Math.round(s.account_value||0).toLocaleString()}</b> ·
+      pozycji: <b>${(s.positions||[]).length}</b> ·
+      fille/7d: <b>${st.fills_7d||0}</b> ·
+      ost.trade: <b>${st.last_trade_h!=null?st.last_trade_h+'h':'—'}</b><br>`;
+  if (p.alltime_pnl!=null) h += `All-time PnL: <b style="color:${p.alltime_pnl>=0?'var(--green)':'var(--red)'}">${fmt(p.alltime_pnl)}</b> (tydzien ${fmt(p.week_pnl||0)})<br>`;
+  if (tr) h += `Senpi: ROI ${(tr.roi||0).toFixed(1)} · WR ${(tr.win_rate||0).toFixed(0)}% · G2P ${(tr.gain_to_pain||0).toFixed(0)} · ${tr.activity}/${tr.consistency}/${tr.risk}`;
+  else h += `<span style="color:var(--txt3)">Senpi niedostepny — analiza z HL API</span>`;
+  h += `</div>`;
+  // flagi
+  for (const f of (a.good||[])) h += `<div style="font-size:12px;color:var(--green);margin:3px 0">✅ ${f}</div>`;
+  for (const f of (a.warn||[])) h += `<div style="font-size:12px;color:#e0a800;margin:3px 0">⚠️ ${f}</div>`;
+  for (const f of (a.bad||[]))  h += `<div style="font-size:12px;color:var(--red);margin:3px 0">❌ ${f}</div>`;
+  // pozycje
+  if ((s.positions||[]).length) {
+    h += `<div style="margin-top:10px;font-size:11px;color:var(--txt3)">POZYCJE TERAZ:</div>`;
+    for (const pos of s.positions.slice(0,8)) {
+      const sc = pos.side==='LONG'?'var(--green)':'var(--red)';
+      h += `<div style="font-size:12px;font-family:monospace;margin:2px 0">
+        <b>${pos.coin}</b> <span style="color:${sc}">${pos.side}</span>
+        $${Math.round(pos.notional).toLocaleString()} ${pos.lev}x
+        uPnL <span style="color:${pos.upnl>=0?'var(--green)':'var(--red)'}">${fmt(pos.upnl)}</span></div>`;
+    }
+  }
+  h += `</div>`;
+  return h;
+}
+
 function renderAlertTab(tab) {
   const el = document.getElementById('alertContent');
   // KRYTYCZNE: usuń klasę "loading" z kontenera (zostaje z poczatkowego HTML / stanu ładowania).
@@ -3067,6 +3534,8 @@ function renderAlertTab(tab) {
   if (sidePanel) sidePanel.style.display = tab === 'sm' ? 'flex' : 'none';
   // Watchlist ma własny async renderer
   if (tab === 'watchlist') { renderWatchlistTab(); return; }
+  // Kozaki Searcher ma własny widok (pole adres + wynik analizy)
+  if (tab === 'searcher') { renderSearcherTab(); return; }
 
   let items = [];
   if (tab === 'sm')     items = (currentAlerts.smart_money || []);
@@ -3208,7 +3677,10 @@ function renderAlertTab(tab) {
     </div>`;
   }).join('') + '</div>';
   // Odśwież panel boczny SM jeśli aktywny
-  if (tab === 'sm') renderSMSidePanel(currentAlerts.smart_money || [], currentAlerts.sm_snapshot || []);
+  if (tab === 'sm') {
+    renderSMSignals(currentAlerts.sm_signals || []);
+    renderSMSidePanel(currentAlerts.smart_money_chart || [], currentAlerts.sm_snapshot || []);
+  }
   // Scroll na górę po renderze (CSS flex layout daje #alertContent realną wysokość — bez JS hacków)
   requestAnimationFrame(() => { el.scrollTop = 0; });
   // Pokaż baner "↑ Nowsze alerty" gdy scroll > 0 i jest nowsza data niż widoczna
@@ -3236,11 +3708,77 @@ function scrollToNewest() {
   if (bar) bar.style.display = 'none';
 }
 
+// ── SM Whale Conviction Signals ──────────────────────────────────────────────
+
+let _sigFilterMode = 'all';
+
+function _sigFilter(mode) {
+  _sigFilterMode = mode;
+  document.querySelectorAll('.sig-filter-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.sigFilter === mode)
+  );
+  renderSMSignals(currentAlerts.sm_signals || []);
+}
+
+function renderSMSignals(signals) {
+  const tbody  = document.getElementById('sigTableBody');
+  const infoEl = document.getElementById('sigInfo');
+  if (!tbody) return;
+
+  const _fN = v => {
+    const a = Math.abs(v);
+    return a >= 1e9 ? '$'+(v/1e9).toFixed(1)+'B'
+         : a >= 1e6 ? '$'+(v/1e6).toFixed(0)+'M'
+         : a >= 1e3 ? '$'+(v/1e3).toFixed(0)+'K'
+         : '$'+Math.round(v);
+  };
+
+  let rows = [...(signals || [])];
+  if (_sigFilterMode === 'long')   rows = rows.filter(s => s.side === 'LONG');
+  if (_sigFilterMode === 'short')  rows = rows.filter(s => s.side === 'SHORT');
+  if (_sigFilterMode === 'fresh')  rows = rows.filter(s => s.fresh_6h > 0);
+  if (_sigFilterMode === 'kozaki') rows = rows.filter(s => s.kozaki);
+
+  if (infoEl) infoEl.textContent = rows.length ? `${rows.length} sygnałów` : '—';
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--txt3);padding:14px;font-size:11px">Brak sygnałów dla wybranego filtra</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map(s => {
+    const isLong    = s.side === 'LONG';
+    const sideBadge = isLong
+      ? `<span class="sig-long">L</span>`
+      : `<span class="sig-short">S</span>`;
+    const fillClr   = isLong ? '#00ff88' : '#ff4757';
+    const purityBar = `<span class="sig-purity-bar" title="${s.purity_pct}% ${s.side}">
+      <span class="sig-purity-fill" style="width:${s.purity_pct}%;background:${fillClr}"></span>
+    </span>`;
+    const freshStr  = s.fresh_6h > 0
+      ? `<span class="sig-fresh-hot">+${s.fresh_6h}🔥</span><span style="color:var(--txt3)">/${s.fresh_24h}</span>`
+      : `<span class="sig-fresh-warm">${s.fresh_24h > 0 ? '+'+s.fresh_24h : '—'}</span>`;
+    const kozStr    = s.kozaki
+      ? `<span class="sig-koz-ok" title="Kozaki po tej samej stronie">✓</span>`
+      : `<span class="sig-koz-no">·</span>`;
+    const scoreClr  = s.score >= 6 ? 'var(--green)' : s.score >= 3 ? 'var(--yellow,#ffd32a)' : 'var(--txt2)';
+
+    return `<tr>
+      <td><span class="sig-coin">${escHtml(s.coin)}</span></td>
+      <td>${sideBadge}</td>
+      <td><span class="sig-score" style="color:${scoreClr}">${s.score}</span></td>
+      <td>${purityBar} <span style="font-size:10px;color:var(--txt3)">${s.wallet_dom}/${s.wallet_total}</span></td>
+      <td style="color:var(--txt2)">${_fN(s.notional)}</td>
+      <td>${freshStr}</td>
+      <td>${kozStr}</td>
+    </tr>`;
+  }).join('');
+}
+
 // ── SM Whale Thermometer + Activity Chart ────────────────────────────────────
 
 function renderSMSidePanel(smAlerts, smSnapshot) {
   const thermoEl = document.getElementById('smThermoContent');
-  const infoEl   = document.getElementById('smChartInfo');
   if (!thermoEl) return;
 
   const _fN = v => v>=1e6?'$'+(v/1e6).toFixed(1)+'M':v>=1e3?'$'+(v/1e3).toFixed(0)+'K':'$'+Math.round(v).toLocaleString();
@@ -3314,7 +3852,6 @@ function renderSMSidePanel(smAlerts, smSnapshot) {
   }
 
   // ── WYKRES: używa sm_alerts (timeline zmian) ──────────────────────────────
-  if (infoEl) infoEl.textContent = smAlerts.length ? `${smAlerts.length} alertów` : '—';
   _drawSMActivityChart(smAlerts);
 }
 
@@ -3324,7 +3861,16 @@ function _smSetChartMode(mode) {
   document.querySelectorAll('.sm-mode-tab').forEach(b =>
     b.classList.toggle('active', b.dataset.mode === mode)
   );
-  _drawSMActivityChart(currentAlerts.smart_money || []);
+  _drawSMActivityChart(currentAlerts.smart_money_chart || []);
+}
+
+// Przełącz zakres wykresu: 3D / 7D / 14D
+function _smSetChartRange(days) {
+  _smChartRange = parseInt(days, 10);
+  document.querySelectorAll('.sm-range-tab').forEach(b =>
+    b.classList.toggle('active', parseInt(b.dataset.range, 10) === _smChartRange)
+  );
+  _drawSMActivityChart(currentAlerts.smart_money_chart || []);
 }
 
 // Klik na przycisk tokena w SM Activity chart
@@ -3333,17 +3879,24 @@ function _smSelectCoin(coin) {
   document.querySelectorAll('.sm-coin-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.coin === coin)
   );
-  _drawSMActivityChart(currentAlerts.smart_money || []);
+  _drawSMActivityChart(currentAlerts.smart_money_chart || []);
 }
 
-function _drawSMActivityChart(smAlerts) {
+function _drawSMActivityChart(smAlertsAll) {
   const canvas   = document.getElementById('smActivityCanvas');
   const selector = document.getElementById('smCoinSelector');
+  const infoEl   = document.getElementById('smChartInfo');
   if (!canvas) return;
 
   if (_smChartInstance) { _smChartInstance.destroy(); _smChartInstance = null; }
 
-  if (!smAlerts || !smAlerts.length) {
+  // Filtruj wg wybranego zakresu (3D/7D/14D)
+  const cutoff = new Date(Date.now() - _smChartRange * 86400000).toISOString().slice(0,16).replace('T',' ');
+  const smAlerts = (smAlertsAll || []).filter(a => (a.ts||'') >= cutoff);
+
+  if (infoEl) infoEl.textContent = smAlerts.length ? `${smAlerts.length} alertów (${_smChartRange}D)` : '—';
+
+  if (!smAlerts.length) {
     canvas.style.height = '60px';
     if (selector) selector.innerHTML = '';
     return;
@@ -3407,7 +3960,7 @@ function _drawSMActivityChart(smAlerts) {
     points.push({ x: _lbl(a.ts), y: cumVal, side, notional });
   }
 
-  canvas.style.height = '260px';
+  canvas.style.height = '280px';
 
   if (!points.length) {
     canvas.style.height = '60px';
@@ -3571,57 +4124,99 @@ function renderMiniAlerts(data) {
 
 /** Pair buy/sell → close signals into completed + open trades (all for one symbol). */
 function _pairTrades(sigs) {
-  const trades = [];
-  let   openPos = null;   // only one position per symbol at a time
-  const sorted  = [...sigs]
-    .filter(s => s.status === 'executed')
+  const trades  = [];
+  // Index fill_events by parent_order_id for fast lookup
+  const fillEvt = {};
+  for (const s of sigs) {
+    if (s.fill_event && s.parent_order_id) {
+      fillEvt[s.parent_order_id] = s;
+    }
+  }
+
+  // Error entries (failed/error status from webhook)
+  for (const s of sigs) {
+    if (s.status === 'failed' || s.status === 'error') {
+      const side = (s.side||'').toLowerCase();
+      if (side === 'buy'||side==='long'||side==='sell'||side==='short') {
+        trades.push({
+          dir:   (side==='buy'||side==='long') ? 'long' : 'short',
+          entry: +(s.price||0), exit: null, qty: null,
+          pPct: null, pUsd: null, tsO: s.received_at||'', tsC: null,
+          sl: s.sl_price, tp: s.tp_price,
+          res: 'error', errMsg: s.note || 'Błąd wykonania',
+        });
+      }
+    }
+  }
+
+  const sorted = [...sigs]
+    .filter(s => s.status === 'executed' && !s.fill_event)
     .sort((a,b) => (a.received_at||'').localeCompare(b.received_at||''));
 
+  let openPos = null;
   for (const sig of sorted) {
     const side = (sig.side||'').toLowerCase();
 
-    if (side === 'buy' || side === 'long' || side === 'sell' || side === 'short') {
-      // Extract qty from PAPER note: "...bracket RGTI buy 2000 --sl ..."
-      const qm = (sig.note||'').match(/bracket\s+\S+\s+\S+\s+(\d+)/i);
+    if (side==='buy'||side==='long'||side==='sell'||side==='short') {
+      // Extract qty: prefer exec_detail fields, fall back to PAPER note
+      const qNote = (sig.note||'').match(/bracket\s+\S+\s+\S+\s+(\d+)/i);
+      const ordId = sig.alpaca_order_id || sig.order_id || null;
       openPos = {
-        dir:   (side === 'buy' || side === 'long') ? 'long' : 'short',
-        entry: +(sig.price||0),
-        qty:   qm ? +qm[1] : null,
-        ts:    sig.received_at||'',
-        sl:    sig.sl_price,
-        tp:    sig.tp_price,
+        dir:    (side==='buy'||side==='long') ? 'long' : 'short',
+        entry:  +(sig.price||0),
+        qty:    sig.qty ?? sig.filled_qty ?? (qNote ? +qNote[1] : null),
+        ts:     sig.received_at||'',
+        sl:     sig.sl_price, tp: sig.tp_price,
+        ordId,
+        paper:  (sig.note||'').includes('PAPER mode'),
       };
-    } else if (side === 'close' && openPos) {
+    } else if ((side==='close'||side==='partial_close') && openPos) {
       const exitP  = +(sig.price||0);
-      const entryP = openPos.entry;
-      const mult   = openPos.dir === 'long' ? 1 : -1;
-      const pPct   = (exitP - entryP) / (entryP || 1) * 100 * mult;
-      const pUsd   = openPos.qty ? (exitP - entryP) * openPos.qty * mult : null;
+      const mult   = openPos.dir==='long' ? 1 : -1;
+      const pPct   = (exitP - openPos.entry) / (openPos.entry||1) * 100 * mult;
+      const pUsd   = openPos.qty ? (exitP - openPos.entry) * openPos.qty * mult : null;
       trades.push({
-        dir: openPos.dir, entry: entryP, exit: exitP,
-        qty: openPos.qty,
-        pPct: +pPct.toFixed(2),
+        dir: openPos.dir, entry: openPos.entry, exit: exitP,
+        qty: openPos.qty, pPct: +pPct.toFixed(2),
         pUsd: pUsd ? +pUsd.toFixed(2) : null,
         tsO: openPos.ts, tsC: sig.received_at||'',
         sl: openPos.sl, tp: openPos.tp,
-        res: pPct >= 0 ? 'win' : 'loss',
+        res: pPct>=0?'win':'loss', closeReason: 'manual',
       });
       openPos = null;
     }
   }
 
-  // Still-open position
   if (openPos) {
-    trades.push({
-      dir: openPos.dir, entry: openPos.entry, exit: null,
-      qty: openPos.qty, pPct: null, pUsd: null,
-      tsO: openPos.ts, tsC: null,
-      sl: openPos.sl, tp: openPos.tp,
-      res: 'open',
-    });
+    // Check if poller logged a fill event for this order
+    const fe = openPos.ordId ? fillEvt[openPos.ordId] : null;
+    if (fe) {
+      const exitP  = +(fe.filled_price||0);
+      const mult   = openPos.dir==='long' ? 1 : -1;
+      const pPct   = exitP ? (exitP - openPos.entry) / (openPos.entry||1) * 100 * mult : null;
+      const pUsd   = (openPos.qty && exitP) ? (exitP - openPos.entry) * openPos.qty * mult : null;
+      const isWin  = fe.fill_type === 'tp_hit' || (pPct !== null && pPct > 0);
+      trades.push({
+        dir: openPos.dir, entry: openPos.entry, exit: exitP,
+        qty: openPos.qty, pPct: pPct ? +pPct.toFixed(2) : null,
+        pUsd: pUsd ? +pUsd.toFixed(2) : null,
+        tsO: openPos.ts, tsC: fe.filled_at||fe.received_at||'',
+        sl: openPos.sl, tp: openPos.tp,
+        res: isWin?'win':'loss',
+        closeReason: fe.fill_type || 'closed',
+        paper: openPos.paper,
+      });
+    } else {
+      trades.push({
+        dir: openPos.dir, entry: openPos.entry, exit: null,
+        qty: openPos.qty, pPct: null, pUsd: null,
+        tsO: openPos.ts, tsC: null,
+        sl: openPos.sl, tp: openPos.tp,
+        res: 'open', paper: openPos.paper,
+      });
+    }
   }
 
-  // Sort: open on top, then newest closed first
   trades.sort((a,b) =>
     a.res==='open'&&b.res!=='open' ? -1 :
     b.res==='open'&&a.res!=='open' ?  1 :
@@ -3662,23 +4257,42 @@ function _tradeRows(trades) {
   </div>`;
 
   const rows = trades.map(t => {
-    const isOpen = t.res === 'open', isWin = t.res === 'win';
-    const dClr   = t.dir === 'long' ? 'var(--green)' : 'var(--red)';
-    const pClr   = isOpen ? 'var(--cyan)' : isWin ? 'var(--green)' : 'var(--red)';
-    const stCls  = isOpen ? 'sig-rcv' : isWin ? 'sig-exec' : 'sig-failed';
-    const stLbl  = isOpen ? 'OPEN' : isWin ? 'WIN' : 'LOSS';
-    const pStr   = isOpen       ? '⏳ otwarta'
-                 : t.pUsd!==null ? `${t.pUsd>=0?'+':''}$${t.pUsd.toFixed(0)} (${t.pPct>=0?'+':''}${t.pPct}%)`
-                 : t.pPct!==null ? `${t.pPct>=0?'+':''}${t.pPct}%`
-                 : '—';
-    const exitStr = t.exit !== null
-      ? `→ <b style="color:var(--txt1)">$${t.exit.toFixed(2)}</b>`
-      : `SL: <span style="color:var(--red)">${escHtml(String(t.sl||'?'))}</span>`;
-    const dateStr = fmtTs(t.tsC||t.tsO, {dateOnly:true});
-    return `<div class="signal-row" style="${isOpen?'background:rgba(0,212,255,0.04);':''}">
-      <span class="sig-status ${stCls}">${stLbl}</span>
-      <span style="font-size:11px;color:${dClr};font-weight:600">${t.dir.toUpperCase()}</span>
-      <span style="font-size:11px;color:var(--txt2)">$${t.entry.toFixed(2)} ${exitStr}</span>
+    const isOpen  = t.res === 'open';
+    const isWin   = t.res === 'win';
+    const isErr   = t.res === 'error';
+    const dClr    = t.dir === 'long' ? 'var(--green)' : 'var(--red)';
+    const pClr    = isOpen ? 'var(--cyan)' : isWin ? 'var(--green)' : isErr ? 'var(--orange)' : 'var(--red)';
+    const stCls   = isOpen ? 'sig-rcv' : isWin ? 'sig-exec' : isErr ? 'sig-status' : 'sig-failed';
+
+    // Status label with reason
+    let stLbl;
+    if (isOpen)        stLbl = t.paper ? 'PAPER' : 'OPEN';
+    else if (isErr)    stLbl = 'BŁĄD';
+    else if (t.closeReason === 'tp_hit') stLbl = '🎯 TP';
+    else if (t.closeReason === 'sl_hit') stLbl = '🛑 SL';
+    else if (isWin)    stLbl = 'WIN';
+    else               stLbl = 'LOSS';
+
+    const pStr = isOpen
+      ? (t.paper ? '(dry-run)' : '⏳ otwarta')
+      : isErr
+        ? escHtml((t.errMsg||'').slice(0, 60))
+        : t.pUsd !== null
+          ? `${t.pUsd>=0?'+':''}$${t.pUsd.toFixed(0)} (${t.pPct>=0?'+':''}${t.pPct}%)`
+          : t.pPct !== null ? `${t.pPct>=0?'+':''}${t.pPct}%` : '—';
+
+    const exitPart = t.exit !== null
+      ? `→ <b style="color:var(--txt1)">$${(+t.exit).toFixed(2)}</b>`
+      : `SL:<span style="color:var(--red)">${escHtml(String(t.sl||'?'))}</span>`;
+
+    const qtyPart  = t.qty ? `<span style="font-size:10px;color:var(--txt3)">${t.qty} szt</span>` : '';
+    const dateStr  = fmtTs(t.tsC||t.tsO, {dateOnly:true});
+    const bgStyle  = isOpen && !t.paper ? 'background:rgba(0,212,255,0.04);' : isErr ? 'background:rgba(255,149,0,0.04);' : '';
+    return `<div class="signal-row" style="${bgStyle}">
+      <span class="sig-status ${stCls}" style="${isErr?'color:var(--orange);border-color:var(--orange)':''}">${stLbl}</span>
+      <span style="font-size:11px;color:${dClr};font-weight:600">${(t.dir||'?').toUpperCase()}</span>
+      <span style="font-size:11px;color:var(--txt2)">$${(+t.entry||0).toFixed(2)} ${exitPart}</span>
+      ${qtyPart}
       <span style="font-size:11px;color:${pClr};font-weight:600;margin-left:auto">${pStr}</span>
       <span style="font-size:10px;color:var(--txt3)">${dateStr}</span>
     </div>`;
@@ -3750,7 +4364,7 @@ async function loadStrategies() {
               <div style="display:flex;gap:4px;margin-left:auto">
                 <button class="btn btn-outline btn-sm" onclick="loadStrategies()" title="Odśwież">↻</button>
                 <button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)"
-                  onclick="clearStratSignals('${escHtml(s.key)}','${escHtml(sym)}')" title="Usuń sygnały ${escHtml(sym)}">🗑</button>
+                  onclick="this._origText='🗑';clearStratSignals('${escHtml(s.key)}','${escHtml(sym)}',this)" title="Usuń sygnały ${escHtml(sym)}">🗑</button>
               </div>
             </div>
             <div>${_tradeRows(trades)}</div>
@@ -3766,7 +4380,7 @@ async function loadStrategies() {
         <div style="margin-left:auto;display:flex;gap:6px">
           <button class="btn btn-outline btn-sm" onclick="loadStrategies()">↻ Odśwież</button>
           <button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)"
-            onclick="clearStratSignals('${escHtml(s.key)}')" title="Wyczyść wszystkie sygnały tej strategii">🗑 Wyczyść</button>
+            onclick="this._origText='🗑 Wyczyść';clearStratSignals('${escHtml(s.key)}',null,this)" title="Wyczyść wszystkie sygnały tej strategii">🗑 Wyczyść</button>
         </div>
       </div>
       <div class="strat-meta">
@@ -3795,8 +4409,9 @@ async function loadStrategies() {
     const ndot = document.getElementById('dot-ngrok');
     const ok   = ndot && ndot.classList.contains('on');
     document.querySelectorAll('[id^="ngrokBadge_"]').forEach(badge => {
-      badge.textContent = `Webhook: ${ok ? '✅ Online' : '❌ Offline'}`;
-      badge.className   = 'card-badge ' + (ok ? 'badge-green' : 'badge-red');
+      const wMode = (window._ngrokMode || '').toLowerCase();
+      badge.textContent = ok ? ('Webhook: ' + (wMode === 'live' ? 'LIVE ✓' : wMode === 'paper' ? 'PAPER (dry-run)' : 'Online ✓')) : 'Webhook: Offline';
+      badge.className   = 'card-badge ' + (ok && wMode === 'live' ? 'badge-green' : ok ? 'badge-orange' : 'badge-red');
     });
   });
 }
@@ -3808,6 +4423,7 @@ const PROMPTS = {
     {label:'📊 Daily Brief',  desc:'fetch_positions + whale snapshot + blogwatcher + OI/funding → TOP LONG/SHORT setup dnia', text:'Uruchom moją poranną zmianę: fetch_positions (wszystkie giełdy) + whale snapshot (hl_whale_tracker --top 20 --window week) + blogwatcher digest + OI i funding dla BTC/ETH/SOL/HYPE/LINK. Dla każdego aktywa wyjaśnij PO POLSKU: kto płaci funding (longi czy shorty) i co to oznacza dla kierunku ceny. Na końcu: TOP 1 LONG setup, TOP 1 SHORT setup, 1 watchlist, portfolio ranking.'},
     {label:'💰 My Book',      desc:'Aktualne pozycje na wszystkich giełdach z oceną: in confluence / neutral / fighting tape', text:'Pokaż moje aktualne pozycje na wszystkich giełdach i oceń każdą: in confluence / neutral / fighting tape'},
     {label:'📰 News Digest',  desc:'Blogwatcher: świeże nagłówki z crypto blogów i mediów (--refresh)', text:'python scripts/blogwatcher.py --refresh'},
+    {label:'🌍 Econ → Aktywa', desc:'Spojrzenie NA PRZÓD (3 dni, US/EU/DE/JP) — Claude łączy nadchodzące wydarzenia z Twoim portfolio i ocenia kierunek dla BTC/ETH/SOL/HYPE/LINK/GOLD/SILVER/OIL/SP500. Samo DZIŚ + już opublikowane dane → "econ pełny dzień" w zakładce Skrypty (za darmo, bez Claude)', text:'Pokaż nadchodzące wydarzenia z kalendarza ekonomicznego na najbliższe 3 dni (python scripts/econ_calendar.py --days 3), ale skup się TYLKO na US, Strefie Euro (EU), Niemczech (DE) i Japonii (JP) — pomiń pozostałe kraje. Dla każdego ważnego wydarzenia (KRYTYCZNY/WYSOKI), które jeszcze się NIE wydarzyło, wyjaśnij PO POLSKU jak hawkish vs dovish surprise wpłynie na: BTC, ETH, SOL, HYPE, LINK, GOLD, SILVER, OIL, SP500. Na końcu jedno zdanie: który z najbliższych 3 dni wymaga największej ostrożności w pozycjach.'},
   ],
   whale: [
     {label:'🐋 Whale Snapshot', desc:'KROK 1: pobiera snapshot top 20 portfeli HL (~60s) → KROK 2: diff zmian → KROK 3: raport Claude z tabelą, flipami i Expert View (~2-3 min łącznie)', action:'whale_snapshot'},
@@ -3838,7 +4454,10 @@ const PROMPTS = {
     {label:'📊 quotes',         desc:'Quotes brief — szybki przegląd kursów', text:'python scripts/quotes.py --brief'},
     {label:'😱 fear_greed',     desc:'Fear & Greed Index z ostatnich 7 dni', text:'python scripts/fear_greed.py --days 7'},
     {label:'📈 oi_tracker',     desc:'Open Interest tracker — brief', text:'python scripts/oi_tracker.py --brief'},
-    {label:'📅 econ_calendar',  desc:'Najbliższe wydarzenia makro z kalendarza ekonomicznego', text:'python scripts/econ_calendar.py --upcoming'},
+    {label:'📊 econ pełny dzień', desc:'GŁÓWNE NARZĘDZIE na DZIŚ (US/EU/DE/JP): co już wyszło — wynik vs prognoza + tabela wpływu na BTC/ETH/SOL/HYPE/LINK/Złoto/Srebro/Ropę/SP500/USD; co dopiero wyjdzie — oba scenariusze WYŻEJ/NIŻEJ; do każdego "Co to jest" po ludzku + Horyzont krótko/długoterminowy. Za darmo, bez Claude', text:'python scripts/econ_calendar.py --full'},
+    {label:'📅 econ dziś',      desc:'Szybka checklista: co jeszcze dziś wyjdzie, bez analizy wpływu (z oceną ważności KRYTYCZNY/WYSOKI/SREDNI/NISKI) — do analizy wpływu użyj "econ pełny dzień"', text:'python scripts/econ_calendar.py --upcoming'},
+    {label:'📅 econ 3 dni',     desc:'Planowanie do przodu: cały kalendarz makro na 3 dni (9 krajów) + ocena ryzyka dnia (EXPERT VIEW) — gdy "econ pełny dzień" pokazuje tylko dziś', text:'python scripts/econ_calendar.py --days 3'},
+    {label:'📐 econ impact',    desc:'Ręczna kalkulacja "co jeśli" dla DOWOLNEGO wydarzenia (też spoza US/EU/DE/JP) — wpływ na BTC/GOLD/OIL/USD/SP500. Podmień nazwę i liczby: impact NAZWA WYNIK_FAKTYCZNY WYNIK_OCZEKIWANY (np. CPI 3.4 3.1)', text:'python scripts/econ_calendar.py impact CPI 3.4 3.1'},
     {label:'😊 x_sentiment',    desc:'Sentyment X dla BTC, ETH, HYPE (ostatnie 24h)', text:'python scripts/x_sentiment.py sentiment --coins BTC ETH HYPE'},
     {label:'😊 x_sent ALL',     desc:'Sentyment X dla wszystkich obserwowanych coinów', text:'python scripts/x_sentiment.py sentiment --group all'},
     {label:'📦 polymarket',     desc:'Polymarket: aktualne rynki predykcji brief', text:'python scripts/polymarket.py --brief'},
@@ -4035,11 +4654,12 @@ async function runCommand() {
   if (isClaude && result.ok) {
     responseBox.innerHTML = renderAnalysis(rawOut);
   } else {
-    responseBox.innerHTML = `<pre style="white-space:pre-wrap;font-family:'Space Mono',monospace;font-size:12px;line-height:1.6;color:var(--txt)">${escHtml(stripAnsi(rawOut))}</pre>`;
+    responseBox.innerHTML = highlightDataOutput(rawOut);
   }
 
-  // ── Auto-save ALL substantial results to Historia Analiz ──
-  if (result.output && result.output.length > 80) {
+  // ── Auto-save substantial results to Historia Analiz ──
+  // (skip if the backend already saved this run via SAVE_HISTORY)
+  if (!result.history_saved && result.output && result.output.length > 80) {
     // Determine label from active prompt chip or input
     let saveLabel = '';
     const activeChip = document.querySelector('.prompt-chip.active');
@@ -4048,7 +4668,9 @@ async function runCommand() {
     } else {
       saveLabel = input.trim().substring(0, 60) + (input.length > 60 ? '…' : '');
     }
-    const saveScript = isClaude ? _promptToScriptKey(input) : (input.split(/\s/)[0].replace(/^python scripts\//,'').replace('python ','') || 'manual');
+    const saveScript = isClaude
+      ? _promptToScriptKey(input)
+      : (input.replace(/^python scripts\//, '').replace(/^python\s+/, '').split(/\s+/)[0] || 'manual');
     saveResultToHistory(
       saveLabel + ' ' + new Date().toISOString().substring(0,16).replace('T',' '),
       saveScript,

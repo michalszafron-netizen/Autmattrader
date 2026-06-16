@@ -9,7 +9,7 @@ import os
 import sqlite3
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import re
@@ -224,26 +224,31 @@ def is_port_open(host: str, port: int, timeout: float = 1.0) -> bool:
 def status():
     """Bot process status check."""
     claude_running = is_process_running('claude.exe')
-    # Check VPS webhook via HTTP (quick timeout)
+    # Check VPS webhook via HTTP (quick timeout) — also grab trading_mode
     ngrok_ok = False
+    ngrok_mode = 'unknown'
     try:
-        import urllib.request
-        req = urllib.request.urlopen(
+        import urllib.request as _ur
+        _req = _ur.urlopen(
             'https://gladiator-doorbell-handwoven.ngrok-free.dev/health',
             timeout=4)
-        ngrok_ok = req.status == 200
+        if _req.status == 200:
+            ngrok_ok = True
+            _health = json.loads(_req.read())
+            ngrok_mode = _health.get('trading_mode', 'unknown')
     except Exception:
         pass
 
     vps_api_ok = is_port_open('92.112.181.37', 5008, timeout=2.0)
 
     return jsonify({
-        'tgtrade':  claude_running,
-        'hermes':   is_process_running('hermes.exe'),
-        'ngrok':    ngrok_ok,
-        'tvhook':   is_port_open('127.0.0.1', 5005),
-        'vps_api':  vps_api_ok,
-        'ts':       utc_now(),
+        'tgtrade':    claude_running,
+        'hermes':     is_process_running('hermes.exe'),
+        'ngrok':      ngrok_ok,
+        'ngrok_mode': ngrok_mode,
+        'tvhook':     is_port_open('127.0.0.1', 5005),
+        'vps_api':    vps_api_ok,
+        'ts':         utc_now(),
     })
 
 
@@ -501,6 +506,30 @@ def _fetch_vps(endpoint: str, timeout: float = 2.5) -> dict:
     return {}
 
 
+_NGROK_ALERTS_URL = 'https://gladiator-doorbell-handwoven.ngrok-free.dev/alerts'
+
+def _fetch_webhook_alerts(limit: int = 50) -> list:
+    """Fetch TV webhook alerts from VPS via ngrok (HTTPS). Falls back to local file."""
+    try:
+        with httpx.Client(timeout=5.0) as c:
+            r = c.get(_NGROK_ALERTS_URL)
+            if r.status_code == 200:
+                return list(reversed(r.json()[-limit:]))
+    except Exception:
+        pass
+    # fallback: local alerts.jsonl
+    result = []
+    if ALERTS_FILE.exists():
+        try:
+            lines = ALERTS_FILE.read_text(encoding='utf-8').splitlines()
+            for line in lines[-limit:]:
+                result.append(json.loads(line))
+            result.reverse()
+        except Exception:
+            pass
+    return result
+
+
 @app.route('/api/watchlist', methods=['GET'])
 def watchlist_get():
     """Return all user-tracked wallets."""
@@ -597,6 +626,99 @@ def watchlist_delete(address: str):
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
+def _compute_sm_signals(sm_snapshot, sm_chart, kozaki_snapshot):
+    """Rankuje coiny wg siły konsensusu Smart Money → lista sygnałów handlowych."""
+    now = datetime.now(timezone.utc)
+    cutoff_24h = (now - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M')
+    cutoff_6h  = (now - timedelta(hours=6)).strftime('%Y-%m-%d %H:%M')
+
+    # Snapshot SM: {coin: {side: {notional, wallet_count}}}
+    snap = {}
+    for r in (sm_snapshot or []):
+        coin, side = (r.get('coin') or '').upper(), (r.get('side') or '').upper()
+        if not coin or not side:
+            continue
+        snap.setdefault(coin, {})[side] = {
+            'notional': float(r.get('notional') or 0),
+            'wallet_count': int(r.get('wallet_count') or 0),
+        }
+
+    # Fresh entries z sm_chart: {coin: {side: {24h, 6h}}}
+    fresh: dict = {}
+    for a in (sm_chart or []):
+        if a.get('alert_type') != 'NEW_POSITION':
+            continue
+        coin = (a.get('coin') or '').upper()
+        side = (a.get('side') or '').upper()
+        ts   = a.get('ts') or ''
+        if not coin or not side:
+            continue
+        e = fresh.setdefault(coin, {}).setdefault(side, {'h24': 0, 'h6': 0})
+        if ts >= cutoff_24h:
+            e['h24'] += 1
+        if ts >= cutoff_6h:
+            e['h6'] += 1
+
+    # Dominant side kozaki: {coin: side} wg sumy notional
+    koz_val: dict = {}
+    for r in (kozaki_snapshot or []):
+        coin = (r.get('coin') or '').upper()
+        side = (r.get('side') or '').upper()
+        if not coin or not side:
+            continue
+        koz_val.setdefault(coin, {})
+        koz_val[coin][side] = koz_val[coin].get(side, 0) + float(r.get('notional') or 0)
+    koz_dom = {c: max(s, key=s.get) for c, s in koz_val.items()}
+
+    signals = []
+    for coin, sides in snap.items():
+        long_n  = sides.get('LONG',  {}).get('notional', 0)
+        short_n = sides.get('SHORT', {}).get('notional', 0)
+        long_w  = sides.get('LONG',  {}).get('wallet_count', 0)
+        short_w = sides.get('SHORT', {}).get('wallet_count', 0)
+        w_total = long_w + short_w
+        if w_total == 0:
+            continue
+
+        if long_n >= short_n:
+            dom_side, dom_w, dom_n, opp_w = 'LONG', long_w, long_n, short_w
+        else:
+            dom_side, dom_w, dom_n, opp_w = 'SHORT', short_w, short_n, long_w
+
+        if dom_w == 0:
+            continue
+
+        purity = dom_w / w_total
+        f = fresh.get(coin, {}).get(dom_side, {'h24': 0, 'h6': 0})
+        f24, f6 = f['h24'], f['h6']
+        koz_ok  = koz_dom.get(coin) == dom_side
+
+        score = round(
+            dom_w * purity
+            * (1 + 0.15 * f24)
+            * (1 + 0.40 * f6)
+            * (1.35 if koz_ok else 1.0),
+            1
+        )
+
+        signals.append({
+            'coin':        coin,
+            'side':        dom_side,
+            'score':       score,
+            'wallet_dom':  dom_w,
+            'wallet_opp':  opp_w,
+            'wallet_total': w_total,
+            'purity_pct':  round(purity * 100),
+            'notional':    round(dom_n),
+            'fresh_24h':   f24,
+            'fresh_6h':    f6,
+            'kozaki':      koz_ok,
+        })
+
+    signals.sort(key=lambda x: x['score'], reverse=True)
+    return signals[:25]
+
+
 @app.route('/api/alerts')
 def alerts():
     """Recent alerts: smart money, volume anomalies, listings, insider.
@@ -607,6 +729,14 @@ def alerts():
     sm = vps.get('smart_money') or db_query(
         "SELECT ts, alert_type, coin, side, wallet, notional, details FROM sm_alerts "
         "ORDER BY ts DESC LIMIT 300"
+    ) or []
+
+    # Historia alertów SM dla wykresu Activity — pełne okno 14 dni, ASC dla rysowania
+    sm_cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).strftime('%Y-%m-%d %H:%M')
+    sm_chart = vps.get('smart_money_chart') or db_query(
+        "SELECT ts, alert_type, coin, side, wallet, notional, details FROM sm_alerts "
+        "WHERE ts >= ? ORDER BY ts ASC LIMIT 5000",
+        (sm_cutoff,)
     ) or []
     vol = db_query(
         "SELECT ts, symbol, exchange, volume_usd, ratio, direction FROM volume_anomalies "
@@ -637,15 +767,8 @@ def alerts():
            ORDER BY ks.notional DESC LIMIT 20"""
     ) or []
 
-    # TV webhook signals from local alerts.jsonl
-    tv_alerts = []
-    if ALERTS_FILE.exists():
-        try:
-            lines = ALERTS_FILE.read_text(encoding='utf-8').splitlines()
-            for line in lines[-30:]:
-                tv_alerts.append(json.loads(line))
-        except Exception:
-            pass
+    # TV webhook signals — prefer VPS (webhook runs there), fallback to local
+    tv_alerts = _fetch_webhook_alerts(limit=30)
 
     # SM Snapshot — aktualne pozycje ze OSTATNIEGO skanu (nie zdarzenia, ale stan bieżący)
     # Grupowane po coin+side, sumy notional i liczba portfeli → dane dla Whale Thermometru
@@ -659,10 +782,13 @@ def alerts():
            ORDER BY notional DESC"""
     ) or []
 
-    return jsonify({'smart_money': sm, 'volume': vol, 'listings': listings,
+    sm_signals = _compute_sm_signals(sm_snapshot, sm_chart, kozaki_snapshot)
+
+    return jsonify({'smart_money': sm, 'smart_money_chart': sm_chart, 'volume': vol,
+                    'listings': listings,
                     'tv_alerts': tv_alerts, 'insider': insider,
                     'kozaki': kozaki, 'kozaki_snapshot': kozaki_snapshot,
-                    'sm_snapshot': sm_snapshot})
+                    'sm_snapshot': sm_snapshot, 'sm_signals': sm_signals})
 
 
 # ── Routes — Reports ─────────────────────────────────────────────────────────
@@ -749,11 +875,13 @@ def run():
     result = run_script(script, [str(a) for a in args], timeout=timeout)
 
     # Auto-save meaningful analysis results to history
+    history_saved = False
     if result['ok'] and result.get('output') and script in SAVE_HISTORY:
         label_parts = [script.replace('.py', '')] + [str(a) for a in args[:2]]
         _save_history(script, ' '.join(label_parts), result['output'])
+        history_saved = True
 
-    return jsonify(result)
+    return jsonify({**result, 'history_saved': history_saved})
 
 
 # ── Routes — Analysis History ─────────────────────────────────────────────────
@@ -775,7 +903,8 @@ def history_list():
         placeholders = ','.join('?' for _ in cat_scripts)
         rows = db_query(
             f"SELECT id, ts, script, label, substr(output,1,400) as preview "
-            f"FROM analysis_history WHERE script IN ({placeholders}) ORDER BY ts DESC LIMIT 150",
+            f"FROM analysis_history WHERE REPLACE(script,'.py','') IN ({placeholders}) "
+            f"ORDER BY ts DESC LIMIT 150",
             cat_scripts
         ) or []
     else:
@@ -999,15 +1128,8 @@ def health_extended():
 @app.route('/api/strategies')
 def strategies():
     """Strategy registry + recent TV webhook signals."""
-    tv_alerts = []
-    if ALERTS_FILE.exists():
-        try:
-            lines = ALERTS_FILE.read_text(encoding='utf-8').splitlines()
-            for line in lines[-50:]:
-                tv_alerts.append(json.loads(line))
-            tv_alerts.reverse()
-        except Exception:
-            pass
+    # TV webhook signals — prefer VPS (webhook runs there), fallback to local
+    tv_alerts = _fetch_webhook_alerts(limit=50)
 
     strategies_list = [
         {
@@ -1036,40 +1158,46 @@ def strategies():
 
 @app.route('/api/strategies/signals/clear', methods=['DELETE'])
 def clear_strategy_signals():
-    """Permanently delete entries from alerts.jsonl.
-    ?strategy=zl-volatility-v1  → removes that strategy + legacy (no-strategy) entries.
-    ?symbol=RGTI                → combined with strategy, or alone, to filter by symbol.
-    No param                    → clears the whole file.
-    """
+    """Clear alerts on VPS (primary) + local fallback file."""
     strategy = request.args.get('strategy', '').strip().lower()
     symbol   = request.args.get('symbol',   '').strip().upper()
-    if not ALERTS_FILE.exists():
-        return jsonify({'ok': True, 'cleared': 0})
+
+    # Forward clear request to VPS webhook (where real alerts live)
+    vps_cleared = 0
     try:
-        lines = [l for l in ALERTS_FILE.read_text(encoding='utf-8').splitlines() if l.strip()]
-        if strategy or symbol:
-            kept, cleared = [], 0
-            for line in lines:
-                try:
-                    d          = json.loads(line)
-                    sig_strat  = d.get('strategy', '').lower()
-                    sig_symbol = d.get('symbol',   '').upper()
-                    # Match strategy: explicit match OR legacy entry (no strategy field)
-                    strat_ok = not strategy or sig_strat == strategy or not sig_strat
-                    # Match symbol: exact match or no filter
-                    sym_ok   = not symbol or sig_symbol == symbol
-                    if strat_ok and sym_ok:
-                        cleared += 1
-                    else:
+        params = {'secret': os.getenv('TV_SECRET', '')}
+        if strategy: params['strategy'] = strategy
+        if symbol:   params['symbol']   = symbol
+        with httpx.Client(timeout=8.0) as c:
+            r = c.delete(_NGROK_ALERTS_URL.replace('/alerts', '/clear'), params=params)
+            if r.status_code == 200:
+                vps_cleared = r.json().get('cleared', 0)
+    except Exception:
+        pass
+
+    # Also clear local file
+    local_cleared = 0
+    if ALERTS_FILE.exists():
+        try:
+            lines = [l for l in ALERTS_FILE.read_text(encoding='utf-8').splitlines() if l.strip()]
+            if strategy or symbol:
+                kept = []
+                for line in lines:
+                    try:
+                        d = json.loads(line)
+                        s_ok = not strategy or d.get('strategy','').lower() == strategy or not d.get('strategy')
+                        y_ok = not symbol   or d.get('symbol','').upper() == symbol
+                        if not (s_ok and y_ok): kept.append(line)
+                        else: local_cleared += 1
+                    except Exception:
                         kept.append(line)
-                except Exception:
-                    kept.append(line)  # keep unparseable lines
-        else:
-            kept, cleared = [], len(lines)
-        ALERTS_FILE.write_text('\n'.join(kept) + ('\n' if kept else ''), encoding='utf-8')
-        return jsonify({'ok': True, 'cleared': cleared})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+            else:
+                kept, local_cleared = [], len(lines)
+            ALERTS_FILE.write_text('\n'.join(kept) + ('\n' if kept else ''), encoding='utf-8')
+        except Exception:
+            pass
+
+    return jsonify({'ok': True, 'cleared': vps_cleared + local_cleared, 'vps': vps_cleared})
 
 
 @app.route('/api/research/run', methods=['POST'])
@@ -1292,6 +1420,37 @@ def research_file():
 
     content = filepath.read_text(encoding='utf-8', errors='replace')
     return jsonify({'content': content, 'filename': fname})
+
+
+@app.route('/api/kozaki_search', methods=['POST'])
+def kozaki_search():
+    """Kozaki Searcher — wklej adres HL -> werdykt copy-trading (trader_analyzer.py).
+
+    Body: {"address": "0x...", "capital": 200}
+    Zwraca JSON z analizy (werdykt, flagi, pozycje, all-time PnL, Senpi track).
+    """
+    data = request.get_json(force=True) or {}
+    addr = str(data.get('address', '')).strip().lower()
+    capital = data.get('capital', 200)
+
+    # walidacja adresu (bezpieczenstwo subprocess)
+    if not (addr.startswith('0x') and len(addr) == 42 and all(c in '0123456789abcdef' for c in addr[2:])):
+        return jsonify({'ok': False, 'error': 'Nieprawidlowy adres (oczekiwano 0x + 40 znakow hex)'}), 400
+    try:
+        capital = float(capital)
+        if capital <= 0 or capital > 1_000_000:
+            capital = 200.0
+    except Exception:
+        capital = 200.0
+
+    result = run_script('trader_analyzer.py', [addr, '--capital', str(capital), '--json'], timeout=60)
+    if not result['ok']:
+        return jsonify({'ok': False, 'error': result.get('error') or 'Blad analizy'}), 500
+    try:
+        analysis = json.loads(result['output'].strip())
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Blad parsowania wyniku: {e}', 'raw': result['output'][:500]}), 500
+    return jsonify({'ok': True, 'analysis': analysis})
 
 
 @app.route('/api/costs')
