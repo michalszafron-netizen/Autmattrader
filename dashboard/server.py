@@ -546,6 +546,8 @@ def watchlist_add():
     address = (data.get('address') or '').strip().lower()
     if not address:
         return jsonify({'ok': False, 'error': 'address required'}), 400
+    if not re.match(r'^0x[0-9a-f]{40}$', address):
+        return jsonify({'ok': False, 'error': 'Nieprawidłowy adres — wymagany pełny format 0x + 40 znaków hex. Adres tego tradera jest prawdopodobnie prywatny (ukryty przez HL).'}), 400
     label   = (data.get('label')   or '').strip()[:120]
     comment = (data.get('comment') or '').strip()[:1000]
     source  = (data.get('source')  or 'manual').strip()[:40]

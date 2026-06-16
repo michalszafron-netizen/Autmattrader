@@ -3622,10 +3622,12 @@ function renderAlertTab(tab) {
 
       // Wallet
       const wallet = a.wallet || '';
+      const isFullAddr = /^0x[0-9a-fA-F]{40}$/.test(wallet);
       const wShort = wallet ? wallet.substring(0,12)+'…'+wallet.slice(-8) : '';
-      const wHtml  = wallet
-        ? `<span class="al-addr" title="${escHtml(wallet)}" onclick="navigator.clipboard.writeText('${escHtml(wallet)}')">${escHtml(wShort)}</span>${_wlBtn(wallet, a.label||a.coin||'', source)}`
-        : '';
+      const wHtml  = !wallet ? ''
+        : isFullAddr
+          ? `<span class="al-addr" title="${escHtml(wallet)} — kliknij aby skopiować" onclick="navigator.clipboard.writeText('${escHtml(wallet)}')">${escHtml(wShort)}</span>${_wlBtn(wallet, a.label||a.coin||'', source)}`
+          : `<span class="al-addr" title="Adres prywatny — trader ukrył pełny adres w HL (nie można skopiować ani śledzić)" style="opacity:0.5;cursor:default">${escHtml(wShort)} 🔒</span>`;
 
       // Etykieta — pełna, bez skracania
       // Stare etykiety w DB były ucinane do 40 znaków przez Python — naprawiamy najczęstsze ucięcia w wyświetlaniu
@@ -4174,6 +4176,10 @@ function _pairTrades(sigs) {
         ordId,
         paper:  (sig.note||'').includes('PAPER mode'),
       };
+    } else if (side === 'update_sl' && openPos) {
+      // Trailing SL update — just move the stop on the tracked position
+      if (sig.sl_price) openPos.sl = +sig.sl_price;
+      if (sig.stop_price) openPos.sl = +sig.stop_price;
     } else if (side==='close'||side==='partial_close') {
       if (openPos) {
         const exitP  = +(sig.price||0);
