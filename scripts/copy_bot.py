@@ -177,9 +177,37 @@ def _get_db():
                detail    TEXT
            )""",
         "CREATE INDEX IF NOT EXISTS idx_cba_ts ON copybot_actions(ts)",
+        """CREATE TABLE IF NOT EXISTS copybot_pnl (
+               id        INTEGER PRIMARY KEY AUTOINCREMENT,
+               ts        TEXT NOT NULL,
+               trader    TEXT NOT NULL,
+               coin      TEXT NOT NULL,
+               side      TEXT,
+               entry     REAL,
+               exit      REAL,
+               size      REAL,
+               realized  REAL,
+               kind      TEXT
+           )""",
+        "CREATE INDEX IF NOT EXISTS idx_cbp_trader ON copybot_pnl(trader)",
     ]:
         db._sqlite.execute(sql)
     return db
+
+
+def record_realized(db, ts, trader, coin, side, entry, exit_px, size, kind):
+    """Zapisz zrealizowany PnL z zamkniecia/redukcji.
+    LONG: (exit-entry)*size ; SHORT: (entry-exit)*size."""
+    if side == "LONG":
+        realized = (exit_px - entry) * size
+    else:
+        realized = (entry - exit_px) * size
+    db._sqlite.execute(
+        "INSERT INTO copybot_pnl (ts,trader,coin,side,entry,exit,size,realized,kind) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (ts, trader, coin, side, entry, exit_px, size, realized, kind),
+    )
+    return realized
 
 
 def load_my_positions(db, trader: str) -> dict[str, dict]:
@@ -299,8 +327,9 @@ def apply_paper(db, trader: str, actions: list[dict], ts: str) -> None:
     for a in actions:
         act = a["action"]
         if act == "SKIP":
-            log_action(db, ts, trader, "SKIP", a["coin"], a["side"], a["my_notional"],
-                       a["their_notional"], a["price"], a.get("lev"), None, a.get("detail", ""))
+            # SKIP NIE jest logowany do bazy — to ~16 wpisow/tick, puchlo do 87k+ wierszy.
+            # Pomijane pozycje sa nieistotne dla analizy; jesli trzeba je policzyc,
+            # robimy to na zywo w reconcile, nie w trwalym logu.
             continue
         size = a.get("size", a["my_notional"] / a["price"] if a["price"] > 0 else 0)
         sl = a.get("sl_price")
@@ -310,10 +339,23 @@ def apply_paper(db, trader: str, actions: list[dict], ts: str) -> None:
         elif act in ("ADD", "REDUCE"):
             existing = load_my_positions(db, trader).get(a["coin"], {})
             entry = existing.get("entry", a["price"])
+            old_size = float(existing.get("size", 0) or 0)
             new_size = a["my_notional"] / a["price"] if a["price"] > 0 else 0
+            # REDUCE: zamykamy czesc pozycji -> realizujemy PnL na zmniejszonym kawalku
+            if act == "REDUCE" and old_size > new_size > 0 and entry:
+                closed_chunk = old_size - new_size
+                record_realized(db, ts, trader, a["coin"], a["side"],
+                                entry, a["price"], closed_chunk, "REDUCE")
             upsert_my_position(db, trader, a["coin"], a["side"], new_size, entry,
                                a["my_notional"], a.get("lev"), existing.get("sl_price", sl), ts)
         elif act == "CLOSE":
+            # CLOSE: cala pozycja -> realizujemy PnL na calym rozmiarze
+            existing = load_my_positions(db, trader).get(a["coin"], {})
+            entry = float(existing.get("entry", a["price"]) or a["price"])
+            csize = float(existing.get("size", 0) or 0)
+            if csize > 0 and entry:
+                record_realized(db, ts, trader, a["coin"], a["side"],
+                                entry, a["price"], csize, "CLOSE")
             delete_my_position(db, trader, a["coin"])
         log_action(db, ts, trader, act, a["coin"], a["side"], a["my_notional"],
                    a["their_notional"], a["price"], a.get("lev"), sl, a.get("detail", ""))
@@ -429,11 +471,67 @@ def cmd_status() -> None:
     print(f"{'='*64}\n")
 
 
+def cmd_report() -> None:
+    """Ranking traderow wg PnL: zrealizowany (z bazy) + niezrealizowany (otwarte vs ceny teraz)."""
+    cfg = load_config()
+    db = _get_db()
+    traders = get_traders(cfg)
+    print(f"\n{'='*66}")
+    print(f"COPY BOT — RANKING PnL [{'PAPER' if PAPER_MODE else 'LIVE'}] | "
+          f"kapital ${cfg['my_capital_usd']}/trader | mult {cfg['multiplier']}x")
+    okres = db._sqlite.query("SELECT MIN(ts) a, MAX(ts) b FROM copybot_actions")
+    if okres and okres[0]["a"]:
+        print(f"Okres: {okres[0]['a']} -> {okres[0]['b']}")
+    print('='*66)
+
+    ranking = []
+    for t in traders:
+        addr, label = t["address"], t.get("label", t["address"])
+        # zrealizowany PnL z bazy
+        rz = db._sqlite.query(
+            "SELECT COALESCE(SUM(realized),0) s, COUNT(*) n, "
+            "SUM(CASE WHEN realized>0 THEN 1 ELSE 0 END) w "
+            "FROM copybot_pnl WHERE trader=?", (addr,))
+        realized = rz[0]["s"] or 0.0
+        closed_n = rz[0]["n"] or 0
+        wins = rz[0]["w"] or 0
+        # niezrealizowany z otwartych pozycji vs aktualne ceny
+        mypos = load_my_positions(db, addr)
+        unreal = 0.0
+        if mypos:
+            marks = fetch_mark_prices(list(mypos))
+            for c, p in mypos.items():
+                mk = marks.get(c, p["entry"])
+                sz = float(p["size"] or 0)
+                if p["side"] == "LONG":
+                    unreal += (mk - p["entry"]) * sz
+                else:
+                    unreal += (p["entry"] - mk) * sz
+        total = realized + unreal
+        wr = f"{100*wins//closed_n}%" if closed_n else "—"
+        ranking.append((total, realized, unreal, closed_n, wr, len(mypos), label))
+
+    ranking.sort(reverse=True)
+    for i, (total, realized, unreal, closed_n, wr, nopen, label) in enumerate(ranking, 1):
+        medal = ["🥇","🥈","🥉"][i-1] if i <= 3 else f"{i}."
+        sign = "+" if total >= 0 else ""
+        print(f"\n{medal} {label}")
+        print(f"   PnL CALKOWITY: {sign}${total:,.2f}  (na kapitale ${cfg['my_capital_usd']} = "
+              f"{sign}{100*total/cfg['my_capital_usd']:.1f}%)")
+        print(f"   zrealizowany: ${realized:+,.2f} ({closed_n} zamkniec, win {wr}) | "
+              f"niezrealizowany (otwarte {nopen}): ${unreal:+,.2f}")
+    print(f"\n{'='*66}")
+    print("UWAGA: PnL paper, BEZ oplat i poslizgu. Pokazuje rzad wielkosci i ktory")
+    print("trader wygrywa wzglednie. Realny wynik bedzie nizszy o ~0.09%/round-trip.")
+    print('='*66 + "\n")
+
+
 def cmd_reset() -> None:
     db = _get_db()
     db._sqlite.execute("DELETE FROM copybot_positions")
     db._sqlite.execute("DELETE FROM copybot_actions")
-    print("[copy_bot] Wszystkie wirtualne portfele wyczyszczone (start od zera).")
+    db._sqlite.execute("DELETE FROM copybot_pnl")
+    print("[copy_bot] Wszystkie wirtualne portfele + PnL wyczyszczone (start od zera).")
 
 
 def main() -> None:
@@ -441,6 +539,7 @@ def main() -> None:
     p.add_argument("--interval", type=int, default=60)
     p.add_argument("--daemon", action="store_true")
     p.add_argument("--status", action="store_true")
+    p.add_argument("--report", action="store_true")
     p.add_argument("--reset", action="store_true")
     args = p.parse_args()
 
@@ -451,6 +550,8 @@ def main() -> None:
 
     if args.status:
         cmd_status(); return
+    if args.report:
+        cmd_report(); return
     if args.reset:
         cmd_reset(); return
 
