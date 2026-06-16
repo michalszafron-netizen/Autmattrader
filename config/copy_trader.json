@@ -1,26 +1,41 @@
 {
-  "_comment": "Multi-trader shadow/paper copy. Bot sledzi kazdego osobno, wlasny wirtualny portfel per trader. Po paru dniach porownujemy i wybieramy. ZERO realnych pieniedzy (paper).",
+  "_comment": "Multi-trader paper copy. Kazdy trader wlasny wirtualny portfel + opcjonalnie wlasny kapital (capital_usd nadpisuje globalny my_capital_usd). ZERO realnych pieniedzy.",
   "my_capital_usd": 200.0,
   "multiplier": 1.0,
   "hl_min_notional_usd": 10.0,
   "traders": [
     {
-      "address": "0xe21be5bb37a3af716174cdc5d095ab224b3ef9de",
-      "label": "0xe21b — Snajper HYPE (ELITE, +$408k, ale ZNIKA na dni)",
+      "address": "0x4b1c09fa8322548360a76a3747e32a60a864bc38",
+      "label": "0x4b1c — Maszyna HFT ($2M, 26 poz) [kapital $1000]",
+      "capital_usd": 1000.0,
       "active": true
     },
     {
       "address": "0xba939edf38c0ae0cc689c98b492e0535f43e4550",
-      "label": "0xba93 — Konserwatywny (2.5 roku, DD-10%, WR93%, 5/dzien)",
+      "label": "0xba93 — Konserwatywny (2.5 roku, DD-10%, WR93%)",
       "active": true
     },
     {
-      "address": "0x4b1c09fa8322548360a76a3747e32a60a864bc38",
-      "label": "0x4b1c — Maszyna HFT ($2M, DD-4.5%, 26 pozycji, zawsze aktywny)",
+      "address": "0x83b00972aafcc3d06d45b1b823079f9a414da46e",
+      "label": "0x83b0 — Prosty 2-poz (all-time +2175%, ETH-S/HYPE-L, aktywny)",
       "active": true
+    },
+    {
+      "address": "0x75c2932ced651b2cd4c3f361f28be4cc510fbb92",
+      "label": "0x75c2 — 4-poz longi (all-time +387%, WLD/RENDER/HYPE/FART)",
+      "active": true
+    },
+    {
+      "address": "0x48ec0004494081e8332589faf0747d568da79faf",
+      "label": "0x48ec — Prosty 2-poz (BTC-S/ETH-L, konto $60k, aktywny)",
+      "active": true
+    },
+    {
+      "address": "0xe21be5bb37a3af716174cdc5d095ab224b3ef9de",
+      "label": "0xe21b — Snajper HYPE (MARTWY 5 dni — wylaczony)",
+      "active": false
     }
   ],
-  "_legacy_single": "trader_address/trader_label ponizej zostawione dla kompatybilnosci ze starym kodem — bot multi czyta 'traders'",
-  "trader_address": "0xe21be5bb37a3af716174cdc5d095ab224b3ef9de",
-  "trader_label": "0xe21b — Snajper HYPE"
+  "trader_address": "0x4b1c09fa8322548360a76a3747e32a60a864bc38",
+  "trader_label": "0x4b1c — Maszyna HFT"
 }

@@ -90,6 +90,11 @@ def get_traders(cfg: dict) -> list[dict]:
     return [{"address": cfg["trader_address"], "label": cfg.get("trader_label", cfg["trader_address"])}]
 
 
+def trader_capital(cfg: dict, t: dict) -> float:
+    """Kapital dla danego tradera: jego 'capital_usd' nadpisuje globalny 'my_capital_usd'."""
+    return float(t.get("capital_usd") or cfg["my_capital_usd"])
+
+
 # ── HL public API ─────────────────────────────────────────────────────────────
 
 def _post(payload: dict) -> dict | list:
@@ -245,11 +250,12 @@ def log_action(db, ts, trader, action, coin, side, my_notional, their_notional, 
 
 def reconcile(trader_acct: float, trader_pos: dict[str, dict],
               my_pos: dict[str, dict], marks: dict[str, float],
-              cfg: dict) -> list[dict]:
+              cfg: dict, capital: float | None = None) -> list[dict]:
     """Porownaj CEL (jego*ratio*mult) z MOIM stanem. Zwroc liste akcji."""
+    cap = capital if capital is not None else cfg["my_capital_usd"]
     # trader_acct=0 -> trader wyszedl do zera; ratio=0, ponizsza petla po jego
     # pozycjach jest pusta, wiec lecimy prosto do sekcji CLOSE moich pozycji.
-    ratio = cfg["my_capital_usd"] / trader_acct if trader_acct > 0 else 0.0
+    ratio = cap / trader_acct if trader_acct > 0 else 0.0
     mult = cfg["multiplier"]
     min_notional = cfg["hl_min_notional_usd"]
     actions: list[dict] = []
@@ -383,12 +389,13 @@ def send_telegram(text: str) -> None:
 _EMOJI = {"OPEN": "🟢", "ADD": "📈", "REDUCE": "📉", "CLOSE": "✅", "FLIP": "🔄", "SKIP": "⚪"}
 
 
-def report_actions(actions: list[dict], cfg: dict, label: str, acct: float, ratio: float, ts: str) -> str:
+def report_actions(actions: list[dict], cfg: dict, label: str, acct: float, ratio: float, ts: str, capital: float | None = None) -> str:
     mode = "PAPER" if PAPER_MODE else "LIVE"
+    cap = capital if capital is not None else cfg["my_capital_usd"]
     scale = f"1:{1/ratio:,.0f}" if ratio else "— (trader wyszedl do zera)"
     head = (f"🤖 <b>Copy Bot [{mode}]</b> — {ts}\n"
             f"<code>{label}</code>\n"
-            f"<code>Kapital ${cfg['my_capital_usd']:.0f} | mult {cfg['multiplier']}x | "
+            f"<code>Kapital ${cap:.0f} | mult {cfg['multiplier']}x | "
             f"konto {_fmt(acct)} | skala {scale}</code>")
     real = [a for a in actions if a["action"] != "SKIP"]
     skip = [a for a in actions if a["action"] == "SKIP"]
@@ -424,17 +431,18 @@ def run_once(verbose: bool = True) -> None:
             _log(f"[{ts}] [{label[:18]}] Blad API ({e}) — pomijam (nie ruszam pozycji).")
             continue
 
-        ratio = cfg["my_capital_usd"] / acct if acct > 0 else 0.0
+        cap = trader_capital(cfg, t)
+        ratio = cap / acct if acct > 0 else 0.0
         mypos = load_my_positions(db, addr)
         coins = list(set(list(tpos) + list(mypos)))
         marks = fetch_mark_prices(coins)
 
-        actions = reconcile(acct, tpos, mypos, marks, cfg)
+        actions = reconcile(acct, tpos, mypos, marks, cfg, capital=cap)
         apply_paper(db, addr, actions, ts)
 
         real = [a for a in actions if a["action"] != "SKIP"]
         if real:
-            msg = report_actions(actions, cfg, label, acct, ratio, ts)
+            msg = report_actions(actions, cfg, label, acct, ratio, ts, capital=cap)
             send_telegram(msg)
             _log(msg.replace("<b>","").replace("</b>","").replace("<code>","")
                     .replace("</code>","").replace("<i>","").replace("</i>",""))
@@ -455,10 +463,11 @@ def cmd_status() -> None:
             acct, tpos = fetch_trader(addr)
         except Exception as e:
             acct, tpos = 0.0, {}; print(f"\n[{label}] blad API: {e}")
-        ratio = cfg["my_capital_usd"] / acct if acct else 0
+        cap = trader_capital(cfg, t)
+        ratio = cap / acct if acct else 0
         scale = f"1:{1/ratio:,.0f}" if ratio else "— (na zero)"
         print(f"\n{'-'*64}\n{label}")
-        print(f"  konto {_fmt(acct)} | skala {scale}")
+        print(f"  kapital ${cap:.0f} | konto {_fmt(acct)} | skala {scale}")
         print(f"  MOJ PORTFEL ({len(mypos)}): " + (
             ", ".join(f"{c} {p['side']} {_fmt(p['notional'])}" for c, p in mypos.items()) or "(pusty)"))
         if tpos:
@@ -507,17 +516,20 @@ def cmd_report() -> None:
                     unreal += (mk - p["entry"]) * sz
                 else:
                     unreal += (p["entry"] - mk) * sz
-        total = realized + unreal
+        cap = trader_capital(cfg, t)
+        # %: porownujemy wynik do kapitala TEGO tradera (rozne kwoty -> uczciwe %)
+        pct = 100*total/cap if cap else 0
+        total_pct = total / cap if cap else 0  # do sortowania wg % (sprawiedliwie)
         wr = f"{100*wins//closed_n}%" if closed_n else "—"
-        ranking.append((total, realized, unreal, closed_n, wr, len(mypos), label))
+        ranking.append((total_pct, total, pct, realized, unreal, closed_n, wr, len(mypos), cap, label))
 
     ranking.sort(reverse=True)
-    for i, (total, realized, unreal, closed_n, wr, nopen, label) in enumerate(ranking, 1):
+    for i, (total_pct, total, pct, realized, unreal, closed_n, wr, nopen, cap, label) in enumerate(ranking, 1):
         medal = ["🥇","🥈","🥉"][i-1] if i <= 3 else f"{i}."
         sign = "+" if total >= 0 else ""
         print(f"\n{medal} {label}")
-        print(f"   PnL CALKOWITY: {sign}${total:,.2f}  (na kapitale ${cfg['my_capital_usd']} = "
-              f"{sign}{100*total/cfg['my_capital_usd']:.1f}%)")
+        print(f"   PnL CALKOWITY: {sign}${total:,.2f}  (na kapitale ${cap:.0f} = "
+              f"{sign}{pct:.1f}%)")
         print(f"   zrealizowany: ${realized:+,.2f} ({closed_n} zamkniec, win {wr}) | "
               f"niezrealizowany (otwarte {nopen}): ${unreal:+,.2f}")
     print(f"\n{'='*66}")
