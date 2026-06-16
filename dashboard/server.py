@@ -1399,7 +1399,21 @@ def research_history():
         t['verdict'] = meta.get('verdict', '')
         t['name']    = meta.get('name', '')
 
-    return jsonify({'tokens': tokens, 'stocks': stocks})
+    # Kozaki research: reports/research/kozaki/*.md (nazwa: <addr>_<VERDICT>_<date>.md)
+    kozaki = []
+    kozaki_dir = research_dir / 'kozaki'
+    if kozaki_dir.exists():
+        for f in sorted(kozaki_dir.glob('*.md'), key=lambda x: x.stat().st_mtime, reverse=True)[:60]:
+            parts = f.stem.split('_')
+            kozaki.append({
+                'filename': f.name,
+                'addr':     parts[0] if parts else '?',
+                'verdict':  parts[1] if len(parts) > 1 else '?',
+                'date':     parts[-1] if parts else '?',
+                'mtime':    f.stat().st_mtime,
+            })
+
+    return jsonify({'tokens': tokens, 'stocks': stocks, 'kozaki': kozaki})
 
 
 @app.route('/api/research/file')
@@ -1414,7 +1428,12 @@ def research_file():
         return jsonify({'error': 'Only .md files'}), 400
 
     base = ROOT / 'reports' / 'research'
-    filepath = (base / 'stocks' / fname) if subdir == 'stocks' else (base / fname)
+    if subdir == 'stocks':
+        filepath = base / 'stocks' / fname
+    elif subdir == 'kozaki':
+        filepath = base / 'kozaki' / fname
+    else:
+        filepath = base / fname
     if not filepath.exists():
         return jsonify({'error': 'Not found'}), 404
 
@@ -1443,7 +1462,7 @@ def kozaki_search():
     except Exception:
         capital = 200.0
 
-    result = run_script('trader_analyzer.py', [addr, '--capital', str(capital), '--json'], timeout=60)
+    result = run_script('trader_analyzer.py', [addr, '--capital', str(capital), '--json', '--save'], timeout=60)
     if not result['ok']:
         return jsonify({'ok': False, 'error': result.get('error') or 'Blad analizy'}), 500
     try:

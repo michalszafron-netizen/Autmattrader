@@ -142,19 +142,36 @@ def fetch_alltime_pnl(wallet: str) -> dict:
 
 
 def fetch_trade_style(wallet: str) -> dict:
-    """Realna czestotliwosc + ostatnia aktywnosc z userFills."""
-    out = {"fills_7d": 0, "last_trade_h": None, "active": False}
+    """Aktywnosc + czestotliwosc w oknie 30 dni (szerszy zakres niz dzisiejsze pozycje).
+
+    Klucz: liczymy REALNE ZAMKNIECIA (closedPnl != 0 = decyzje), nie surowe fille
+    (drabinki zawyzaja). Plus aktywne dni — czy handluje regularnie czy zrywami.
+    """
+    out = {"fills_7d": 0, "fills_30d": 0, "closes_30d": 0, "active_days_30d": 0,
+           "last_trade_h": None, "active": False, "closes_per_week": 0.0}
     try:
         now = datetime.now(timezone.utc)
-        start = int((now.timestamp() - 7 * 86400) * 1000)
-        fills = _hl({"type": "userFillsByTime", "user": wallet, "startTime": start})
-        if isinstance(fills, list):
-            out["fills_7d"] = len(fills)
-            if fills:
-                last_ms = max(f.get("time", 0) for f in fills)
-                hrs = (now.timestamp() * 1000 - last_ms) / 3600000
-                out["last_trade_h"] = round(hrs, 1)
-                out["active"] = hrs < 48
+        now_ms = now.timestamp() * 1000
+        start30 = int(now_ms - 30 * 86400 * 1000)
+        fills = _hl({"type": "userFillsByTime", "user": wallet, "startTime": start30})
+        if isinstance(fills, list) and fills:
+            out["fills_30d"] = len(fills)
+            # fille z ostatnich 7d (do oceny "swiezosci")
+            cutoff7 = now_ms - 7 * 86400 * 1000
+            out["fills_7d"] = sum(1 for f in fills if f.get("time", 0) >= cutoff7)
+            # realne zamkniecia = decyzje (closedPnl != 0)
+            closes = [f for f in fills if abs(float(f.get("closedPnl", "0") or 0)) > 0]
+            out["closes_30d"] = len(closes)
+            out["closes_per_week"] = round(len(closes) / (30 / 7), 1)
+            # aktywne dni (ile roznych dni handlowal — regularnosc vs zrywy)
+            days = {datetime.fromtimestamp(f.get("time", 0) / 1000, timezone.utc).date()
+                    for f in fills}
+            out["active_days_30d"] = len(days)
+            # ostatnia aktywnosc
+            last_ms = max(f.get("time", 0) for f in fills)
+            hrs = (now_ms - last_ms) / 3600000
+            out["last_trade_h"] = round(hrs, 1)
+            out["active"] = hrs < 48
     except Exception:
         pass
     return out
@@ -197,12 +214,23 @@ def verdict(state, pnl, style, track, capital, min_notional=10.0) -> dict:
         else:
             flags_bad.append(f"All-time PnL UJEMNY (${at:,.0f}) — long-term pod kreska (pulapka!)")
 
-    # 2. Aktywnosc (lekcja 0xe21b — znikajacy traderzy)
+    # 2. Aktywnosc + REGULARNOSC 30d (szerszy zakres — "2 pozycje dzis != martwy")
+    closes30 = style.get("closes_30d", 0)
+    days30 = style.get("active_days_30d", 0)
+    last_h = style.get("last_trade_h")
     if style.get("active"):
-        flags_good.append(f"Aktywny ({style['fills_7d']} fillow/7d, ost. trade {style.get('last_trade_h')}h temu)")
+        flags_good.append(
+            f"Aktywny: {closes30} zamkniec/30d (~{style.get('closes_per_week')}/tydz), "
+            f"handlowal w {days30}/30 dni, ost. trade {last_h}h temu")
+        if days30 >= 15:
+            flags_good.append(f"Regularny — handluje wiekszosc dni ({days30}/30)")
+        elif days30 <= 5 and closes30 > 0:
+            flags_warn.append(f"Zrywami — aktywny tylko {days30}/30 dni (dlugie przerwy)")
     else:
-        lt = style.get("last_trade_h")
-        flags_bad.append(f"NIEAKTYWNY (ost. trade {lt}h temu)" if lt else "Brak aktywnosci 7d — moze znikl")
+        if last_h and last_h < 168:  # <7 dni
+            flags_warn.append(f"Cisza od {last_h}h, ale {closes30} zamkniec/30d — moze robic przerwe")
+        else:
+            flags_bad.append(f"NIEAKTYWNY (ost. trade {last_h}h temu)" if last_h else "Brak aktywnosci 30d — moze znikl")
 
     # 3. Kopiowalnosc przy danym kapitale
     acct = state["account_value"]
@@ -289,8 +317,10 @@ def render(a: dict) -> str:
     L.append("=" * 64)
     L.append(f"\nWERDYKT: {_VERDICT_EMOJI.get(a['verdict'], a['verdict'])}\n")
     s, p, st, tr = a["state"], a["pnl"], a["style"], a["track"]
-    L.append(f"Konto: ${s['account_value']:,.0f} | pozycji: {len(s['positions'])} | "
-             f"fille/7d: {st['fills_7d']} | ost.trade: {st.get('last_trade_h')}h temu")
+    L.append(f"Konto: ${s['account_value']:,.0f} | pozycji teraz: {len(s['positions'])} | "
+             f"ost.trade: {st.get('last_trade_h')}h temu")
+    L.append(f"30 dni: {st.get('closes_30d',0)} zamkniec (~{st.get('closes_per_week',0)}/tydz) | "
+             f"handlowal w {st.get('active_days_30d',0)}/30 dni | fille/7d: {st['fills_7d']}")
     if p.get("alltime_pnl") is not None:
         L.append(f"All-time PnL: ${p['alltime_pnl']:+,.0f} (szczyt ${p.get('peak',0):+,.0f} / "
                  f"dno ${p.get('trough',0):+,.0f}) | tydzien: ${p.get('week_pnl') or 0:+,.0f}")
@@ -314,17 +344,62 @@ def render(a: dict) -> str:
     return "\n".join(L)
 
 
+def to_markdown(a: dict) -> str:
+    """Raport MD do zapisu w reports/research/kozaki/."""
+    if "error" in a:
+        return f"# Kozaki Searcher — BLAD\n\n{a['error']}\n"
+    s, p, st, tr = a["state"], a["pnl"], a["style"], a["track"]
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    L = [f"# 🔎 Kozaki Searcher — {a['short']}", "",
+         f"**Werdykt: {a['verdict']}** · kapital ${a['capital']:.0f} · {now}", "",
+         f"- Adres: `{a['wallet']}`",
+         f"- Konto: ${s['account_value']:,.0f} | pozycji teraz: {len(s['positions'])} | ost.trade: {st.get('last_trade_h')}h temu",
+         f"- 30 dni: {st.get('closes_30d',0)} zamkniec (~{st.get('closes_per_week',0)}/tydz), handlowal w {st.get('active_days_30d',0)}/30 dni"]
+    if p.get("alltime_pnl") is not None:
+        L.append(f"- All-time PnL: ${p['alltime_pnl']:+,.0f} (szczyt ${p.get('peak',0):+,.0f} / dno ${p.get('trough',0):+,.0f}) | tydzien ${p.get('week_pnl') or 0:+,.0f}")
+    if tr:
+        L.append(f"- Senpi: ROI {tr.get('roi',0):.1f} · WR {tr.get('win_rate',0):.0f}% · G2P {tr.get('gain_to_pain',0):.0f} · {tr.get('activity')}/{tr.get('consistency')}/{tr.get('risk')}")
+    L += ["", "## Sygnaly", ""]
+    for f in a["good"]: L.append(f"- ✅ {f}")
+    for f in a["warn"]: L.append(f"- ⚠️ {f}")
+    for f in a["bad"]:  L.append(f"- ❌ {f}")
+    if s["positions"]:
+        L += ["", "## Pozycje teraz", "", "| Coin | Strona | Notional | Lev | uPnL |", "|---|---|---|---|---|"]
+        for pos in s["positions"][:12]:
+            L.append(f"| {pos['coin']} | {pos['side']} | ${pos['notional']:,.0f} | {pos['lev']}x | ${pos['upnl']:+,.0f} |")
+    return "\n".join(L) + "\n"
+
+
+def save_report(a: dict) -> str | None:
+    """Zapisz raport MD do reports/research/kozaki/. Zwraca nazwe pliku."""
+    if "error" in a:
+        return None
+    d = Path(__file__).parent.parent / "reports" / "research" / "kozaki"
+    d.mkdir(parents=True, exist_ok=True)
+    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    fname = f"{a['short'].replace('...','-')}_{a['verdict']}_{date}.md"
+    (d / fname).write_text(to_markdown(a), encoding="utf-8")
+    return fname
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Kozaki Searcher — analiza tradera HL do copy-tradingu")
     ap.add_argument("wallet", help="adres portfela HL (0x...)")
     ap.add_argument("--capital", type=float, default=200.0, help="Twoj kapital (do oceny kopiowalnosci)")
     ap.add_argument("--json", action="store_true", help="output JSON (dla dashboardu)")
+    ap.add_argument("--save", action="store_true", help="zapisz raport MD do reports/research/kozaki/")
     args = ap.parse_args()
     result = analyze(args.wallet, args.capital)
+    if args.save:
+        fname = save_report(result)
+        if fname:
+            result["saved_file"] = fname
     if args.json:
         print(json.dumps(result, ensure_ascii=False))
     else:
         print(render(result))
+        if result.get("saved_file"):
+            print(f"\n[zapisano] reports/research/kozaki/{result['saved_file']}")
 
 
 if __name__ == "__main__":

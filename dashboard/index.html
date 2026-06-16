@@ -3181,6 +3181,9 @@ function _wlBtn(address, label, source) {
 
 // ── Alerts ─────────────────────────────────────────────────────────────────
 async function loadAlerts() {
+  // Kozaki Searcher to narzedzie on-demand, nie strumien alertow — auto-refresh
+  // (co 2 min) NIE moze kasowac wyniku analizy. Pomijamy gdy uzytkownik jest w tej zakladce.
+  if (currentAlertTab === 'searcher') { return; }
   const el = document.getElementById('alertContent');
   el.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
   // Load watchlist addresses in parallel so "+" / "✓" buttons render correctly
@@ -3496,9 +3499,10 @@ function renderSearcherResult(a) {
     <div style="font-size:12px;color:var(--txt3);font-family:monospace;margin-bottom:10px">${a.short} · kapital $${a.capital}</div>
     <div style="font-size:12px;color:var(--txt2);line-height:1.7;margin-bottom:10px">
       Konto: <b>$${Math.round(s.account_value||0).toLocaleString()}</b> ·
-      pozycji: <b>${(s.positions||[]).length}</b> ·
-      fille/7d: <b>${st.fills_7d||0}</b> ·
-      ost.trade: <b>${st.last_trade_h!=null?st.last_trade_h+'h':'—'}</b><br>`;
+      pozycji teraz: <b>${(s.positions||[]).length}</b> ·
+      ost.trade: <b>${st.last_trade_h!=null?st.last_trade_h+'h':'—'}</b><br>
+      <span style="color:var(--txt3)">30 dni:</span> <b>${st.closes_30d||0}</b> zamkniec
+      (~${st.closes_per_week||0}/tydz) · handlowal <b>${st.active_days_30d||0}/30</b> dni<br>`;
   if (p.alltime_pnl!=null) h += `All-time PnL: <b style="color:${p.alltime_pnl>=0?'var(--green)':'var(--red)'}">${fmt(p.alltime_pnl)}</b> (tydzien ${fmt(p.week_pnl||0)})<br>`;
   if (tr) h += `Senpi: ROI ${(tr.roi||0).toFixed(1)} · WR ${(tr.win_rate||0).toFixed(0)}% · G2P ${(tr.gain_to_pain||0).toFixed(0)} · ${tr.activity}/${tr.consistency}/${tr.risk}`;
   else h += `<span style="color:var(--txt3)">Senpi niedostepny — analiza z HL API</span>`;
@@ -4170,20 +4174,32 @@ function _pairTrades(sigs) {
         ordId,
         paper:  (sig.note||'').includes('PAPER mode'),
       };
-    } else if ((side==='close'||side==='partial_close') && openPos) {
-      const exitP  = +(sig.price||0);
-      const mult   = openPos.dir==='long' ? 1 : -1;
-      const pPct   = (exitP - openPos.entry) / (openPos.entry||1) * 100 * mult;
-      const pUsd   = openPos.qty ? (exitP - openPos.entry) * openPos.qty * mult : null;
-      trades.push({
-        dir: openPos.dir, entry: openPos.entry, exit: exitP,
-        qty: openPos.qty, pPct: +pPct.toFixed(2),
-        pUsd: pUsd ? +pUsd.toFixed(2) : null,
-        tsO: openPos.ts, tsC: sig.received_at||'',
-        sl: openPos.sl, tp: openPos.tp,
-        res: pPct>=0?'win':'loss', closeReason: 'manual',
-      });
-      openPos = null;
+    } else if (side==='close'||side==='partial_close') {
+      if (openPos) {
+        const exitP  = +(sig.price||0);
+        const mult   = openPos.dir==='long' ? 1 : -1;
+        const pPct   = (exitP - openPos.entry) / (openPos.entry||1) * 100 * mult;
+        const pUsd   = openPos.qty ? (exitP - openPos.entry) * openPos.qty * mult : null;
+        trades.push({
+          dir: openPos.dir, entry: openPos.entry, exit: exitP,
+          qty: openPos.qty, pPct: +pPct.toFixed(2),
+          pUsd: pUsd ? +pUsd.toFixed(2) : null,
+          tsO: openPos.ts, tsC: sig.received_at||'',
+          sl: openPos.sl, tp: openPos.tp,
+          res: pPct>=0?'win':'loss', closeReason: 'manual',
+        });
+        openPos = null;
+      } else {
+        // Close signal arrived but no tracked open position (e.g. closed manually or no entry yet)
+        trades.push({
+          dir: null, entry: +(sig.price||0), exit: null,
+          qty: null, pPct: null, pUsd: null,
+          tsO: sig.received_at||'', tsC: null,
+          sl: null, tp: null,
+          res: 'close_skip',
+          note: sig.note || '',
+        });
+      }
     }
   }
 
@@ -4234,16 +4250,18 @@ function _tradeRows(trades) {
     </div>`;
   }
 
-  const wins   = trades.filter(t => t.res === 'win').length;
-  const losses = trades.filter(t => t.res === 'loss').length;
-  const opens  = trades.filter(t => t.res === 'open').length;
+  const realTrades = trades.filter(t => t.res !== 'close_skip');
+  const wins   = realTrades.filter(t => t.res === 'win').length;
+  const losses = realTrades.filter(t => t.res === 'loss').length;
+  const opens  = realTrades.filter(t => t.res === 'open').length;
   const closed = wins + losses;
   const wr     = closed > 0 ? Math.round(wins / closed * 100) : null;
-  const totUsd = trades.reduce((s,t) => s + (t.pUsd||0), 0);
-  const avgWin = wins  > 0 ? trades.filter(t=>t.res==='win' ).reduce((s,t)=>s+(t.pUsd||0),0)/wins  : null;
-  const avgLos = losses> 0 ? trades.filter(t=>t.res==='loss').reduce((s,t)=>s+(t.pUsd||0),0)/losses: null;
+  const totUsd = realTrades.reduce((s,t) => s + (t.pUsd||0), 0);
+  const avgWin = wins  > 0 ? realTrades.filter(t=>t.res==='win' ).reduce((s,t)=>s+(t.pUsd||0),0)/wins  : null;
+  const avgLos = losses> 0 ? realTrades.filter(t=>t.res==='loss').reduce((s,t)=>s+(t.pUsd||0),0)/losses: null;
 
-  const summaryHtml = `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;
+  const summaryHtml = realTrades.length === 0 ? '' :
+    `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;
       padding:6px 0 10px;border-bottom:1px solid var(--border);margin-bottom:4px;font-size:11px">
     ${wr !== null
       ? `<span style="color:${wr>=50?'var(--green)':'var(--red)'};font-size:13px;font-weight:700">${wr}% WR</span>
@@ -4257,6 +4275,16 @@ function _tradeRows(trades) {
   </div>`;
 
   const rows = trades.map(t => {
+    // Orphan close signal — no matching entry was tracked
+    if (t.res === 'close_skip') {
+      return `<div class="signal-row" style="opacity:0.5">
+        <span class="sig-status sig-rcv" style="color:var(--txt3);border-color:var(--txt3)">SKIP</span>
+        <span style="font-size:11px;color:var(--txt3)">Close @ $${(+t.entry||0).toFixed(2)}</span>
+        <span style="font-size:10px;color:var(--txt3);margin-left:auto">brak pozycji</span>
+        <span style="font-size:10px;color:var(--txt3)">${fmtTs(t.tsO,{dateOnly:true})}</span>
+      </div>`;
+    }
+
     const isOpen  = t.res === 'open';
     const isWin   = t.res === 'win';
     const isErr   = t.res === 'error';
@@ -4346,14 +4374,15 @@ async function loadStrategies() {
     const symCardsHtml = symbols.length === 0
       ? `<div class="empty" style="grid-column:1/-1"><div class="icon">📡</div><p>Brak sygnałów — webhook gotowy, czeka na sygnał z TradingView</p></div>`
       : symbols.map(sym => {
-          const ss     = symMap[sym];
-          const trades = _pairTrades(ss);
-          const wins   = trades.filter(t => t.res === 'win').length;
-          const losses = trades.filter(t => t.res === 'loss').length;
-          const opens  = trades.filter(t => t.res === 'open').length;
-          const closed = wins + losses;
-          const wr     = closed > 0 ? Math.round(wins/closed*100) : null;
-          const totUsd = trades.reduce((acc, t) => acc + (t.pUsd||0), 0);
+          const ss        = symMap[sym];
+          const trades    = _pairTrades(ss);
+          const realTr    = trades.filter(t => t.res !== 'close_skip');
+          const wins      = realTr.filter(t => t.res === 'win').length;
+          const losses    = realTr.filter(t => t.res === 'loss').length;
+          const opens     = realTr.filter(t => t.res === 'open').length;
+          const closed    = wins + losses;
+          const wr        = closed > 0 ? Math.round(wins/closed*100) : null;
+          const totUsd    = realTr.reduce((acc, t) => acc + (t.pUsd||0), 0);
           return `<div class="card">
             <div class="card-hdr" style="padding-bottom:8px">
               <span style="font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:var(--cyan)">${escHtml(sym)}</span>
