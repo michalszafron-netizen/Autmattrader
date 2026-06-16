@@ -799,6 +799,7 @@ header{
         <div style="display:flex;gap:5px;align-items:center">
           <button class="cat-btn active" id="rTabToken"  onclick="switchResearchTab('token')"  style="font-size:11px;padding:3px 10px;height:auto">🪙 Token</button>
           <button class="cat-btn"        id="rTabStock"  onclick="switchResearchTab('stock')"  style="font-size:11px;padding:3px 10px;height:auto">📈 Stocks/TradFi</button>
+          <button class="cat-btn"        id="rTabKozaki" onclick="switchResearchTab('kozaki')" style="font-size:11px;padding:3px 10px;height:auto">🦅 Kozaki</button>
           <button class="btn btn-outline btn-sm" onclick="loadResearchHistory()">↻</button>
         </div>
       </div>
@@ -877,6 +878,19 @@ header{
         <div style="border-top:1px solid var(--border);padding-top:10px">
           <div style="font-size:11px;color:var(--txt3);font-family:'Space Mono',monospace;margin-bottom:8px">HISTORIA RESEARCHY</div>
           <div id="rStockHistory">
+            <div style="color:var(--txt3);font-size:12px;text-align:center;padding:12px">Kliknij ↻ aby załadować</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- KOZAKI HISTORY TAB -->
+      <div id="rFormKozaki" style="display:none;padding:0 4px 10px">
+        <div style="padding:10px 0 8px;font-size:11px;color:var(--txt3)">
+          Analizy z zakładki <strong>🔎 Kozaki Searcher</strong> — każde wyszukanie zapisuje raport tutaj.
+        </div>
+        <div style="border-top:1px solid var(--border);padding-top:10px">
+          <div style="font-size:11px;color:var(--txt3);font-family:'Space Mono',monospace;margin-bottom:8px">ZAPISANE ANALIZY KOZAKÓW</div>
+          <div id="rKozakiHistory">
             <div style="color:var(--txt3);font-size:12px;text-align:center;padding:12px">Kliknij ↻ aby załadować</div>
           </div>
         </div>
@@ -1465,8 +1479,10 @@ function switchResearchTab(tab) {
   _researchTab = tab;
   document.getElementById('rTabToken').classList.toggle('active', tab === 'token');
   document.getElementById('rTabStock').classList.toggle('active', tab === 'stock');
+  document.getElementById('rTabKozaki').classList.toggle('active', tab === 'kozaki');
   document.getElementById('rFormToken').style.display = tab === 'token' ? '' : 'none';
   document.getElementById('rFormStock').style.display = tab === 'stock' ? '' : 'none';
+  document.getElementById('rFormKozaki').style.display = tab === 'kozaki' ? '' : 'none';
 }
 
 function updateStockOptions() {
@@ -1664,6 +1680,26 @@ async function loadResearchHistory() {
             </div>
             <span style="color:var(--txt3);font-size:10px;font-family:'Space Mono',monospace">${escHtml(s.date)}</span>
           </div>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  // Kozaki history
+  const kozEl = document.getElementById('rKozakiHistory');
+  if (kozEl) {
+    if (!data.kozaki || !data.kozaki.length) {
+      kozEl.innerHTML = '<div style="color:var(--txt3);font-size:12px;text-align:center;padding:8px">Brak analiz — użyj zakładki 🔎 Kozaki Searcher</div>';
+    } else {
+      const vColor = v => v === 'KOPIUJ' ? 'var(--green)' : v === 'UNIKAJ' ? 'var(--red)' : 'var(--yellow,#ffd32a)';
+      kozEl.innerHTML = data.kozaki.map(k => {
+        const addrShort = (k.addr||'').substring(0,10) + '…' + (k.addr||'').slice(-6);
+        return `<div class="research-history-item" onclick="loadResearchFile('${escHtml(k.filename)}','kozaki')">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
+            <span style="color:var(--cyan);font-weight:600;font-size:12px;font-family:'Space Mono',monospace">${escHtml(addrShort)}</span>
+            <span style="font-weight:700;font-size:12px;color:${vColor(k.verdict)}">${escHtml(k.verdict||'?')}</span>
+          </div>
+          <div style="color:var(--txt3);font-size:10px;font-family:'Space Mono',monospace;margin-top:2px">${escHtml(k.date||'')}</div>
         </div>`;
       }).join('');
     }
