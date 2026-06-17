@@ -262,6 +262,7 @@ header{
 .venue-ext{background:rgba(247,147,26,0.15);color:var(--orange)}
 .venue-alpaca{background:rgba(0,255,136,0.15);color:var(--green)}
 .venue-sol{background:rgba(153,69,255,0.15);color:#9945ff}
+.venue-bybit{background:rgba(247,166,0,0.15);color:#f7a600}
 .side-long{color:var(--green);font-weight:600}
 .side-short{color:var(--red);font-weight:600}
 
@@ -750,7 +751,7 @@ header{
 <div id="panel-positions" class="panel">
   <div class="card">
     <div class="card-hdr">
-      <span class="card-title">Wszystkie Pozycje — HL + Extended + Alpaca + Solana</span>
+      <span class="card-title">Wszystkie Pozycje — HL + Extended + Bybit + Alpaca + Solana</span>
       <div style="display:flex;gap:8px;align-items:center">
         <span class="card-badge badge-green" id="posTotalBadge">Ładuję...</span>
         <button class="btn btn-outline btn-sm" id="posViewToggle" onclick="togglePosView()" style="display:none">🔤 Raw</button>
@@ -2280,11 +2281,11 @@ function togglePosView() {
 }
 
 function renderPositionsTable(positions) {
-  const ALL_VENUES = ['Hyperliquid', 'Extended', 'Solana', 'Alpaca'];
+  const ALL_VENUES = ['Hyperliquid', 'Extended', 'Bybit', 'Solana', 'Alpaca'];
 
   const venueClass = v => ({
     'Hyperliquid': 'venue-hl', 'Extended': 'venue-ext',
-    'Alpaca': 'venue-alpaca', 'Solana': 'venue-sol',
+    'Alpaca': 'venue-alpaca', 'Solana': 'venue-sol', 'Bybit': 'venue-bybit',
   }[v] || 'venue-hl');
 
   const fmt = (n, digits = 2) => n == null ? '—' :
@@ -2296,7 +2297,7 @@ function renderPositionsTable(positions) {
     return `<span class="${cls}">${n > 0 ? '+' : ''}$${fmt(n)}</span>`;
   };
 
-  // Group by venue — always include all 4 venues
+  // Group by venue — always include all 5 venues
   const byVenue = {};
   ALL_VENUES.forEach(v => byVenue[v] = []);
   (positions || []).forEach(p => {
@@ -2367,7 +2368,7 @@ async function loadPositions() {
   const badge = document.getElementById('posTotalBadge');
   const rawEl = document.getElementById('posOutputRaw');
   const toggle = document.getElementById('posViewToggle');
-  if (el) el.innerHTML = '<div class="loading"><div class="spinner"></div> Pobieranie z HL + Extended + Alpaca + Solana...</div>';
+  if (el) el.innerHTML = '<div class="loading"><div class="spinner"></div> Pobieranie z HL + Extended + Bybit + Alpaca + Solana...</div>';
 
   const data = await api('/positions_json');
 
@@ -2436,6 +2437,7 @@ async function refreshPositionsMini() {
   const VENUES = [
     {key: 'Hyperliquid', label: '⚡ Hyperliquid'},
     {key: 'Extended',    label: '🔷 Extended'},
+    {key: 'Bybit',       label: '🟡 Bybit'},
     {key: 'Solana',      label: '◎ Solana'},
     {key: 'Alpaca',      label: '📈 Alpaca'},
   ];
@@ -4503,7 +4505,7 @@ const PROMPTS = {
     {label:'🎯 Liquidation Hunt', desc:'whales --window day: identyfikuje strefy likwidacji retail longów na podstawie koncentracji smart money po stronie SHORT', text:'Uruchom: python scripts/hl_whale_tracker.py whales --top 20 --window day\nZidentyfikuj: (1) gdzie jest największa koncentracja longów które mogą być zlikwidowane (entry vs mark, lewar), (2) monety gdzie smart money jest SHORT — to jest potencjalny likwidator longów retail. Tabela: Coin | Smart Money Bias | Szacowana strefa likwidacji retail | Ryzyko.'},
   ],
   positions: [
-    {label:'📋 Position Check', desc:'fetch_positions.py: pobiera live pozycje z HL, Extended, Alpaca i Solana', text:'python scripts/fetch_positions.py'},
+    {label:'📋 Position Check', desc:'fetch_positions.py: pobiera live pozycje z HL, Extended, Bybit, Alpaca i Solana', text:'python scripts/fetch_positions.py'},
     {label:'⚠️ Risk Audit',     desc:'Sprawdza ekspozycję vs reguła 2%/6% — ile jeszcze możesz otworzyć bezpiecznie', text:'Przed wejściem w nową pozycję: sprawdź moją obecną ekspozycję (fetch_positions). Ile mogę jeszcze otworzyć nie łamiąc reguły 2%/6%?'},
     {label:'🧟 Zombie Killer',  desc:'Pozycje otwarte >7 dni z |uPnL| <0.5R: martwe trade\'y bez impulsu — close/scratch/tight SL', text:'Pozycje otwarte >7 dni z |uPnL| <0.5R. To zombie trades. Dla każdej: close / set tight SL / exit at scratch.'},
     {label:'📊 Cross-venue',    desc:'Porównuje te same pozycje na różnych giełdach i sprawdza funding rates — gdzie trzymać taniej', text:'Czy mam tę samą pozycję na różnych venue? Porównaj funding rates — gdzie trzymać taniej?'},

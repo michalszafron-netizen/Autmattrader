@@ -152,6 +152,45 @@ def cancel_order(order_id: str) -> bool:
     return r.status_code == 204
 
 
+def replace_sl_order(order_id: str, new_stop_price: float) -> dict:
+    """Update SL: cancel old stop leg (even if 'held' in bracket), place new standalone stop-GTC.
+
+    Alpaca /replace does NOT work for bracket OCA legs in 'held' status — use cancel + re-place.
+    The new order is standalone (no OCA link) and uses GTC so it survives across sessions.
+    """
+    # Fetch original to get symbol/qty/side
+    with client() as c:
+        orig_r = c.get(f"{BASE_URL}/v2/orders/{order_id}")
+    if not orig_r.is_success:
+        raise RuntimeError(f"Cannot fetch SL order {order_id[:8]}: {orig_r.status_code}")
+    orig   = orig_r.json()
+    symbol = orig.get("symbol", "")
+    qty    = orig.get("qty", "1")
+    side   = orig.get("side", "buy")  # SL for short = buy; for long = sell
+
+    # Cancel existing SL leg (best-effort — it may be held/already terminal)
+    try:
+        with httpx.Client(verify=_SSL, timeout=30, headers=HEADERS) as c:
+            c.delete(f"{BASE_URL}/v2/orders/{order_id}")
+    except Exception:
+        pass  # proceed regardless — we're replacing with a new standalone order
+
+    # Place new standalone stop-GTC
+    payload = {
+        "symbol":        symbol,
+        "qty":           qty,
+        "side":          side,
+        "type":          "stop",
+        "time_in_force": "gtc",
+        "stop_price":    str(round(new_stop_price, 2)),
+    }
+    with client() as c:
+        r = c.post(f"{BASE_URL}/v2/orders", json=payload)
+    if not r.is_success:
+        raise RuntimeError(f"Alpaca {r.status_code}: {r.text}")
+    return r.json()
+
+
 # ── Display ───────────────────────────────────────────────────────────────────
 
 def show_positions() -> None:
@@ -268,6 +307,11 @@ def main() -> None:
     br.add_argument("--tp",     type=float, default=None, metavar="LIMIT_PRICE",
                     help="Take-profit limit price (optional)")
 
+    us = sub.add_parser("update_sl",
+         help="Replace an existing SL stop order with a new stop price")
+    us.add_argument("order_id",   help="Existing SL order ID to replace")
+    us.add_argument("stop_price", type=float, help="New stop-loss price")
+
     args = p.parse_args()
 
     if args.cmd == "equity":
@@ -295,7 +339,10 @@ def main() -> None:
         lp = result.get("limit_price", "")
         console.print(f"[green]Order placed[/green] [{MODE}] | {args.symbol.upper()} {side.upper()} {args.qty} "
                       f"{'@ $'+str(lp) if lp else 'MARKET'} | status={status} | OID={oid}")
+        import json as _json
         print(f"Order placed — OID: {result.get('id','')}")
+        print(_json.dumps({"alpaca_order_id": result.get("id",""), "qty": int(args.qty),
+                           "symbol": args.symbol.upper(), "side": side, "status": result.get("status","")}))
 
     elif args.cmd == "close":
         pos = get_position(args.symbol.upper())
@@ -309,6 +356,7 @@ def main() -> None:
         print(f"Position closed — {args.symbol.upper()} {qty} {side}")
 
     elif args.cmd == "bracket":
+        import json as _json
         side = "buy" if args.side in ("long", "buy") else "sell"
         result = bracket_order(args.symbol.upper(), side, args.qty,
                                sl_price=args.sl, tp_price=args.tp)
@@ -325,10 +373,26 @@ def main() -> None:
             + f" | status={status} | OID={oid}"
         )
         print(f"Bracket placed — OID: {result.get('id','')} SL={args.sl} TP={args.tp or 'none'}")
+        print(_json.dumps({"alpaca_order_id": result.get("id",""), "qty": int(args.qty),
+                           "symbol": args.symbol.upper(), "side": side, "status": status,
+                           "sl_order_id": sl_leg.get("id",""), "tp_order_id": tp_leg.get("id","")}))
 
     elif args.cmd == "cancel":
         ok = cancel_order(args.order_id)
         console.print("[green]Cancelled[/green]" if ok else "[red]Failed to cancel[/red]")
+
+    elif args.cmd == "update_sl":
+        import json as _json
+        result = replace_sl_order(args.order_id, args.stop_price)
+        new_oid = result.get("id", "")
+        status  = result.get("status", "?")
+        console.print(
+            f"[green]SL updated[/green] [{MODE}] | "
+            f"old={args.order_id[:8]}... → new OID={new_oid[:8]}... | "
+            f"stop={args.stop_price:.4f} | status={status}"
+        )
+        print(f"SL updated — new OID: {new_oid} stop={args.stop_price}")
+        print(_json.dumps({"sl_order_id": new_oid, "stop_price": args.stop_price, "status": status}))
 
     else:
         p.print_help()

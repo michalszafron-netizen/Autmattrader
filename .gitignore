@@ -27,6 +27,19 @@ htmlcov/
 node_modules/
 package-lock.json
 
+# Local MCP config — contains API keys, do not commit
+.mcp.json
+
+# Bybit MCP — downloaded npm package, rebuild with: cd bybit-mcp && npm ci
+bybit-mcp/
+
+# Claude Code session data — local only
+.claude/
+
+# Temp output files
+out.txt
+myfxbook_test_out.txt
+
 # IDE
 .vscode/
 .idea/
@@ -37,6 +50,9 @@ Thumbs.db
 
 # Scraped content (Firecrawl output)
 .firecrawl/
+
+# Cached API responses (econ calendar fallback)
+.cache/
 
 # Logs & local data
 logs/*.log

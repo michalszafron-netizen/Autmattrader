@@ -368,7 +368,7 @@ def prices():
 
 @app.route('/api/positions')
 def positions():
-    """Fetch all positions from 4 venues."""
+    """Fetch all positions from 5 venues (HL, Extended, Bybit, Alpaca, Solana)."""
     result = run_script('fetch_positions.py', [], timeout=60)
     return jsonify({'ok': result['ok'], 'output': result['output'], 'error': result['error']})
 

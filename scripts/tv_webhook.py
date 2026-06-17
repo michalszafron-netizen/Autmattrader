@@ -90,16 +90,36 @@ def validate_payload(data: dict) -> tuple[bool, str]:
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
-def log_alert(data: dict, status: str, note: str = "") -> None:
+def log_alert(data: dict, status: str, note: str = "", exec_detail: dict | None = None) -> None:
     record = {
         "received_at": datetime.now(timezone.utc).isoformat(),
         "status": status,
         "note": note,
         **data,
     }
+    if exec_detail:
+        # Never let exec_detail overwrite fields already set by this function
+        protected = {"status", "note", "received_at"}
+        record.update({k: v for k, v in exec_detail.items() if k not in protected})
     with open(ALERTS_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
     log.info("Alert logged: %s %s %s | status=%s", data.get("symbol"), data.get("side"), data.get("price"), status)
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _find_sl_order_id(symbol: str) -> str | None:
+    """Return the most recent sl_order_id logged for this symbol (from entry or update_sl records)."""
+    if not ALERTS_FILE.exists():
+        return None
+    sl_oid = None
+    for line in ALERTS_FILE.read_text(encoding="utf-8").splitlines():
+        try:
+            r = json.loads(line)
+            if r.get("symbol", "").upper() == symbol.upper() and r.get("sl_order_id"):
+                sl_oid = r["sl_order_id"]
+        except Exception:
+            pass
+    return sl_oid
 
 # ── Trade execution ───────────────────────────────────────────────────────────
 
@@ -129,7 +149,20 @@ def detect_venue(symbol: str, data: dict) -> str:
     return "hl"
 
 
-def execute_trade(data: dict) -> tuple[bool, str]:
+def _parse_exec_output(stdout: str) -> dict:
+    """Try to parse JSON from executor stdout → exec_detail dict."""
+    for line in reversed(stdout.splitlines()):
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                return json.loads(line)
+            except Exception:
+                pass
+    return {}
+
+
+def execute_trade(data: dict) -> tuple[bool, str, dict]:
+    """Returns (success, note, exec_detail). exec_detail has order info on Alpaca fills."""
     symbol   = str(data["symbol"]).upper()
     side_raw = str(data["side"]).lower().strip()
     side     = normalize_side(side_raw) if side_raw != "partial_close" else "partial_close"
@@ -157,30 +190,23 @@ def execute_trade(data: dict) -> tuple[bool, str]:
             log.info("[Extended] Partial close %d%% of %s", close_pct, market)
 
         elif side == "update_sl":
-            log.info("[Extended] Trailing SL update for %s → SL=%.4f (log only — no cancel/replace yet)",
+            log.info("[Extended] Trailing SL update for %s → SL=%.4f (log only)",
                      market, float(data.get("sl_price", 0)))
-            return True, f"update_sl logged for {market} (manual SL management on Extended)"
+            return True, f"update_sl logged for {market} (manual SL management on Extended)", {}
 
         else:
-            # Entry order — buy/sell
             ext_side   = "long" if side in ("long", "buy") else "short"
             sl_raw     = data.get("sl_price")
             tp1_raw    = data.get("tp1_price")
-
             sl_price   = float(sl_raw) if sl_raw else (
                 price * (1 - stop_pct / 100) if ext_side == "long" else price * (1 + stop_pct / 100)
             )
             sl_dist    = abs(price - sl_price)
-
-            # Position sizing: risk_pct % of equity / sl_distance = BTC amount
-            # Default equity = 100 USDC (Extended test account); update if querying live
             equity     = 100.0
-            risk_usd   = equity * risk_pct / 100          # e.g. $1 at 1%
+            risk_usd   = equity * risk_pct / 100
             amount_btc = max(round(risk_usd / sl_dist, 6), 0.0001) if sl_dist > 0 else 0.0001
-
             log.info("[Extended] Sizing: equity=$%.0f risk=$%.2f sl_dist=%.2f qty=%.6f",
                      equity, risk_usd, sl_dist, amount_btc)
-
             cmd = [PY, str(SCRIPTS / "extended_order.py"), "order",
                    market, ext_side, str(amount_btc), str(round(price, 2)),
                    "--sl", str(round(sl_price, 2))]
@@ -188,10 +214,10 @@ def execute_trade(data: dict) -> tuple[bool, str]:
                 cmd += ["--tp", str(round(float(tp1_raw), 2))]
 
         if TRADING_MODE != "live":
-            return True, f"PAPER mode — would run: {' '.join(cmd)}"
+            return True, f"PAPER mode — would run: {' '.join(cmd)}", {}
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         success = result.returncode == 0
-        return success, (result.stdout.strip() or result.stderr.strip())
+        return success, (result.stdout.strip() or result.stderr.strip()), {}
 
     # ── ALPACA path ───────────────────────────────────────────────────────────
     if venue == "alpaca":
@@ -199,35 +225,33 @@ def execute_trade(data: dict) -> tuple[bool, str]:
             cmd = [PY, str(SCRIPTS / "alpaca_executor.py"), "close", symbol]
 
         elif side == "update_sl":
-            # Trailing stop update — bracket order manages SL automatically on Alpaca
-            log.info("[Alpaca] Trailing SL update for %s → SL now %.4f (bracket handles it)",
-                     symbol, float(data.get("sl_price", 0)))
-            return True, f"update_sl logged — SL={data.get('sl_price')} (bracket order self-manages on Alpaca)"
+            new_sl = float(data.get("sl_price") or 0)
+            if not new_sl:
+                return True, "update_sl: no sl_price in payload", {}
+            sl_oid = _find_sl_order_id(symbol)
+            if not sl_oid:
+                log.warning("[Alpaca] update_sl: no sl_order_id tracked for %s", symbol)
+                return True, f"update_sl: no tracked SL order for {symbol}, new_sl={new_sl}", {}
+            log.info("[Alpaca] Replacing SL order %s → new stop=%.4f", sl_oid[:8], new_sl)
+            cmd = [PY, str(SCRIPTS / "alpaca_executor.py"),
+                   "update_sl", sl_oid, str(round(new_sl, 4))]
 
         else:
             alpaca_side = "buy" if side == "long" else "sell"
-
-            # ── Equity for position sizing ─────────────────────────────────
             try:
-                import subprocess as sp2
-                # Use dedicated "equity" command — returns a plain float, no parsing needed
-                acct_r = sp2.run([PY, str(SCRIPTS / "alpaca_executor.py"), "equity"],
-                                  capture_output=True, text=True, timeout=15)
+                acct_r = subprocess.run([PY, str(SCRIPTS / "alpaca_executor.py"), "equity"],
+                                        capture_output=True, text=True, timeout=15)
                 equity = float(acct_r.stdout.strip()) if acct_r.returncode == 0 and acct_r.stdout.strip() else 100000.0
             except Exception:
                 equity = 100000.0
             log.info("[Alpaca] Equity: $%.2f", equity)
 
-            # ── SL price — prefer Pine's ATR-based value over static stop_pct ──
             sl_price_raw = data.get("sl_price")
             tp_price_raw = data.get("tp_price")
-
             if sl_price_raw:
-                # Pine Script passed actual ATR-based SL → use it directly
                 stop_price = float(sl_price_raw)
                 log.info("[Alpaca] Using Pine ATR SL: %.4f (entry=%.4f)", stop_price, price)
             else:
-                # Fallback: static stop_pct (less accurate)
                 stop_price = price * (1 - stop_pct/100) if side == "long" else price * (1 + stop_pct/100)
                 log.info("[Alpaca] Using static stop_pct=%.1f%%: SL=%.4f", stop_pct, stop_price)
 
@@ -235,15 +259,13 @@ def execute_trade(data: dict) -> tuple[bool, str]:
             risk_usd  = equity * risk_pct / 100
             qty = max(round(risk_usd / stop_dist, 0), 1) if stop_dist > 0 else 1
             qty = int(qty)
-            # Safety cap: max 10% of equity as notional value per position
             max_qty = max(int(equity * 0.10 / price), 1) if price > 0 else qty
             if qty > max_qty:
-                log.warning("[Alpaca] qty=%d capped to %d (10%% equity cap at $%.0f)", qty, max_qty, equity)
+                log.warning("[Alpaca] qty=%d capped to %d (10%% equity cap)", qty, max_qty)
                 qty = max_qty
             log.info("Alpaca bracket sizing: equity=$%.0f risk_usd=$%.2f stop_dist=%.4f qty=%d",
                      equity, risk_usd, stop_dist, qty)
 
-            # ── Use bracket order when SL available (entry + SL + TP in one) ──
             if sl_price_raw:
                 cmd = [PY, str(SCRIPTS / "alpaca_executor.py"),
                        "bracket", symbol, alpaca_side, str(qty),
@@ -251,29 +273,29 @@ def execute_trade(data: dict) -> tuple[bool, str]:
                 if tp_price_raw:
                     cmd += ["--tp", str(round(float(tp_price_raw), 4))]
             else:
-                # Fallback: plain limit order (no SL/TP on broker)
                 cmd = [PY, str(SCRIPTS / "alpaca_executor.py"),
                        "order", symbol, alpaca_side, str(qty), str(round(price, 2))]
 
         if TRADING_MODE != "live":
-            return True, f"PAPER mode — would run: {' '.join(cmd)}"
+            return True, f"PAPER mode — would run: {' '.join(cmd)}", {}
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         success = result.returncode == 0
-        return success, (result.stdout.strip() or result.stderr.strip())
+        detail  = _parse_exec_output(result.stdout) if success else {}
+        # Strip JSON lines from note — they go into exec_detail separately
+        clean_lines = [l for l in result.stdout.splitlines() if not l.strip().startswith("{")]
+        note = "\n".join(clean_lines).strip() or result.stderr.strip()
+        return success, note, detail
 
     # ── HYPERLIQUID path ──────────────────────────────────────────────────────
     if side == "close":
-        # Close existing position
         cmd = [PY, str(SCRIPTS / "hl_executor.py"), "close", symbol]
         log.info("Closing position: %s", symbol)
     else:
-        # Calculate stop price
         if side == "long":
             stop_price = round(price * (1 - stop_pct / 100), 4)
         else:
             stop_price = round(price * (1 + stop_pct / 100), 4)
 
-        # Use position_calc to get size + ready command
         calc_cmd = [
             PY, str(SCRIPTS / "position_calc.py"),
             "risk", symbol, side,
@@ -284,19 +306,16 @@ def execute_trade(data: dict) -> tuple[bool, str]:
         log.info("Calculating position: %s", " ".join(calc_cmd))
         calc_result = subprocess.run(calc_cmd, capture_output=True, text=True, timeout=30)
 
-        # Parse ready-made hl_executor command from last line of output
         cmd = None
         for line in reversed(calc_result.stdout.splitlines()):
             if "hl_executor.py" in line and "order" in line:
                 parts = line.strip().split()
-                # Replace 'python' with our venv python
                 idx = next((i for i, p in enumerate(parts) if "hl_executor" in p), None)
                 if idx:
                     cmd = [PY] + parts[idx:]
                 break
 
         if not cmd:
-            # Fallback: minimum viable size
             size = max(round(11.0 / price, 2), 0.15)
             log.warning("Could not parse command from position_calc, fallback size: %s", size)
             cmd = [PY, str(SCRIPTS / "hl_executor.py"), "order", symbol, side, str(size), str(price)]
@@ -305,14 +324,14 @@ def execute_trade(data: dict) -> tuple[bool, str]:
 
     if TRADING_MODE != "live":
         log.info("[PAPER] Would execute: %s", " ".join(cmd))
-        return True, f"PAPER mode — would run: {' '.join(cmd)}"
+        return True, f"PAPER mode — would run: {' '.join(cmd)}", {}
 
     log.info("Executing: %s", " ".join(cmd))
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     if result.returncode == 0:
-        return True, result.stdout.strip()
+        return True, result.stdout.strip(), {}
     else:
-        return False, result.stderr.strip() or result.stdout.strip()
+        return False, result.stderr.strip() or result.stdout.strip(), {}
 
 # ── Endpoint ──────────────────────────────────────────────────────────────────
 
@@ -349,10 +368,10 @@ def receive_alert():
 
     # 5. Execute trade
     try:
-        success, note = execute_trade(data)
+        success, note, exec_detail = execute_trade(data)
         status = "executed" if success else "failed"
-        log_alert(data, status, note)
-        return jsonify({"status": status, "note": note}), 200 if success else 500
+        log_alert(data, status, note, exec_detail)
+        return jsonify({"status": status, "note": note, **exec_detail}), 200 if success else 500
     except Exception as e:
         log.exception("Execution error")
         log_alert(data, "error", str(e))
@@ -379,7 +398,43 @@ def show_alerts():
                 alerts.append(json.loads(line))
             except Exception:
                 pass
-    return jsonify(alerts[-20:])  # ostatnie 20
+    return jsonify(alerts[-50:])
+
+
+@app.route("/clear", methods=["DELETE"])
+def clear_alerts():
+    """Clear all alerts or filter by strategy/symbol. Requires secret."""
+    if TV_SECRET:
+        sent = request.args.get("secret", "") or request.headers.get("X-TV-Secret", "")
+        if sent != TV_SECRET:
+            return jsonify({"error": "unauthorized"}), 401
+    strategy = request.args.get("strategy", "").strip().lower()
+    symbol   = request.args.get("symbol",   "").strip().upper()
+    if not ALERTS_FILE.exists():
+        return jsonify({"ok": True, "cleared": 0})
+    try:
+        lines = [l for l in ALERTS_FILE.read_text(encoding="utf-8").splitlines() if l.strip()]
+        if strategy or symbol:
+            kept, n = [], 0
+            for line in lines:
+                try:
+                    d = json.loads(line)
+                    s_ok = not strategy or d.get("strategy","").lower() == strategy or not d.get("strategy")
+                    y_ok = not symbol   or d.get("symbol","").upper() == symbol
+                    if s_ok and y_ok:
+                        n += 1
+                    else:
+                        kept.append(line)
+                except Exception:
+                    kept.append(line)
+            cleared = n
+        else:
+            kept, cleared = [], len(lines)
+        ALERTS_FILE.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+        log.info("Cleared %d alerts (strategy=%r symbol=%r)", cleared, strategy or "*", symbol or "*")
+        return jsonify({"ok": True, "cleared": cleared})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 if __name__ == "__main__":

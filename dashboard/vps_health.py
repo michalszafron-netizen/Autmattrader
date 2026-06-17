@@ -16,7 +16,7 @@ Endpointy:
 import json
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -112,6 +112,12 @@ def get_alerts() -> dict:
         'smart_money': db_query(
             'SELECT ts, alert_type, coin, side, wallet, notional, details '
             'FROM sm_alerts ORDER BY ts DESC LIMIT 300'
+        ),
+        # Historia alertów SM dla wykresu Activity — pełne okno 14 dni, ASC dla rysowania
+        'smart_money_chart': db_query(
+            'SELECT ts, alert_type, coin, side, wallet, notional, details '
+            'FROM sm_alerts WHERE ts >= ? ORDER BY ts ASC LIMIT 5000',
+            ((datetime.now(timezone.utc) - timedelta(days=14)).strftime('%Y-%m-%d %H:%M'),)
         ),
         'listings': db_query(
             'SELECT ts, ticker AS symbol, exchange, url AS announce_url, title, ann_type '

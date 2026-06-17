@@ -280,6 +280,39 @@ Start: `bots` w PowerShell
 | `db.py` | `python scripts/db.py context-daily` | Poprzednie daily briefs (dla Claude) |
 | `db.py` | `python scripts/db.py context-trending` | Historia trending tokenów |
 
+### Copy Trading — własny copy bot (bez Senpi)
+
+| Skrypt | Komenda | Co robi |
+|---|---|---|
+| `copy_bot.py` | `python scripts/copy_bot.py --status` | Pokaż wirtualny portfel + cel (target-position reconciliation) |
+| `copy_bot.py` | `python scripts/copy_bot.py` | Jednorazowy reconcile (paper) |
+| `copy_bot.py` | `python scripts/copy_bot.py --daemon --interval 60` | Pętla co N sekund |
+| `copy_bot.py` | `python scripts/copy_bot.py --reset` | Wyczyść wirtualny portfel (start od zera) |
+| `shadow_copy_tracker.py` | `python scripts/shadow_copy_tracker.py` | Multi-trader paper observation — śledzi pozycje (nie fille!) wybranych traderów z `config/copy_trader.json` |
+| `shadow_copy_tracker.py` | `python scripts/shadow_copy_tracker.py --daemon` | Pętla — diff snapshotów pozycji (OPEN/CLOSE/ADD/REDUCE) |
+
+Model: TARGET-POSITION RECONCILIATION — co tick liczy `cel = trader_pozycja * ratio * multiplier`
+i wyrównuje swój stan do celu JEDNYM zleceniem (zero "100 mikro-fillów"). Tryb domyślny: **paper**
+(`TRADING_MODE`/`HL_TRADING_MODE` w `.env`). Live execution = LIMIT maker (~0.015%/strona) + obowiązkowy SL,
+jeszcze nie zaimplementowany. **Działa 24/7 na VPS** jako usługa systemd `trading-copybot` —
+patrz `KOMENDY_COPY_BOT.md` (komendy serwer/lokalnie) i `SERWER.md` (deploy).
+
+### Insider Tracker — Eddie, Maggie, Frank (US gov data, free)
+
+| Skrypt | Komenda | Co robi |
+|---|---|---|
+| `insider_tracker.py` | `python scripts/insider_tracker.py form4` | **Eddie** — SEC Form 4: insider buys ≥$100k (daily 06:00) |
+| `insider_tracker.py` | `python scripts/insider_tracker.py institutional` | **Maggie** — 13F filings: ruchy top 5 instytucjonalnych funduszy (weekly Sun 19:00) |
+| `insider_tracker.py` | `python scripts/insider_tracker.py fed` | **Frank** — Fed speeches: scoring hawkish/dovish (weekly Mon 08:00) |
+| `insider_tracker.py` | `python scripts/insider_tracker.py all --dry-run` | Wszyscy trzej, bez zapisu do DB/Telegram |
+
+Dane: darmowe publiczne API (SEC EDGAR + Fed). Wymaga `ANTHROPIC_API_KEY` do analizy sygnałów przez Claude.
+
+### War Room — dashboard 2 (Flask, port 5009)
+
+`warroom/server.py` — osobny Flask backend (port **5009**) + `warroom/index.html`.
+Trading command center — oddzielny od głównego Alpha Desk (`dashboard/`, port 5007).
+
 ### Research — gdzie się zapisuje (konwencja, OBOWIĄZKOWA)
 
 | Co | Folder | Auto-zapis? |
@@ -331,6 +364,43 @@ Podaje: wynik vs oczekiwania + werdykt (MOCNE/SŁABE/ZGODNE) + rzeczywisty wpły
 
 ### ⏳ Nadchodzące (dane jeszcze nie wyszły)
 Podaje: godzinę, ważność, estymaty + **dwa scenariusze** (jeśli WYŻSZE / jeśli NIŻSZE) dla BTC/Gold/Silver/Oil/Nasdaq + otwartych pozycji.
+
+### 🔄 Źródło danych (od 2026-06-12) — myfxbook jako PRIMARY
+
+`fetch_calendar()` w `econ_calendar.py` pobiera dane w tej kolejności:
+
+1. **myfxbook.com** (`fetch_calendar_myfxbook()`) — strona kalendarza renderowana
+   server-side (bs4, cache 30 min w `.cache/myfxbook_calendar.html`). Daje realne
+   pole **`actual`** dla wydarzeń, które już wyszły — **darmowy feed Forex Factory
+   tego NIGDY nie podawał**. To rozwiązuje problem fabrykowanych WYNIK-ów (np.
+   wcześniejszy bug: niemiecki/francuski "Final CPI" pokazywał wymyślone
+   `+1599%` przez błędne dopasowanie serii FRED).
+2. **FinnHub** `/calendar/economic` — BACKUP nr 1 (wymaga płatnego planu, dziś
+   zwykle 403, kod zachowany bez zmian).
+3. **Forex Factory free feed** (`fetch_calendar_fallback()`) — BACKUP nr 2,
+   zawsze działa bez klucza, ale **bez** `actual` (stary mechanizm, zachowany
+   1:1 jako siatka bezpieczeństwa).
+
+FRED/ECB (`resolve_actual()` → `fred_lookup()`) działa teraz jako **trzeciorzędny
+cross-check** — używany tylko gdy myfxbook jeszcze nie ma `actual` dla danego
+eventu. Gdy myfxbook poda `actual`, FRED nie jest nawet odpytywany.
+
+**Awaryjny powrót do starego zachowania** (jeśli myfxbook padnie/zmieni HTML):
+ustaw w `.env` `ECON_DISABLE_MYFXBOOK=1` — `fetch_calendar()` pójdzie wtedy
+prosto do FinnHub → FF, czyli zachowanie identyczne jak przed 2026-06-12.
+
+**Co się zmieniło w klasyfikacji ważności (`get_importance()`):** ponieważ
+myfxbook używa tych samych nazw eventów ("Inflation Rate", "Unemployment Rate",
+"Retail Sales"...) dla KAŻDEGO kraju, słowa-klucze które wcześniej zawsze
+podnosiły wagę do KRYTYCZNY/WYSOKI (`cpi`, `gdp`, `unemployment`, `pmi`,
+`retail sales`, `ppi`, nowe `inflation rate`) działają teraz **tylko dla
+`country == "US"`** (`IMPORTANCE_LABELS_US`). Dla innych krajów liczy się
+realny `impact` z myfxbook (np. niemiecka "Inflation Rate MoM" = Low →
+NISKI, nie KRYTYCZNY).
+
+**Daily Alfa (`hermes.py`):** zero zmian — `collect_econ_calendar()` woła
+`econ_calendar.py --brief` i przechwytuje stdout jako tekst, więc automatycznie
+dziedziczy nowe dane bez żadnej modyfikacji w hermes.py.
 
 ---
 
@@ -414,7 +484,7 @@ trading-ai/
 │   ├── fear_greed.py          # Fear & Greed + trend 5d
 │   ├── x_sentiment.py         # X sentiment przez Grok xAI (15 aktywów)
 │   ├── macro_news.py          # newsy Firecrawl (10 źródeł)
-│   ├── econ_calendar.py       # kalendarz FinnHub + scenariusze dla 5 aktywów
+│   ├── econ_calendar.py       # kalendarz myfxbook (z "actual"!) + FinnHub/FF fallback + scenariusze dla 5 aktywów
 │   ├── cot_tracker.py         # COT CFTC — percentyle 3-letnie
 │   ├── polymarket.py          # prediction markets (Fed, BTC, geopolityka)
 │   │
@@ -427,8 +497,14 @@ trading-ai/
 │   ├── # ── WHALE / SMART MONEY ────────────────────────────────
 │   ├── hl_whale_tracker.py    # whale positions agregat weekly/daily
 │   ├── smart_money_tracker.py # daemon 1h: hybrydowa lista HL traderów — PnL + account value (nowe pozycje >$50k)
+│   ├── kozaki_monitor.py      # monitoring elitarnych portfeli HL (config/kozaki_watchlist.json)
 │   ├── listings_scanner.py    # daemon 6h: nowe listingi na 5 giełdach
 │   ├── volume_scanner.py      # daemon 1h: anomalie wolumenu Binance 3x+
+│   ├── insider_tracker.py     # Eddie/Maggie/Frank: SEC Form 4, 13F, Fed speeches
+│   │
+│   ├── # ── COPY TRADING ──────────────────────────────────────
+│   ├── copy_bot.py            # własny copy bot HL (bez Senpi), target-position reconciliation, 24/7 na VPS
+│   ├── shadow_copy_tracker.py # multi-trader paper observation (config/copy_trader.json)
 │   │
 │   ├── # ── ANALIZA / RESEARCH ──────────────────────────────────
 │   ├── token_dashboard.py     # composite score 0-10, kafelki per token
@@ -449,11 +525,20 @@ trading-ai/
 ├── docs/
 │   ├── hl_prompts.md          # lista komend HL (whale, pozycje, makro, COT, trade setup)
 │   └── roadmap.md             # plan dalszego rozwoju
+├── config/                    # configs: copy_trader.json, kozaki_watchlist.json, assets.json
+├── strategie/                 # Pine scripts + notatki strategii (imbus, zerolag...)
+├── warroom/                   # War Room — drugi dashboard (Flask, port 5009)
+├── dashboard/                 # Alpha Desk — główny dashboard (Flask, port 5007)
+├── .codegraph/                # zaindeksowany knowledge graph kodu (MCP codegraph)
 ├── reports/                   # auto-generowane raporty (gitignored)
 ├── data/                      # SQLite DB (gitignored)
 ├── .env                       # klucze API (gitignored!)
 ├── .hermes.md                 # kontekst projektu dla Hermesa Agent (TUI)
 ├── CLAUDE.md                  # instrukcje dla Claude Code
+├── HERMES_TROUBLESHOOTING.md  # diagnostyka Hermes Desktop/Gateway
+├── KOMENDY_COPY_BOT.md        # komendy Copy Bota (VPS + lokalnie)
+├── KOMENDY_BLOGWATCHER.md      # komendy blogwatchera
+├── SERWER.md                  # deploy/operacje na VPS (Hostinger)
 └── README.md                  # ten plik
 ```
 
@@ -521,6 +606,11 @@ trading-ai/
 
 | Data | Co dodano |
 |---|---|
+| 2026-06-12 | **econ_calendar.py — myfxbook jako PRIMARY źródło kalendarza** (`fetch_calendar_myfxbook()`, bs4 + cache 30 min). Pierwsze realne `actual` dla wydarzeń non-US/EU bez zgadywania z FRED — naprawia fabrykowane WYNIK-i (np. "+1599%" dla niemieckiego CPI). Stary FinnHub→FF fallback zachowany 1:1 jako backup (`ECON_DISABLE_MYFXBOOK=1` = powrót do starego zachowania). `IMPORTANCE_LABELS` rozdzielone na uniwersalne + US-only, żeby "Inflation Rate"/"Unemployment Rate" innych krajów nie były już fałszywie KRYTYCZNY. Szczegóły: sekcja [ECON CALENDAR](#-econ-calendar--format-w-daily-brief) |
+| 2026-06-11 | **Copy Bot** (`copy_bot.py`) + **Shadow Copy Tracker** (`shadow_copy_tracker.py`) — własny copy-trading na Hyperliquid bez Senpi (zero haraczu 0.05%), model target-position reconciliation. Działa 24/7 na VPS (`trading-copybot` systemd). Komendy: `KOMENDY_COPY_BOT.md` |
+| 2026-06-11 | **insider_tracker.py** — Eddie/Maggie/Frank: SEC Form 4, 13F filings, Fed speech sentiment (darmowe US gov API) |
+| 2026-06-11 | **War Room** (`warroom/`) — drugi dashboard, Flask na porcie 5009, trading command center |
+| 2026-06-11 | **codegraph** — zaindeksowany knowledge graph kodu (`.codegraph/`), 43 plików / 1620 nodes / 3304 edges — dostępny przez MCP `mcp__codegraph__*` |
 | 2026-06-02 | **cost_tracker.py** — centralne logowanie kosztów API (Grok/DeepSeek/Firecrawl) do tabeli `api_costs`, podgląd w dashboardzie (zakładka koszty) |
 | 2026-06-02 | **token_research.py** rozbudowany — auto-wykrycie sieci (ETH/BSC/Base/Polygon) + Solana, 6 źródeł, lookup po tickerze, `--no-x`, auto-zapis MD+DB |
 | 2026-06-01 | **kozaki_monitor.py** — monitoring elitarnych portfeli HL (`config/kozaki_watchlist.json`), alerty: nowa pozycja / zamknięcie / dokupka +25% / klaster 3+ |

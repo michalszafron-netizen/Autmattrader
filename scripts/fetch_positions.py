@@ -31,12 +31,15 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac
 import json
 import os
 import sqlite3
 import ssl
 import sys
 import time
+import urllib.parse
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -72,6 +75,10 @@ ALPACA_KEY    = os.getenv("ALPACA_API_KEY", "")
 ALPACA_SECRET = os.getenv("ALPACA_API_SECRET", "")
 ALPACA_PAPER  = os.getenv("ALPACA_PAPER", "true").lower() == "true"
 ALPACA_URL    = "https://paper-api.alpaca.markets" if ALPACA_PAPER else "https://api.alpaca.markets"
+BYBIT_KEY     = os.getenv("BYBIT_API_KEY", "")
+BYBIT_SECRET  = os.getenv("BYBIT_API_SECRET", "")
+BYBIT_TESTNET = os.getenv("BYBIT_TESTNET", "false").lower() == "true"
+BYBIT_URL     = "https://api-testnet.bybit.com" if BYBIT_TESTNET else "https://api.bybit.com"
 HL_WALLET       = os.getenv("HL_MAIN_WALLET_ADDRESS", "")
 COINGECKO_URL   = "https://api.coingecko.com/api/v3/simple/price"
 OUTPUT_PATH     = Path(__file__).parent.parent / "positions.json"
@@ -569,6 +576,83 @@ def fetch_alpaca() -> list[dict]:
     return results
 
 
+def fetch_bybit() -> list[dict]:
+    if not BYBIT_KEY or not BYBIT_SECRET:
+        console.print("[yellow]Bybit: BYBIT_API_KEY / BYBIT_API_SECRET not set — skipping.[/yellow]")
+        return []
+
+    def _bybit_get(path: str, params: dict) -> dict:
+        """Authenticated GET against Bybit V5 REST API."""
+        query = urllib.parse.urlencode(sorted(params.items()), quote_via=urllib.parse.quote)
+        ts = str(int(time.time() * 1000))
+        recv = "5000"
+        raw  = f"{ts}{BYBIT_KEY}{recv}{query}"
+        sig  = hmac.new(BYBIT_SECRET.encode(), raw.encode(), hashlib.sha256).hexdigest()
+        headers = {
+            "X-BAPI-API-KEY":      BYBIT_KEY,
+            "X-BAPI-TIMESTAMP":    ts,
+            "X-BAPI-SIGN":         sig,
+            "X-BAPI-RECV-WINDOW":  recv,
+        }
+        url = f"{BYBIT_URL}{path}?{query}"
+        with httpx.Client(timeout=15) as c:
+            r = c.get(url, headers=headers)
+            r.raise_for_status()
+            return r.json()
+
+    results: list[dict] = []
+    for category in ("linear", "inverse"):
+        settle = "USDT" if category == "linear" else "BTC"
+        try:
+            data = _bybit_get("/v5/position/list",
+                              {"category": category, "settleCoin": settle, "limit": "200"})
+            if data.get("retCode") != 0:
+                console.print(f"[yellow]Bybit {category}: {data.get('retMsg')}[/yellow]")
+                continue
+            for p in data.get("result", {}).get("list", []):
+                size = float(p.get("size", 0) or 0)
+                if size == 0:
+                    continue
+                side_raw  = p.get("side", "")
+                side      = "LONG" if side_raw == "Buy" else "SHORT"
+                sym_raw   = p.get("symbol", "?")
+                # Strip quote currency suffix: BTCUSDT→BTC, BTCUSD→BTC
+                sym = sym_raw
+                for sfx in ("USDT", "USDC", "USD", "PERP"):
+                    if sym.endswith(sfx):
+                        sym = sym[:-len(sfx)]
+                        break
+                entry  = float(p.get("avgPrice", p.get("entryPrice", 0)) or 0)
+                mark   = float(p.get("markPrice", entry) or entry)
+                upnl   = float(p.get("unrealisedPnl", 0) or 0)
+                lev    = p.get("leverage", "?")
+                try:
+                    lev_str = f"{float(lev):.0f}x"
+                except Exception:
+                    lev_str = str(lev)
+                tp_raw = p.get("takeProfit", "")
+                sl_raw = p.get("stopLoss", "")
+                tp = float(tp_raw) if tp_raw and float(tp_raw) > 0 else None
+                sl = float(sl_raw) if sl_raw and float(sl_raw) > 0 else None
+                results.append({
+                    "symbol":       sym,
+                    "side":         side,
+                    "entry":        entry,
+                    "size":         size,
+                    "venue":        "Bybit",
+                    "venue_symbol": sym_raw,
+                    "leverage":     lev_str,
+                    "tp":           tp,
+                    "sl":           sl,
+                    "upnl_usd":     upnl,
+                    "mark_price":   mark,
+                })
+        except Exception as e:
+            console.print(f"[red]Bybit {category} positions error: {e}[/red]")
+
+    return results
+
+
 # ── Display ───────────────────────────────────────────────────────────────────
 
 def _fp(v: float | None, d: int = 2) -> str:
@@ -807,6 +891,7 @@ def main() -> None:
     positions: list[dict] = []
     positions += fetch_hl(HL_WALLET)
     positions += fetch_extended()
+    positions += fetch_bybit()
     if not args.no_solana:
         positions += fetch_solana()
     positions += fetch_alpaca()
