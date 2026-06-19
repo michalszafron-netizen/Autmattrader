@@ -5,37 +5,21 @@
   "hl_min_notional_usd": 10.0,
   "traders": [
     {
-      "address": "0x4b1c09fa8322548360a76a3747e32a60a864bc38",
-      "label": "0x4b1c — Maszyna HFT ($2M, 26 poz) [kapital $1000]",
-      "capital_usd": 1000.0,
-      "active": true
-    },
-    {
-      "address": "0xba939edf38c0ae0cc689c98b492e0535f43e4550",
-      "label": "0xba93 — Konserwatywny (2.5 roku, DD-10%, WR93%)",
-      "active": true
-    },
-    {
       "address": "0x83b00972aafcc3d06d45b1b823079f9a414da46e",
-      "label": "0x83b0 — Prosty 2-poz (all-time +2175%, ETH-S/HYPE-L, aktywny)",
+      "label": "0x83b0 — Prosty 2-poz (all-time +2175%, ETH-S/HYPE-L, aktywny) [paper +84%]",
       "active": true
     },
     {
-      "address": "0x75c2932ced651b2cd4c3f361f28be4cc510fbb92",
-      "label": "0x75c2 — 4-poz longi (all-time +387%, WLD/RENDER/HYPE/FART)",
+      "address": "0x9020d2115a4d6151b5307aa9a58b9e8601e2187d",
+      "label": "0x9020 — ELITE83, taktyczny 0.37/dzien (HYPE-S/ETH-S/SOL-S, konto $540k, 14% margin)",
       "active": true
     },
     {
-      "address": "0x48ec0004494081e8332589faf0747d568da79faf",
-      "label": "0x48ec — Prosty 2-poz (BTC-S/ETH-L, konto $60k, aktywny)",
-      "active": true
-    },
-    {
-      "address": "0xe21be5bb37a3af716174cdc5d095ab224b3ef9de",
-      "label": "0xe21b — Snajper HYPE (all-time +$408k, robi PRZERWY — obserwacja)",
+      "address": "0xa4be91acc74feabab71b8878b66b8f5277212520",
+      "label": "0xa4be — RELIABLE, WR93%, 237 dni (SOL-S/BTC-S/ETH-S, BALANCED risk, $52k)",
       "active": true
     }
   ],
-  "trader_address": "0x4b1c09fa8322548360a76a3747e32a60a864bc38",
-  "trader_label": "0x4b1c — Maszyna HFT"
+  "trader_address": "0x83b00972aafcc3d06d45b1b823079f9a414da46e",
+  "trader_label": "0x83b0 — Prosty 2-poz (all-time +2175%)"
 }

@@ -205,6 +205,7 @@ def fetch_senpi_track(wallet: str) -> dict | None:
 def verdict(state, pnl, style, track, capital, min_notional=10.0) -> dict:
     """Zbuduj werdykt KOPIUJ/OBSERWUJ/UNIKAJ + uzasadnienie wg lekcji projektu."""
     flags_good, flags_bad, flags_warn = [], [], []
+    n_positions = len(state["positions"])
 
     # 1. ALL-TIME PnL — najwazniejsze
     at = pnl.get("alltime_pnl")
@@ -220,12 +221,20 @@ def verdict(state, pnl, style, track, capital, min_notional=10.0) -> dict:
     last_h = style.get("last_trade_h")
     cpw = style.get("closes_per_week", 0)
 
-    # 2a. Czestotliwosc — KLUCZOWE: scalper nie nadaje sie do kopiowania polling-based systemem
-    is_scalper = cpw > 50
-    if is_scalper:
+    # 2a. Czestotliwosc — rozrozniamy SCALPING od DRABINKOWANIA
+    # Drabinkowanie = wiele fillow w 1-2 pozycjach (skalowanie duzej pozycji) — copy nadazy za kierunkiem
+    # Scalping = wiele fillow w wielu roznych coinach — copy nie nadazy
+    is_drabinkowanie = cpw > 50 and n_positions <= 2
+    is_scalper = cpw > 50 and not is_drabinkowanie
+    if is_drabinkowanie:
+        flags_warn.append(
+            f"Pozorna wysoka czestotliwosc: {cpw}/tydz, ale tylko {n_positions} pozycj"
+            f"{'a' if n_positions == 1 else 'e'} — drabinkowanie (skalowanie duzej poz.), NIE scalping. "
+            f"Copy system moze sledzic kierunek.")
+    elif is_scalper:
         flags_bad.append(
-            f"SCALPER — {cpw}/tydz (~{cpw/7:.1f}/dzien): polling-based copy system nie nadazy; "
-            f"obserwuj wyniki, ale NIE kopiuj automatycznie")
+            f"SCALPER — {cpw}/tydz (~{cpw/7:.1f}/dzien) na wielu coinach: "
+            f"polling-based copy system nie nadazy; obserwuj, ale NIE kopiuj automatycznie")
     elif cpw > 20:
         flags_warn.append(
             f"Wysoka czestotliwosc: {cpw}/tydz (~{cpw/7:.1f}/dzien) — krotkie pozycje moga uciec przed polling cycle")
@@ -241,8 +250,17 @@ def verdict(state, pnl, style, track, capital, min_notional=10.0) -> dict:
     else:
         if last_h and last_h < 168:  # <7 dni
             flags_warn.append(f"Cisza od {last_h}h, ale {closes30} zamkniec/30d — moze robic przerwe")
+        elif n_positions > 0:
+            # Ma otwarte pozycje mimo dawnego filla — aktywnie trzyma i zarzadza ryzykiem.
+            # SIZE INCREASE przez zmiane ceny / drabinkowanie nie zawsze tworzy nowy fill w API.
+            flags_warn.append(
+                f"Dawny fill ({last_h:.0f}h temu), ale trzyma {n_positions} otwart"
+                f"{'a' if n_positions == 1 else 'e'} pozycj"
+                f"{'e' if n_positions == 1 else 'e'} — aktywnie zarzadza, nie martwy")
         else:
-            flags_bad.append(f"NIEAKTYWNY (ost. trade {last_h}h temu)" if last_h else "Brak aktywnosci 30d — moze znikl")
+            flags_bad.append(
+                f"NIEAKTYWNY (ost. trade {last_h}h temu, brak pozycji)" if last_h
+                else "Brak aktywnosci 30d i brak pozycji — moze znikl")
 
     # 3. Kopiowalnosc przy danym kapitale
     acct = state["account_value"]
