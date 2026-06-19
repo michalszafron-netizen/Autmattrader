@@ -517,6 +517,7 @@ def cmd_report() -> None:
                 else:
                     unreal += (p["entry"] - mk) * sz
         cap = trader_capital(cfg, t)
+        total = realized + unreal
         # %: porownujemy wynik do kapitala TEGO tradera (rozne kwoty -> uczciwe %)
         pct = 100*total/cap if cap else 0
         total_pct = total / cap if cap else 0  # do sortowania wg % (sprawiedliwie)
