@@ -111,31 +111,55 @@ def fetch_trader(wallet: str) -> tuple[float, dict[str, dict]]:
     pomija tick. Jesli API odpowiedzialo ale konto=0/pusto -> to REALNE wyjscie
     tradera (zwraca acct=0, pusty dict) i bot ZAMKNIE nasze pozycje.
     """
+    def _parse(state: dict, pos: dict) -> float:
+        a = float(state.get("marginSummary", {}).get("accountValue", "0"))
+        for pw in state.get("assetPositions", []):
+            p = pw.get("position", {})
+            szi = float(p.get("szi", "0"))
+            if szi == 0:
+                continue
+            coin = p.get("coin", "?")
+            pos[coin] = {
+                "coin": coin,
+                "side": "LONG" if szi > 0 else "SHORT",
+                "size": abs(szi),
+                "entry": float(p.get("entryPx", "0")),
+                "notional": float(p.get("positionValue", "0")),
+                "lev": int(p.get("leverage", {}).get("value", 1)),
+            }
+        return a
+
     state = _post({"type": "clearinghouseState", "user": wallet})
     if not isinstance(state, dict) or "marginSummary" not in state:
         raise RuntimeError("HL API nie zwrocilo poprawnego stanu (blad sieci?)")
-    acct = float(state.get("marginSummary", {}).get("accountValue", "0"))
     pos: dict[str, dict] = {}
-    for pw in state.get("assetPositions", []):
-        p = pw.get("position", {})
-        szi = float(p.get("szi", "0"))
-        if szi == 0:
-            continue
-        coin = p.get("coin", "?")
-        pos[coin] = {
-            "coin": coin,
-            "side": "LONG" if szi > 0 else "SHORT",
-            "size": abs(szi),
-            "entry": float(p.get("entryPx", "0")),
-            "notional": float(p.get("positionValue", "0")),
-            "lev": int(p.get("leverage", {}).get("value", 1)),
-        }
+    acct = _parse(state, pos)
+    # xyz dex (tokenizowane akcje) — osobny clearinghouseState. Trader moze trzymac
+    # pozycje TYLKO tu (main = $0). Degradacja przy bledzie xyz, zeby nie zabic ticku.
+    try:
+        xyz_state = _post({"type": "clearinghouseState", "user": wallet, "dex": "xyz"})
+        if isinstance(xyz_state, dict) and "marginSummary" in xyz_state:
+            acct += _parse(xyz_state, pos)
+    except Exception:
+        pass
     return acct, pos
 
 
 def fetch_mark_prices(coins: list[str]) -> dict[str, float]:
-    """Aktualne mid prices z allMids (do liczenia rozmiaru i SL)."""
+    """Aktualne mid prices z allMids (do liczenia rozmiaru i SL).
+
+    Tokenizowane akcje (xyz:MU itd.) zyja na osobnym perp dex 'xyz' — glowny
+    allMids ich NIE zwraca. Gdy wsrod coinow jest jakikolwiek 'xyz:', dociagamy
+    tez mid'y z dex='xyz' i scalamy (klucze sa rozlaczne, wiec brak kolizji).
+    """
     mids = _post({"type": "allMids"})
+    if any(c.startswith("xyz:") for c in coins):
+        try:
+            xyz = _post({"type": "allMids", "dex": "xyz"})
+            if isinstance(xyz, dict):
+                mids = {**mids, **xyz}
+        except Exception:
+            pass  # brak xyz dex -> degraduj do samego glownego (pozycje xyz pominiete)
     out: dict[str, float] = {}
     for c in coins:
         v = mids.get(c)

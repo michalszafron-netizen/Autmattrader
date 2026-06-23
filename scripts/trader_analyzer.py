@@ -99,9 +99,10 @@ def _senpi_call(tool: str, arguments: dict) -> dict | None:
 
 # ── Zbieranie danych ──────────────────────────────────────────────────────────
 
-def fetch_hl_state(wallet: str) -> dict:
-    """Konto + pozycje teraz z HL."""
-    st = _hl({"type": "clearinghouseState", "user": wallet})
+def _parse_state(st: dict) -> tuple[float, list[dict]]:
+    """Wyciagnij (account_value, pozycje) z jednego clearinghouseState."""
+    if not isinstance(st, dict):
+        return 0.0, []
     acct = float(st.get("marginSummary", {}).get("accountValue", "0"))
     positions = []
     for pw in st.get("assetPositions", []):
@@ -116,6 +117,24 @@ def fetch_hl_state(wallet: str) -> dict:
             "lev": int(p.get("leverage", {}).get("value", 1)),
             "upnl": float(p.get("unrealizedPnl", "0")),
         })
+    return acct, positions
+
+
+def fetch_hl_state(wallet: str) -> dict:
+    """Konto + pozycje teraz z HL — main perp dex ORAZ xyz dex (tokenizowane akcje).
+
+    Traderzy moga trzymac pozycje na osobnym dex 'xyz' (xyz:MU itd.) — main
+    clearinghouseState ich nie zwraca. Scalamy oba: konto = suma sald, pozycje laczone.
+    Bez tego trader na akcjach pokazuje falszywe Konto $0 / 0 pozycji.
+    """
+    acct, positions = _parse_state(_hl({"type": "clearinghouseState", "user": wallet}))
+    try:
+        xyz_acct, xyz_pos = _parse_state(
+            _hl({"type": "clearinghouseState", "user": wallet, "dex": "xyz"}))
+        acct += xyz_acct
+        positions += xyz_pos
+    except Exception:
+        pass  # brak xyz dex -> sam main
     positions.sort(key=lambda x: -x["notional"])
     return {"account_value": acct, "positions": positions}
 
@@ -295,6 +314,32 @@ def verdict(state, pnl, style, track, capital, min_notional=10.0) -> dict:
     elif npos > 15:
         flags_warn.append(f"Zlozony portfel ({npos} poz) — wymaga wiekszego kapitalu")
 
+    # 6. SWIEZOSC pozycji — KLUCZ do copy (lekcja z paper tradingu).
+    # Trader moze miec swietny track record, ale jesli teraz SIEDZI na starych winnerach
+    # (pozycje gleboko w zysku), to ten zysk jest ZABLOKOWANY w jego starym entry.
+    # Late copier wchodzi po cenie rynkowej -> nie zlapie tego ruchu, tylko przyszle.
+    # Dowod: 0xa4be (WR93%, SOL-S +22%/BTC-S +15%) dal 0% win w naszym copy.
+    # Miara: upnl/notional = jaki % ruchu trader JUZ zlapal (a my juz nie).
+    deep_winners, fresh = [], []
+    for p in state["positions"]:
+        if p["notional"] <= 0:
+            continue
+        moved_pct = 100 * p["upnl"] / p["notional"]
+        if moved_pct >= 8:
+            deep_winners.append((p["coin"], moved_pct))
+        elif abs(moved_pct) <= 3:
+            fresh.append(p["coin"])
+    # "stale_dominant" = co najmniej polowa pozycji to stare winnery
+    stale_dominant = bool(deep_winners) and 2 * len(deep_winners) >= npos
+    if deep_winners:
+        names = ", ".join(f"{c} +{pct:.0f}%" for c, pct in deep_winners)
+        flags_warn.append(
+            f"Stare winnery: {names} (ruch juz zrobiony) — wchodzisz PO ruchu; "
+            f"copy zlapie tylko PRZYSZLE ruchy, nie ten zablokowany zysk")
+    if fresh and not stale_dominant:
+        flags_good.append(
+            f"Swieze pozycje ({', '.join(fresh)}) blisko entry — copy wejdzie w ta sama cene")
+
     # ── Decyzja ──
     score = len(flags_good) - 1.5 * len(flags_bad) - 0.5 * len(flags_warn)
     has_ujemny  = any("All-time PnL UJEMNY" in f for f in flags_bad)
@@ -306,6 +351,10 @@ def verdict(state, pnl, style, track, capital, min_notional=10.0) -> dict:
         # Scalper: nawet jesli zarabia — nie da sie wiernie kopiowac polling systemem.
         # Jesli all-time+ i aktywny: wart obserwacji jako inspiracja, ale nie auto-copy.
         v = "OBSERWUJ" if score >= 2 else "UNIKAJ"
+    elif stale_dominant:
+        # Track record moze byc swietny, ale teraz siedzi na starych winnerach —
+        # late copier nie zlapie zablokowanego zysku. Max OBSERWUJ (czekaj na swieze entry).
+        v = "OBSERWUJ" if score >= 1 else "UNIKAJ"
     elif score >= 3:
         v = "KOPIUJ"
     elif score >= 1:
