@@ -37,7 +37,8 @@ import logging
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -50,6 +51,11 @@ TRADING_MODE = os.getenv("TRADING_MODE", "paper")
 PY           = sys.executable
 SCRIPTS      = Path(__file__).parent
 ALERTS_FILE  = Path(__file__).parent.parent / "alerts.jsonl"
+
+# Liczba rownych "slotow" kapitalu na koncie Extended — kazda strategia/rynek
+# liczy swoj risk_usd z equity/EXTENDED_CAPITAL_SLOTS, zamiast z calego konta,
+# zeby N rownoleglych sygnalow nie zjadlo calego marginu na pierwszej pozycji.
+EXTENDED_CAPITAL_SLOTS = max(int(os.getenv("EXTENDED_CAPITAL_SLOTS", "1")), 1)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -197,21 +203,23 @@ def execute_trade(data: dict) -> tuple[bool, str, dict]:
         else:
             ext_side   = "long" if side in ("long", "buy") else "short"
             sl_raw     = data.get("sl_price")
-            tp1_raw    = data.get("tp1_price")
             sl_price   = float(sl_raw) if sl_raw else (
                 price * (1 - stop_pct / 100) if ext_side == "long" else price * (1 + stop_pct / 100)
             )
             sl_dist    = abs(price - sl_price)
-            equity     = 100.0
+            full_equity = float(os.getenv("EXTENDED_EQUITY", "1000"))
+            equity     = full_equity / EXTENDED_CAPITAL_SLOTS
             risk_usd   = equity * risk_pct / 100
             amount_btc = max(round(risk_usd / sl_dist, 6), 0.0001) if sl_dist > 0 else 0.0001
-            log.info("[Extended] Sizing: equity=$%.0f risk=$%.2f sl_dist=%.2f qty=%.6f",
-                     equity, risk_usd, sl_dist, amount_btc)
+            log.info("[Extended] Sizing: equity=$%.0f (1/%d slot of $%.0f) risk=$%.2f sl_dist=%.2f qty=%.6f",
+                     equity, EXTENDED_CAPITAL_SLOTS, full_equity, risk_usd, sl_dist, amount_btc)
+            # Brak natywnego --tp na wejsciu: TP1-4 sa zarzadzane wylacznie przez
+            # webhookowe partial_close (40/30/20/10%) z Pine — natywny bracket TP
+            # zamykalby 100% pozycji jednym zleceniem przy pierwszym TP, kolidujac
+            # ze stopniowym scale-out.
             cmd = [PY, str(SCRIPTS / "extended_order.py"), "order",
                    market, ext_side, str(amount_btc), str(round(price, 2)),
                    "--sl", str(round(sl_price, 2))]
-            if tp1_raw:
-                cmd += ["--tp", str(round(float(tp1_raw), 2))]
 
         if TRADING_MODE != "live":
             return True, f"PAPER mode — would run: {' '.join(cmd)}", {}
@@ -366,16 +374,19 @@ def receive_alert():
     # 4. Log received
     log_alert(data, "received")
 
-    # 5. Execute trade
-    try:
-        success, note, exec_detail = execute_trade(data)
-        status = "executed" if success else "failed"
-        log_alert(data, status, note, exec_detail)
-        return jsonify({"status": status, "note": note, **exec_detail}), 200 if success else 500
-    except Exception as e:
-        log.exception("Execution error")
-        log_alert(data, "error", str(e))
-        return jsonify({"error": str(e)}), 500
+    # 5. Execute trade in background — respond immediately so TV doesn't timeout
+    def _execute_async(payload: dict) -> None:
+        try:
+            success, note, exec_detail = execute_trade(payload)
+            status = "executed" if success else "failed"
+            log_alert(payload, status, note, exec_detail)
+            log.info("Async execution done: %s %s → %s", payload.get("symbol"), payload.get("side"), status)
+        except Exception as exc:
+            log.exception("Async execution error")
+            log_alert(payload, "error", str(exc))
+
+    threading.Thread(target=_execute_async, args=(data,), daemon=True).start()
+    return jsonify({"status": "queued"}), 200
 
 
 @app.route("/health", methods=["GET"])
@@ -399,6 +410,48 @@ def show_alerts():
             except Exception:
                 pass
     return jsonify(alerts[-50:])
+
+
+@app.route("/oi_history", methods=["GET"])
+def oi_history():
+    """Read-only history from oi_snapshots, fed by the hourly oi_tracker cron.
+    GET /oi_history?days=14              -> {coin: [{ts, oi_total, mark_price}, ...]}
+    GET /oi_history?coin=BTC&days=14     -> [{ts, oi_total, mark_price}, ...]
+    """
+    if TV_SECRET:
+        sent = request.args.get("secret", "") or request.headers.get("X-TV-Secret", "")
+        if sent != TV_SECRET:
+            return jsonify({"error": "unauthorized"}), 401
+    try:
+        days = int(request.args.get("days", 14))
+    except ValueError:
+        days = 14
+    coin = request.args.get("coin", "").strip().upper()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+
+    try:
+        sys.path.insert(0, str(SCRIPTS))
+        from db import DB
+        db = DB()
+        if coin:
+            rows = db._sqlite.query(
+                "SELECT ts, oi_total, mark_price FROM oi_snapshots WHERE coin=? AND ts>=? ORDER BY ts ASC",
+                (coin, cutoff),
+            )
+            return jsonify(rows)
+        rows = db._sqlite.query(
+            "SELECT coin, ts, oi_total, mark_price FROM oi_snapshots WHERE ts>=? ORDER BY ts ASC",
+            (cutoff,),
+        )
+        grouped: dict[str, list] = {}
+        for r in rows:
+            grouped.setdefault(r["coin"], []).append(
+                {"ts": r["ts"], "oi_total": r["oi_total"], "mark_price": r["mark_price"]}
+            )
+        return jsonify(grouped)
+    except Exception as e:
+        log.exception("oi_history failed")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/clear", methods=["DELETE"])
@@ -451,6 +504,7 @@ if __name__ == "__main__":
     print(f"\n  Endpoints:")
     print(f"    POST http://localhost:{args.port}/tv       <- TradingView alert")
     print(f"    GET  http://localhost:{args.port}/health   <- status")
-    print(f"    GET  http://localhost:{args.port}/alerts   <- last 20 alerts\n")
+    print(f"    GET  http://localhost:{args.port}/alerts   <- last 20 alerts")
+    print(f"    GET  http://localhost:{args.port}/oi_history <- OI history (oi_tracker 14D trend)\n")
 
     app.run(host="0.0.0.0", port=args.port, debug=False)

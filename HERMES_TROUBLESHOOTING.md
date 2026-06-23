@@ -37,7 +37,7 @@ cd C:\Users\krypt\AppData\Local\hermes\hermes-agent
 # jeśli .venv jest uszkodzony/niekompletny - przebuduj:
 Remove-Item -Recurse -Force .venv -ErrorAction SilentlyContinue
 & C:\Users\krypt\AppData\Local\hermes\bin\uv.exe sync --system-certs --python 3.11
-& C:\Users\krypt\AppData\Local\hermes\bin\uv.exe pip install --python .venv\Scripts\python.exe --system-certs pip-system-certs
+# NIE instaluj pip-system-certs - patrz punkt 6, psuje model switch w v0.17.0+
 # upewnij się, że junction venv -> .venv istnieje:
 Remove-Item venv -Force -ErrorAction SilentlyContinue   # (tylko jeśli to zwykły folder, nie junction!)
 New-Item -ItemType Junction -Path venv -Target .venv
@@ -59,10 +59,13 @@ generuje `.venv`, ale bez `pip-system-certs`, i czasem bez działającego `venv`
 ### 3. Telegram w gateway: `state: "retrying"`, `"telegram connect timed out"` /
    `[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate`
 Przyczyna: Python/`certifi` w `.venv` nie ufa certyfikatowi, którym Avast skanuje HTTPS
-(Windows mu ufa, Python nie). Naprawa:
+(Windows mu ufa, Python nie).
+**UWAGA — NIE używaj `pip-system-certs`** jako fixu (patrz punkt 6, dlaczego). Najpierw
+sprawdź, czy problem nadal istnieje wcale (2026-06-21: zniknął sam, Telegram łączy się
+bez żadnego fixu SSL — być może Avast już nie skanuje tego ruchu). Jeśli wróci, właściwy
+fix to eksport certyfikatu Avasta z magazynu Windows i dopisanie go do bundla `certifi`
+(`SSL_CERT_FILE` w `.env`), NIE globalny monkeypatch przez `pip-system-certs`/`truststore`.
 ```powershell
-cd C:\Users\krypt\AppData\Local\hermes\hermes-agent
-& C:\Users\krypt\AppData\Local\hermes\bin\uv.exe pip install --python .venv\Scripts\python.exe --system-certs pip-system-certs
 & .venv\Scripts\hermes.exe gateway restart
 ```
 
@@ -84,6 +87,31 @@ Sprawdź i podmień ścieżki w (każda zawiera stare `C:\Users\<stara_nazwa>\..
 - `C:\Users\krypt\AppData\Local\hermes\gateway_state.json` (jeśli zawiera martwy PID/stare
   argv — można bezpiecznie nadpisać stanem `"gateway_state":"stopped"`)
 - `C:\Users\krypt\AppData\Local\hermes\scripts\check_server.py` (kosmetyczne, dev helper)
+
+### 6. "Model switch failed" / "Hermes error: Failed to initialize OpenAI client:" (BEZ treści po dwukropku), żaden model się nie przełącza, dotyczy też CLI (`hermes -z`)
+Przyczyna: pakiet **`pip-system-certs`** jest zainstalowany w `.venv`. Globalnie podmienia
+`ssl.SSLContext` na `pip._vendor.truststore`, który NIE implementuje `get_ca_certs()`.
+Hermes od v0.17.0 ma w `agent/ssl_guard.py` walidację SSL przy każdym starcie/przełączeniu
+modelu, która wywołuje właśnie `get_ca_certs()` → `NotImplementedError()` bez treści →
+ucieka jako pozornie bezsensowny "Failed to initialize OpenAI client:". To NIE jest
+problem z kluczami API/limitami, nawet jeśli komunikat wygląda podobnie do błędów auth.
+Diagnoza (jeśli błąd wróci i nie wiadomo czy to to samo):
+```powershell
+cd C:\Users\krypt\AppData\Local\hermes\hermes-agent
+.venv\Scripts\python.exe -c "import ssl; print(ssl.SSLContext)"
+# jeśli pokazuje truststore.SSLContext albo pip._vendor.truststore - to jest to
+```
+Naprawa:
+```powershell
+& C:\Users\krypt\AppData\Local\hermes\hermes-agent\venv\Scripts\hermes.exe gateway stop
+Get-Process -Name Hermes -ErrorAction SilentlyContinue | Stop-Process -Force
+& C:\Users\krypt\AppData\Local\hermes\bin\uv.exe pip uninstall --python C:\Users\krypt\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe pip-system-certs
+Remove-Item -Recurse -Force 'C:\Users\krypt\AppData\Local\hermes\hermes-agent\.venv\Lib\site-packages\pip_system_certs' -ErrorAction SilentlyContinue
+& C:\Users\krypt\AppData\Local\hermes\hermes-agent\venv\Scripts\hermes.exe gateway restart
+Start-Process 'C:\Users\krypt\AppData\Local\Programs\Hermes\Hermes.exe'
+```
+**Nie reinstaluj `pip-system-certs` ponownie** — jeśli SSL do Telegrama znowu się zepsuje
+(patrz punkt 3), naprawiaj certyfikatami w `certifi`/`SSL_CERT_FILE`, nie tym pakietem.
 
 ## Diagnostyka — od czego zacząć
 ```powershell

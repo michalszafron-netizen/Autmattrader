@@ -1,14 +1,20 @@
 """Open Interest tracker — Binance + Bybit + Extended Exchange.
 
-Aggregates OI across three sources, tracks trends vs previous snapshot,
-saves to SQLite, alerts on spikes >15%.
+Aggregates OI across three sources, shows a 14-day trend (sparkline + %)
+per coin with an expert-style OI/price-quadrant interpretation, tracks
+spikes vs the previous snapshot, and always persists to SQLite so the
+trend has data to draw on.
+
+History source: a VPS cron runs `--save --no-history` hourly into its
+local DB, exposed read-only via GET /oi_history on tv_webhook.py (see
+SERWER.md). If that's unreachable, falls back to the local SQLite DB.
 
 Usage:
-    python scripts/oi_tracker.py                    # full report
-    python scripts/oi_tracker.py --brief            # compact for daily alpha
+    python scripts/oi_tracker.py                    # full report + 14D trend + Expert View
+    python scripts/oi_tracker.py --brief            # compact for daily alpha (+ trend + interpretation)
     python scripts/oi_tracker.py --coins BTC ETH    # specific coins only
-    python scripts/oi_tracker.py --save             # save snapshot to DB
-    python scripts/oi_tracker.py --trend            # compare to last snapshot
+    python scripts/oi_tracker.py --trend            # compare TOTAL vs previous single snapshot
+    python scripts/oi_tracker.py --no-history       # skip 14D fetch (faster, used by cron)
 
 Sources:
     Binance  — fapi.binance.com  (no key, crypto perps)
@@ -23,7 +29,7 @@ import json
 import os
 import ssl
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -38,6 +44,9 @@ _SSL     = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 console  = Console()
 
 EXTENDED_API_KEY = os.getenv("EXTENDED_API_KEY", "")
+TV_SECRET        = os.getenv("TV_SECRET", "")
+OI_HISTORY_URL   = os.getenv("VPS_OI_HISTORY_URL", "https://tv.prawosfera.online/oi_history")
+HISTORY_DAYS     = 14
 
 # Instruments to track (symbol: Binance ticker, Bybit ticker, Extended name)
 INSTRUMENTS = {
@@ -167,7 +176,7 @@ def fetch_extended_oi(market_names: list[str]) -> dict[str, dict]:
 
 # ── Aggregation ───────────────────────────────────────────────────────────────
 
-def collect_all(coins: list[str] | None = None) -> list[dict]:
+def collect_all(coins: list[str] | None = None, with_history: bool = True) -> list[dict]:
     targets = {k: v for k, v in INSTRUMENTS.items()
                if not coins or k in [c.upper() for c in coins]}
 
@@ -217,7 +226,122 @@ def collect_all(coins: list[str] | None = None) -> list[dict]:
             "vol24h":   e.get("vol24h_usd", 0),
         })
 
+    if with_history:
+        hist_map = fetch_history_all(HISTORY_DAYS)
+        for r in rows:
+            stats = trend_stats(hist_map.get(r["coin"], []))
+            r["trend"] = stats
+            r["view"]  = interpret_oi(stats["oi_chg_pct"], stats["price_chg_pct"], r["funding"]) if stats else None
+    else:
+        for r in rows:
+            r["trend"], r["view"] = None, None
+
     return sorted(rows, key=lambda x: -x["oi_total"])
+
+
+# ── History & trend ───────────────────────────────────────────────────────────
+
+def fetch_history_all(days: int = HISTORY_DAYS) -> dict[str, list[dict]]:
+    """Fetch per-coin OI history from the VPS (24/7 collector). Falls back to local DB."""
+    try:
+        params = {"days": days}
+        if TV_SECRET:
+            params["secret"] = TV_SECRET
+        with httpx.Client(verify=_SSL, timeout=6) as c:
+            r = c.get(OI_HISTORY_URL, params=params)
+            r.raise_for_status()
+            data = r.json()
+            if isinstance(data, dict) and data:
+                return data
+    except Exception:
+        pass
+    return _local_history_all(days)
+
+
+def _local_history_all(days: int) -> dict[str, list[dict]]:
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from db import DB
+        db = DB()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+        rows = db._sqlite.query(
+            "SELECT coin, ts, oi_total, mark_price FROM oi_snapshots WHERE ts >= ? ORDER BY ts ASC",
+            (cutoff,),
+        )
+        out: dict[str, list[dict]] = {}
+        for row in rows:
+            out.setdefault(row["coin"], []).append(
+                {"ts": row["ts"], "oi_total": row["oi_total"], "mark_price": row["mark_price"]}
+            )
+        return out
+    except Exception:
+        return {}
+
+
+_BARS = "▁▂▃▄▅▆▇█"  # no blank — lowest value still renders a visible bar, not a gap
+
+def _sparkline(values: list[float]) -> str:
+    vals = [v for v in values if v is not None]
+    if len(vals) < 2:
+        return ""
+    lo, hi = min(vals), max(vals)
+    rng = hi - lo
+    if rng == 0:
+        return _BARS[4] * len(vals)
+    return "".join(_BARS[int((v - lo) / rng * (len(_BARS) - 1))] for v in vals)
+
+
+def _bucket_daily(history: list[dict]) -> list[dict]:
+    """One point per UTC day (last snapshot of that day). `history` must be ts-ascending."""
+    by_day: dict[str, dict] = {}
+    for h in history:
+        by_day[h["ts"][:10]] = h
+    return [by_day[d] for d in sorted(by_day)]
+
+
+def trend_stats(history: list[dict]) -> dict | None:
+    daily = _bucket_daily(history)
+    if len(daily) < 2:
+        return None
+    oi_vals = [d["oi_total"] for d in daily]
+    px_vals = [d.get("mark_price") or 0 for d in daily]
+    oi_chg = (oi_vals[-1] - oi_vals[0]) / oi_vals[0] * 100 if oi_vals[0] else 0.0
+    px_chg = (px_vals[-1] - px_vals[0]) / px_vals[0] * 100 if px_vals[0] else 0.0
+    return {
+        "days_covered": len(daily),
+        "oi_chg_pct":   oi_chg,
+        "price_chg_pct": px_chg,
+        "spark":        _sparkline(oi_vals),
+    }
+
+
+def interpret_oi(oi_chg: float, px_chg: float, funding: float | None) -> str:
+    """Classic OI/price quadrant read — what the move likely means."""
+    FLAT = 2.0
+    oi_up, oi_dn = oi_chg > FLAT, oi_chg < -FLAT
+    px_up, px_dn = px_chg > FLAT, px_chg < -FLAT
+
+    if oi_up and px_up:
+        txt = "nowy kapital naplywa na longi — trend wzrostowy potwierdzony swiezymi pozycjami (kontynuacja)"
+    elif oi_dn and px_up:
+        txt = "cena rosnie przy spadku OI — to short-covering / realizacja zyskow, nie swiezy popyt (ruch moze sie wypalac)"
+    elif oi_up and px_dn:
+        txt = "nowy kapital naplywa na shorty — trend spadkowy potwierdzony (kontynuacja spadkow)"
+    elif oi_dn and px_dn:
+        txt = "cena spada przy spadku OI — likwidacje longow / zamykanie pozycji, presja slabnie (mozliwe wyczerpanie spadku)"
+    elif oi_up:
+        txt = "OI rosnie przy plaskiej cenie — budowa pozycji przed ruchem, rynek czeka na katalizator"
+    elif oi_dn:
+        txt = "OI spada przy plaskiej cenie — wygaszanie zaangazowania, spadek zainteresowania"
+    else:
+        txt = "brak wyraznego trendu OI — konsolidacja, rynek czeka na nowy impuls"
+
+    if funding is not None:
+        if funding > 0.0005:
+            txt += "; funding dodatni — longi przewazaja i placa (ryzyko squeeze'u w dol)"
+        elif funding < -0.0005:
+            txt += "; funding ujemny — shorty przewazaja i placa (ryzyko squeeze'u w gore)"
+    return txt
 
 
 # ── Display ───────────────────────────────────────────────────────────────────
@@ -251,6 +375,7 @@ def display_full(rows: list[dict], prev: dict | None = None) -> None:
     table.add_column("Extended",justify="right")
     table.add_column("TOTAL",   justify="right", style="bold white")
     table.add_column("Trend",   justify="right")
+    table.add_column(f"{HISTORY_DAYS}D", justify="right")
     table.add_column("Funding", justify="right")
 
     for r in rows:
@@ -264,6 +389,13 @@ def display_full(rows: list[dict], prev: dict | None = None) -> None:
                 spike = " ⚠" if abs(chg) > 15 else ""
                 trend_str = f"[{tc}]{chg:+.1f}%[/{tc}]{spike}"
 
+        trend14 = r.get("trend")
+        if trend14:
+            tc14 = "green" if trend14["oi_chg_pct"] > 0 else "red" if trend14["oi_chg_pct"] < 0 else "yellow"
+            trend14_str = f"[{tc14}]{trend14['oi_chg_pct']:+.1f}%[/{tc14}] {trend14['spark']}"
+        else:
+            trend14_str = "[dim]zbiera sie...[/dim]"
+
         table.add_row(
             coin,
             _fmt_usd(r["oi_bnb"]) if r["oi_bnb"] else "—",
@@ -271,11 +403,23 @@ def display_full(rows: list[dict], prev: dict | None = None) -> None:
             _fmt_usd(r["oi_ext"]) if r["oi_ext"] else "—",
             _fmt_usd(r["oi_total"]),
             trend_str,
+            trend14_str,
             _funding_str(r["funding"]),
         )
 
     console.print(table)
     console.print("[dim]Funding: ujemny=shorci placa=bullish signal | dodatni=longi placa=crowded long[/dim]")
+
+    views = [r for r in rows if r.get("view")]
+    if views:
+        console.print(f"\n[bold cyan]📊 Expert View — interpretacja OI ({HISTORY_DAYS}D):[/bold cyan]")
+        for r in views[:8]:
+            console.print(f"  [bold]{r['coin']}[/bold]: {r['view']}")
+    elif not (prev):
+        console.print(
+            f"\n[dim]Historia OI zbiera sie od teraz (kolektor co 1h na VPS) — "
+            f"trend {HISTORY_DAYS}D bedzie widoczny po kilku dniach.[/dim]"
+        )
 
     # Spike alerts
     if prev:
@@ -294,8 +438,18 @@ def display_full(rows: list[dict], prev: dict | None = None) -> None:
 def display_brief(rows: list[dict]) -> None:
     parts = []
     for r in rows[:6]:
-        parts.append(f"{r['coin']}: {_fmt_usd(r['oi_total'])}")
+        trend = r.get("trend")
+        tag = f" ({trend['oi_chg_pct']:+.1f}% {HISTORY_DAYS}D)" if trend else ""
+        parts.append(f"{r['coin']}: {_fmt_usd(r['oi_total'])}{tag}")
     print("OI aggregate: " + "  |  ".join(parts))
+
+    movers = sorted((r for r in rows if r.get("view")), key=lambda r: -abs(r["trend"]["oi_chg_pct"]))
+    if movers:
+        print("Interpretacja OI:")
+        for r in movers[:3]:
+            print(f"  {r['coin']}: {r['view']}")
+    elif not any(r.get("trend") for r in rows):
+        print(f"(historia OI zbiera sie od teraz — trend {HISTORY_DAYS}D widoczny po kilku dniach)")
 
     # Funding warnings
     warnings = []
@@ -358,12 +512,14 @@ def main() -> None:
     p.add_argument("--brief",  action="store_true",
                    help="Compact output for daily alpha")
     p.add_argument("--save",   action="store_true",
-                   help="Save snapshot to SQLite")
+                   help="(zachowane dla kompatybilnosci — zapis do SQLite jest teraz zawsze wlaczony)")
     p.add_argument("--trend",  action="store_true",
                    help="Compare to previous DB snapshot")
+    p.add_argument("--no-history", action="store_true",
+                   help=f"Pomin pobieranie {HISTORY_DAYS}D historii/interpretacji (szybszy odczyt, np. dla cronu)")
     args = p.parse_args()
 
-    rows = collect_all(coins=args.coins)
+    rows = collect_all(coins=args.coins, with_history=not args.no_history)
     if not rows:
         console.print("[red]No data returned[/red]")
         sys.exit(1)
@@ -375,8 +531,7 @@ def main() -> None:
     else:
         display_full(rows, prev=prev)
 
-    if args.save:
-        save_snapshot(rows)
+    save_snapshot(rows)  # zawsze — buduje historie do trendu 14D automatycznie
 
 
 if __name__ == "__main__":

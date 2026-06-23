@@ -84,3 +84,9 @@ scripts/btc_1h_data.json
 dist/
 build/
 *.egg
+
+# Bazy danych runtime (54MB, WAL/shm to zywe pliki) — nie wersjonowac
+data/
+*.db
+*.db-shm
+*.db-wal

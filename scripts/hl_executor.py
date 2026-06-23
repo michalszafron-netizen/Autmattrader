@@ -223,13 +223,58 @@ def _build_and_sign_sl_order(
         exchange.info.coin_to_asset[name] = idx
 
     # For a stop-market: limitPx = slippage buffer (buy: +10%, sell: -10%)
-    limit_px = round(trigger_px * 1.10, 4) if is_buy else round(trigger_px * 0.90, 4)
+    # Round to 0.1 for prices over 1000 (GOLD/SP500), 0.001 for under 100 (SILVER/CL)
+    def _rtick(px: float) -> float:
+        if px >= 1000:
+            return round(px / 0.1) * 0.1
+        elif px >= 10:
+            return round(px / 0.001) * 0.001
+        return round(px, 4)
+
+    trigger_price = _rtick(trigger_px)
+    raw_limit = trigger_price * 1.10 if is_buy else trigger_price * 0.90
+    limit_px = _rtick(raw_limit)
 
     return exchange.order(
         coin, is_buy, sz, limit_px,
-        {"trigger": {"isMarket": True, "triggerPx": round(trigger_px, 4), "tpsl": tpsl}},
+        {"trigger": {"isMarket": True, "triggerPx": trigger_price, "tpsl": tpsl}},
         reduce_only=True,
     )
+
+
+def _set_leverage(coin: str, leverage: int) -> dict:
+    """Set cross-margin leverage for a coin (standard perp or xyz HIP-3)."""
+    from eth_account import Account
+    from hyperliquid.exchange import Exchange
+    from hyperliquid.utils import constants
+
+    agent_key = os.getenv("HL_AGENT_PRIVATE_KEY")
+    main_wallet = os.getenv("HL_MAIN_WALLET_ADDRESS")
+    if not agent_key or not main_wallet:
+        raise ValueError("HL_AGENT_PRIVATE_KEY and HL_MAIN_WALLET_ADDRESS must be set in .env")
+
+    account = Account.from_key(agent_key)
+    exchange = Exchange(account, constants.MAINNET_API_URL, account_address=main_wallet)
+
+    REGISTRY.load()
+    for name, idx in REGISTRY._name_to_index.items():
+        exchange.info.name_to_coin[name] = name
+        exchange.info.coin_to_asset[name] = idx
+
+    # Detect account margin mode from current position (if any) or env var.
+    # HL_MARGIN_MODE=isolated  →  use isolated for all new orders.
+    # Otherwise: try cross first, fall back to isolated on rejection.
+    margin_mode = os.getenv("HL_MARGIN_MODE", "cross").lower()
+    if margin_mode == "isolated":
+        result = exchange.update_leverage(leverage, coin, is_cross=False)
+    else:
+        result = exchange.update_leverage(leverage, coin, is_cross=True)
+        if result.get("status") == "err" and (
+            "Cross margin is not allowed" in str(result.get("response", ""))
+            or "isolated" in str(result.get("response", "")).lower()
+        ):
+            result = exchange.update_leverage(leverage, coin, is_cross=False)
+    return result
 
 
 def _cancel_order(coin: str, oid: int) -> dict:
@@ -374,6 +419,13 @@ def cmd_order(args: argparse.Namespace) -> None:
         console.print("[yellow]PAPER MODE — order not submitted. Set TRADING_MODE=live to place real orders.[/yellow]")
         return
 
+    # Auto-set leverage before order — required for isolated margin accounts.
+    # Silently continue if leverage set fails (e.g. already set, or xyz asset that ignores it).
+    try:
+        _set_leverage(coin, DEFAULT_LEVERAGE)
+    except Exception as _lev_err:
+        console.print(f"[dim]Leverage pre-set skipped: {_lev_err}[/dim]")
+
     result = _build_and_sign_order(coin, is_buy, sz, px, tif=tif)
     if result.get("status") == "ok":
         statuses = result["response"]["data"]["statuses"]
@@ -400,17 +452,105 @@ def cmd_cancel(args: argparse.Namespace) -> None:
         console.print(f"[red]Failed: {result}[/red]")
 
 
+def cmd_leverage(args: argparse.Namespace) -> None:
+    coin = REGISTRY.resolve(args.coin)
+    lev = int(args.leverage)
+    meta = REGISTRY.meta(coin)
+    max_lev = int(meta.get("maxLeverage", 100))
+    if lev > max_lev:
+        console.print(f"[red]Requested leverage {lev}x exceeds max {max_lev}x for {coin}. Rejected.[/red]")
+        sys.exit(1)
+
+    console.print(f"\n[bold]Set leverage[/bold]: {coin} -> [cyan]{lev}x[/cyan] (cross-margin)")
+    console.print(f"  Mode: {'[yellow]DRY-RUN (paper)[/yellow]' if PAPER_MODE else '[bold green]LIVE[/bold green]'}")
+
+    if PAPER_MODE:
+        console.print("[yellow]PAPER MODE — leverage not changed.[/yellow]")
+        return
+
+    result = _set_leverage(coin, lev)
+    if result.get("status") == "ok":
+        console.print(f"[green]Leverage set to {lev}x[/green]")
+    else:
+        console.print(f"[red]Failed: {result}[/red]")
+
+
+def _get_spot_usdc(wallet: str) -> float:
+    """Return USDC balance from spotClearinghouseState (Hyperliquid Unified Account).
+
+    In a unified account USDC is held as a spot asset and used as perp collateral.
+    clearinghouseState.marginSummary.accountValue is 0 in this mode — funds sit here instead.
+    """
+    try:
+        spot = _post({"type": "spotClearinghouseState", "user": wallet})
+        for b in spot.get("balances", []):
+            if b.get("coin") == "USDC":
+                return float(b.get("total") or 0)
+    except Exception:
+        pass
+    return 0.0
+
+
+def _parse_acct_value(state: dict, wallet: str = "") -> tuple[float, float, float, float]:
+    """Extract account value from clearinghouseState — handles cross, isolated, and unified accounts.
+
+    Returns (total_equity, cross_equity, withdrawable, spot_usdc).
+    Unified accounts: USDC sits in spotClearinghouseState, not perp marginSummary.
+    """
+    margin = state.get("marginSummary", {})
+    cross  = state.get("crossMarginSummary", {})
+
+    total_val    = float(margin.get("accountValue") or 0)
+    cross_val    = float(cross.get("accountValue") or 0)
+    withdrawable = float(state.get("withdrawable") or 0)
+
+    # If marginSummary is 0/missing, fall back to cross value
+    if total_val == 0 and cross_val > 0:
+        total_val = cross_val
+
+    # If still 0, sum isolated collateral from assetPositions
+    if total_val == 0:
+        for p in state.get("assetPositions", []):
+            lev_obj = p.get("position", {}).get("leverage", {})
+            if isinstance(lev_obj, dict) and lev_obj.get("type") == "isolated":
+                total_val += float(lev_obj.get("rawUsd") or 0)
+
+    # Unified account: USDC lives in spot clearinghouse
+    spot_usdc = _get_spot_usdc(wallet) if wallet else 0.0
+
+    # If perp equity is 0 and we found spot USDC, use that as total
+    if total_val == 0 and spot_usdc > 0:
+        total_val = spot_usdc
+
+    return total_val, cross_val, withdrawable, spot_usdc
+
+
 def cmd_positions(args: argparse.Namespace) -> None:
     main_wallet = os.getenv("HL_MAIN_WALLET_ADDRESS")
     state = _post({"type": "clearinghouseState", "user": main_wallet})
-    margin = state.get("marginSummary", {})
-    cross = state.get("crossMarginSummary", {})
 
-    acct_val = float(margin.get("accountValue") or cross.get("accountValue") or 0)
-    console.print(f"\n[bold]Account[/bold]: ${acct_val:,.2f}")
+    total_val, cross_val, withdrawable, spot_usdc = _parse_acct_value(state, main_wallet)
 
-    # Standard perp positions
+    # Detect margin mode used in open positions
     positions = state.get("assetPositions", [])
+    has_isolated = any(
+        p.get("position", {}).get("leverage", {}).get("type") == "isolated"
+        for p in positions
+    )
+    has_cross = any(
+        p.get("position", {}).get("leverage", {}).get("type") == "cross"
+        for p in positions
+    )
+    mode_label = "isolated+cross" if (has_isolated and has_cross) else ("isolated" if has_isolated else "cross")
+
+    if spot_usdc > 0 and cross_val == 0:
+        # Unified account — USDC is held as spot asset (not perp collateral)
+        console.print(f"\n[bold]Account[/bold]: [cyan]${total_val:,.2f}[/cyan]  "
+                      f"[dim](spot USDC: ${spot_usdc:,.2f}  withdrawable: ${withdrawable:,.2f}  mode: unified)[/dim]")
+        console.print("[dim]  ^ Unified account: USDC held as spot asset, used automatically as perp collateral[/dim]")
+    else:
+        console.print(f"\n[bold]Account[/bold]: [cyan]${total_val:,.2f}[/cyan]  "
+                      f"[dim](cross: ${cross_val:,.2f}  withdrawable: ${withdrawable:,.2f}  mode: {mode_label})[/dim]")
 
     # xyz positions (separate clearinghouse)
     xyz_state = _post({"type": "clearinghouseState", "user": main_wallet, "dex": XYZ_DEX_NAME})
@@ -430,6 +570,7 @@ def cmd_positions(args: argparse.Namespace) -> None:
     table.add_column("Entry $", justify="right")
     table.add_column("uPnL $", justify="right")
     table.add_column("Lev", justify="right", style="dim")
+    table.add_column("Margin", style="dim")
 
     for p, dex in all_positions:
         pos = p.get("position", {})
@@ -440,7 +581,11 @@ def cmd_positions(args: argparse.Namespace) -> None:
         sc = "green" if szi > 0 else "red"
         upnl = Decimal(pos.get("unrealizedPnl", "0"))
         uc = "green" if upnl >= 0 else "red"
-        lev = pos.get("leverage", {}).get("value", "?")
+        lev_obj  = pos.get("leverage", {})
+        lev_val  = lev_obj.get("value", "?") if isinstance(lev_obj, dict) else "?"
+        lev_type = lev_obj.get("type", "cross") if isinstance(lev_obj, dict) else "cross"
+        raw_usd  = float(lev_obj.get("rawUsd") or 0) if isinstance(lev_obj, dict) else 0
+        margin_str = f"${raw_usd:,.0f}" if lev_type == "isolated" and raw_usd else lev_type
         table.add_row(
             pos.get("coin", "?"),
             dex,
@@ -448,7 +593,8 @@ def cmd_positions(args: argparse.Namespace) -> None:
             f"{abs(szi):,.4f}",
             f"${Decimal(pos.get('entryPx','0')):,.4f}",
             f"[{uc}]${upnl:+,.2f}[/{uc}]",
-            f"{lev}x",
+            f"{lev_val}x",
+            margin_str,
         )
     console.print(table)
 
@@ -517,6 +663,149 @@ def cmd_tp(args: argparse.Namespace) -> None:
                 console.print(f"[red]Error: {s['error']}[/red]")
     else:
         console.print(f"[red]Failed: {result}[/red]")
+
+
+def cmd_transfer(args: argparse.Namespace) -> None:
+    """Transfer USDC between spot clearinghouse and perp clearinghouse.
+
+    HL Unified Account: USDC starts in spot (spotClearinghouseState).
+    Perp orders require USDC in perp (clearinghouseState).
+    Use this to move funds before placing perp trades.
+
+    Usage:
+        python scripts/hl_executor.py transfer spot_to_perp 50
+        python scripts/hl_executor.py transfer perp_to_spot 20
+    """
+    direction = args.direction.lower()
+    amount = float(args.amount)
+
+    if direction not in ("spot_to_perp", "perp_to_spot"):
+        console.print("[red]Direction must be 'spot_to_perp' or 'perp_to_spot'[/red]")
+        sys.exit(1)
+
+    to_perp = direction == "spot_to_perp"
+    direction_label = "[green]Spot → Perp[/green]" if to_perp else "[yellow]Perp → Spot[/yellow]"
+
+    # Show current balances before transfer
+    main_wallet = os.getenv("HL_MAIN_WALLET_ADDRESS")
+    spot_usdc = _get_spot_usdc(main_wallet or "")
+    state = _post({"type": "clearinghouseState", "user": main_wallet})
+    perp_usdc = float(state.get("marginSummary", {}).get("accountValue") or 0)
+
+    console.print(f"\n[bold]USDC Transfer[/bold]: {direction_label}  ${amount:.2f}")
+    console.print(f"  Before — Spot: [cyan]${spot_usdc:.2f}[/cyan]  Perp: [cyan]${perp_usdc:.2f}[/cyan]")
+
+    if PAPER_MODE:
+        console.print("[yellow]PAPER MODE — transfer not executed. Set TRADING_MODE=live to proceed.[/yellow]")
+        return
+
+    from hyperliquid.exchange import Exchange
+    from hyperliquid.utils import constants
+
+    agent_key = os.getenv("HL_AGENT_PRIVATE_KEY")
+    main_wallet = os.getenv("HL_MAIN_WALLET_ADDRESS")
+    if not agent_key or not main_wallet:
+        raise ValueError("HL_AGENT_PRIVATE_KEY and HL_MAIN_WALLET_ADDRESS must be set in .env")
+
+    exchange = Exchange(
+        account=None,
+        base_url=constants.MAINNET_API_URL,
+        account_address=main_wallet,
+        agent_private_key=agent_key,
+    )
+
+    result = exchange.usd_class_transfer(amount, to_perp)
+
+    if result.get("status") == "ok":
+        console.print(f"[bold green]Transfer OK[/bold green]: ${amount:.2f} {direction_label}")
+        # Show updated balances
+        spot_after = _get_spot_usdc(main_wallet)
+        state_after = _post({"type": "clearinghouseState", "user": main_wallet})
+        perp_after = float(state_after.get("marginSummary", {}).get("accountValue") or 0)
+        console.print(f"  After  — Spot: [cyan]${spot_after:.2f}[/cyan]  Perp: [cyan]${perp_after:.2f}[/cyan]")
+    else:
+        console.print(f"[red]Transfer failed: {result}[/red]")
+
+
+def cmd_debug(args: argparse.Namespace) -> None:
+    """Dump raw HL API state — diagnoses unified/isolated account issues.
+
+    Checks:
+      1. clearinghouseState (perp cross + isolated)
+      2. spotClearinghouseState (USDC/spot — unified accounts store balance here)
+      3. subAccounts (sub-account list for this wallet)
+      4. xyz clearinghouseState (xyz TradFi dex)
+    """
+    import json as _json
+
+    wallet = os.getenv("HL_MAIN_WALLET_ADDRESS", "")
+    agent_key = os.getenv("HL_AGENT_PRIVATE_KEY", "")
+
+    console.print(f"\n[bold cyan]=== HL Debug ===========================[/bold cyan]")
+    console.print(f"[dim]HL_MAIN_WALLET_ADDRESS : [cyan]{wallet or '(not set)'}[/cyan]")
+    console.print(f"[dim]HL_AGENT_PRIVATE_KEY   : [dim]{'set (' + agent_key[:6] + '...)' if agent_key else '(not set)'}[/dim]\n")
+
+    # ── 1. Perp clearinghouse ────────────────────────────────────────────────
+    console.print("[bold]1. clearinghouseState (perps)[/bold]")
+    try:
+        state = _post({"type": "clearinghouseState", "user": wallet})
+        margin = state.get("marginSummary", {})
+        cross  = state.get("crossMarginSummary", {})
+        console.print(f"   marginSummary.accountValue      : [yellow]{margin.get('accountValue', 'n/a')}[/yellow]")
+        console.print(f"   crossMarginSummary.accountValue : [yellow]{cross.get('accountValue', 'n/a')}[/yellow]")
+        console.print(f"   withdrawable                    : [yellow]{state.get('withdrawable', 'n/a')}[/yellow]")
+        console.print(f"   assetPositions count            : {len(state.get('assetPositions', []))}")
+        if args.raw:
+            console.print(f"   [dim]RAW:[/dim]\n{_json.dumps(state, indent=2)[:2000]}")
+    except Exception as e:
+        console.print(f"   [red]ERROR: {e}[/red]")
+
+    # ── 2. Spot clearinghouse (unified accounts store USDC here) ─────────────
+    console.print("\n[bold]2. spotClearinghouseState (USDC/spot balance)[/bold]")
+    try:
+        spot = _post({"type": "spotClearinghouseState", "user": wallet})
+        balances = spot.get("balances", [])
+        if balances:
+            for b in balances:
+                coin  = b.get("coin", "?")
+                total = float(b.get("total", 0))
+                hold  = float(b.get("hold", 0))
+                if total > 0:
+                    console.print(f"   [green]{coin}[/green]: total={total:,.4f}  hold={hold:,.4f}")
+        else:
+            console.print("   [dim](no spot balances)[/dim]")
+        if args.raw:
+            console.print(f"   [dim]RAW:[/dim]\n{_json.dumps(spot, indent=2)[:1000]}")
+    except Exception as e:
+        console.print(f"   [red]ERROR: {e}[/red]")
+
+    # ── 3. Sub-accounts ──────────────────────────────────────────────────────
+    console.print("\n[bold]3. subAccounts[/bold]")
+    try:
+        subs = _post({"type": "subAccounts", "user": wallet})
+        if isinstance(subs, list) and subs:
+            for s in subs:
+                name = s.get("name", "?")
+                addr = s.get("subAccountUser", "?")
+                val  = float(s.get("clearinghouseState", {}).get("marginSummary", {}).get("accountValue", 0))
+                console.print(f"   [cyan]{name}[/cyan]  {addr}  accountValue=[yellow]${val:,.2f}[/yellow]")
+        else:
+            console.print(f"   [dim](no sub-accounts or empty response: {subs!r})[/dim]")
+    except Exception as e:
+        console.print(f"   [red]ERROR: {e}[/red]")
+
+    # ── 4. xyz clearinghouse ─────────────────────────────────────────────────
+    console.print("\n[bold]4. clearinghouseState xyz (TradFi dex)[/bold]")
+    try:
+        xyz = _post({"type": "clearinghouseState", "user": wallet, "dex": XYZ_DEX_NAME})
+        xyz_margin = xyz.get("marginSummary", {})
+        console.print(f"   marginSummary.accountValue : [yellow]{xyz_margin.get('accountValue', 'n/a')}[/yellow]")
+        console.print(f"   assetPositions count        : {len(xyz.get('assetPositions', []))}")
+    except Exception as e:
+        console.print(f"   [red]ERROR: {e}[/red]")
+
+    console.print("\n[dim]Tip: jeśli saldo jest w spotClearinghouseState → unified account używa USDC jako spot, nie perp.[/dim]")
+    console.print("[dim]Tip: jeśli widzisz sub-konta z saldem → zaktualizuj HL_MAIN_WALLET_ADDRESS w .env na adres sub-konta.[/dim]")
 
 
 def cmd_open_orders(args: argparse.Namespace) -> None:
@@ -633,8 +922,22 @@ def main() -> None:
     tp.add_argument("trigger", type=float, help="Trigger price for take-profit")
     tp.set_defaults(func=cmd_tp)
 
+    lv = sub.add_parser("leverage", help="Set cross-margin leverage for a coin")
+    lv.add_argument("coin", help="e.g. CL, BTC, SILVER")
+    lv.add_argument("leverage", type=int, help="Leverage multiplier (e.g. 20)")
+    lv.set_defaults(func=cmd_leverage)
+
     sub.add_parser("positions", help="Show open positions").set_defaults(func=cmd_positions)
     sub.add_parser("orders", help="Show open orders").set_defaults(func=cmd_open_orders)
+
+    tr = sub.add_parser("transfer", help="Transfer USDC between spot and perp clearinghouse (unified account)")
+    tr.add_argument("direction", choices=["spot_to_perp", "perp_to_spot"], help="Transfer direction")
+    tr.add_argument("amount", type=float, help="USDC amount to transfer")
+    tr.set_defaults(func=cmd_transfer)
+
+    dbg = sub.add_parser("debug", help="Dump raw HL API state — diagnose unified/isolated account")
+    dbg.add_argument("--raw", action="store_true", help="Print full raw JSON responses")
+    dbg.set_defaults(func=cmd_debug)
 
     args = p.parse_args()
     try:

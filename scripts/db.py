@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -282,6 +283,45 @@ CREATE TABLE IF NOT EXISTS edge_observations (
 );
 CREATE INDEX IF NOT EXISTS idx_edge_status  ON edge_observations(status);
 CREATE INDEX IF NOT EXISTS idx_edge_created ON edge_observations(created_at);
+
+CREATE TABLE IF NOT EXISTS xyz_ticks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts          INTEGER NOT NULL,
+    coin        TEXT NOT NULL,
+    price       REAL NOT NULL,
+    avg_20      REAL,
+    min_20      REAL,
+    max_20      REAL,
+    tick_count  INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_xyz_ts ON xyz_ticks(ts);
+CREATE INDEX IF NOT EXISTS idx_xyz_coin_ts ON xyz_ticks(coin, ts);
+
+CREATE TABLE IF NOT EXISTS scalp_trades (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts_open         TEXT NOT NULL,
+    ts_close        TEXT,
+    instrument      TEXT NOT NULL,
+    side            TEXT NOT NULL,
+    entry_price     REAL NOT NULL,
+    exit_price      REAL,
+    size_contracts  REAL NOT NULL,
+    notional_usd    REAL NOT NULL,
+    leverage        INTEGER DEFAULT 5,
+    pnl_usd         REAL,
+    pnl_pct         REAL,
+    entry_fee       REAL DEFAULT 0,
+    exit_fee        REAL DEFAULT 0,
+    net_pnl         REAL,
+    correlation_pair TEXT,
+    hold_seconds    REAL,
+    exit_reason     TEXT,
+    status          TEXT DEFAULT 'open',
+    raw_json        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_scalp_open ON scalp_trades(status);
+CREATE INDEX IF NOT EXISTS idx_scalp_instr ON scalp_trades(instrument);
+CREATE INDEX IF NOT EXISTS idx_scalp_ts ON scalp_trades(ts_open);
 """
 
 
@@ -773,6 +813,112 @@ class DB:
             lines.append("")
         lines.append("=== END EDGE ===")
         return "\n".join(lines)
+
+    # ── xyz tick data ─────────────────────────────────────────────────────────
+    def save_xyz_ticks(self, rows: list[dict]) -> None:
+        """Bulk insert xyz tick snapshots (called every 10s from scanner)."""
+        for r in rows:
+            self._sqlite.execute(
+                """INSERT INTO xyz_ticks (ts, coin, price, avg_20, min_20, max_20, tick_count)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (r["ts"], r["coin"], r["price"], r.get("avg_20"),
+                 r.get("min_20"), r.get("max_20"), r.get("tick_count")),
+            )
+
+    def get_xyz_ticks(self, coin: str, minutes: int = 5) -> list[dict]:
+        """Return recent tick data for a coin."""
+        cutoff = int(time.time() * 1000) - minutes * 60_000
+        return self._sqlite.query(
+            "SELECT * FROM xyz_ticks WHERE coin=? AND ts>=? ORDER BY ts",
+            (coin, cutoff),
+        )
+
+    # ── Scalp trades ──────────────────────────────────────────────────────────
+    def add_scalp_columns(self) -> None:
+        """Add signal metadata columns if they don't exist."""
+        for col in [
+            "ADD COLUMN confidence INTEGER",
+            "ADD COLUMN driver TEXT",
+            "ADD COLUMN laggard TEXT",
+            "ADD COLUMN driver_mom_5s REAL",
+            "ADD COLUMN laggard_mom_5s REAL",
+        ]:
+            try:
+                self._sqlite.execute(f"ALTER TABLE scalp_trades {col}")
+            except Exception:
+                pass  # already exists
+
+    def save_scalp_trade(self, trade: dict) -> int:
+        """Save new scalp trade, return its id."""
+        self.add_scalp_columns()
+        cur = self._sqlite.execute(
+            """INSERT INTO scalp_trades
+               (ts_open, instrument, side, entry_price, size_contracts,
+                notional_usd, leverage, correlation_pair,
+                confidence, driver, laggard, driver_mom_5s, laggard_mom_5s,
+                status)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'open')""",
+            (_now(),
+             trade["instrument"], trade["side"], trade["entry_price"],
+             trade["size_contracts"], trade["notional_usd"],
+             trade.get("leverage", 5), trade.get("correlation_pair"),
+             trade.get("confidence"), trade.get("driver"), trade.get("laggard"),
+             trade.get("driver_mom_5s"), trade.get("laggard_mom_5s")),
+        )
+        return cur.lastrowid
+
+    def close_scalp_trade(self, trade_id: int, exit_price: float,
+                          pnl_usd: float, pnl_pct: float,
+                          entry_fee: float = 0, exit_fee: float = 0,
+                          exit_reason: str = "",
+                          ts_close: str | None = None) -> None:
+        """Close an open scalp trade with realized PnL.
+
+        Args:
+            ts_close: Optional ISO timestamp. If None, uses current time.
+        """
+        t_open = self._sqlite.query(
+            "SELECT ts_open FROM scalp_trades WHERE id=?", (trade_id,)
+        )
+        hold_s = None
+        if t_open:
+            try:
+                t0 = datetime.fromisoformat(t_open[0]["ts_open"])
+                t1 = datetime.fromisoformat(ts_close) if ts_close else datetime.now(timezone.utc)
+                hold_s = (t1 - t0).total_seconds()
+            except Exception:
+                pass
+        net_pnl = pnl_usd - entry_fee - exit_fee
+        self._sqlite.execute(
+            """UPDATE scalp_trades SET
+               ts_close=?, exit_price=?, pnl_usd=?, pnl_pct=?,
+               entry_fee=?, exit_fee=?, net_pnl=?, hold_seconds=?,
+               exit_reason=?, status='closed'
+               WHERE id=?""",
+            (ts_close or _now(), exit_price, pnl_usd, pnl_pct,
+             entry_fee, exit_fee, net_pnl, hold_s,
+             exit_reason, trade_id),
+        )
+
+    def get_scalp_stats(self) -> dict:
+        """Return aggregate scalping performance stats."""
+        stats = self._sqlite.query(
+            """SELECT
+                COUNT(*)                                           AS total_trades,
+                SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END)     AS wins,
+                SUM(CASE WHEN pnl_usd <= 0 THEN 1 ELSE 0 END)    AS losses,
+                ROUND(COALESCE(SUM(pnl_usd),0), 2)                AS total_pnl,
+                ROUND(COALESCE(AVG(pnl_usd),0), 4)                AS avg_pnl,
+                ROUND(COALESCE(AVG(hold_seconds),0), 1)           AS avg_hold_s,
+                ROUND(COALESCE(AVG(entry_fee + exit_fee),0), 4)   AS avg_fee
+            FROM scalp_trades WHERE status='closed'"""
+        )
+        base = stats[0] if stats else {}
+        total = base.get("total_trades", 0) or 0
+        wins = base.get("wins", 0) or 0
+        wr = (wins / total * 100) if total > 0 else 0
+        base["win_rate"] = round(wr, 1)
+        return base
 
     # ── Stats / diagnostics ──────────────────────────────────────────────────
     def stats(self) -> dict:

@@ -11,9 +11,10 @@
 | `trading-smart-money` | `smart_money_tracker.py` | Śledzi pozycje hybrydowej listy traderów HL: top 20 wg tygodniowego PnL + top 20 wg wartości konta (deduplikacja, ~30-40 unikalnych portfeli — łapie też "grubasów" pomijanych przez czyste rankingi PnL). Wysyła alert gdy otworzą/zamkną/zwiększą pozycję ≥$50k | co 1h |
 | `trading-listings` | `listings_scanner.py` | Skanuje nowe listingi na Binance, Coinbase, Bybit, OKX, Kraken | co 5 min |
 | `trading-volume` | `volume_scanner.py` | Anomalie wolumenowe Binance Futures+Spot (próg 3x). Alert na Telegram | co ~1 min |
-| `trading-webhook` | `tv_webhook.py` | TradingView alerty → Alpaca/HL executor. POST /tv na porcie 5005 | zawsze online |
-| `trading-ngrok` | ngrok (snap) | Tunel HTTPS → port 5005. Publiczny URL dla TradingView webhooków | zawsze online |
+| `trading-webhook` | `tv_webhook.py` | TradingView alerty → Alpaca/HL executor. POST /tv, GET /oi_history na porcie 5005 (proxy: `tv-webhook-proxy` + Traefik → `https://tv.prawosfera.online`) | zawsze online |
 | `trading-copybot` | `copy_bot.py --daemon` | **Copy trading (PAPER)** — śledzi kilku traderów HL naraz, symuluje mirror (target-position reconciliation), alert na Telegram przy OPEN/CLOSE/ADD/REDUCE. Bez Senpi. Traderzy w `config/copy_trader.json` | co 60s |
+
+> `trading-ngrok` zostal wycofany 2026-06-22 — patrz sekcja "ngrok — WYCOFANY" nizej.
 
 ### Cron (Eddie / Maggie / Frank — Insider Intelligence)
 
@@ -22,6 +23,18 @@
 | Eddie | `insider_tracker.py form4` | codziennie 06:00 UTC |
 | Maggie | `insider_tracker.py institutional` | niedziela 19:00 UTC |
 | Frank | `insider_tracker.py fed` | poniedziałek 08:00 UTC |
+
+### Cron (oi-tracker — 14D Open Interest history)
+
+| Job | Skrypt | Kiedy |
+|-----|--------|-------|
+| oi-tracker | `oi_tracker.py --brief --no-history` | co godzinę (min. 5) |
+
+Zapisuje snapshot OI do `data/trading.db` na VPS (24/7, niezależnie od tego czy
+lokalny dashboard na Windows jest włączony). Historia jest wystawiona przez
+`GET /oi_history` na `tv_webhook.py` (patrz sekcja "Endpointy" niżej) —
+`scripts/oi_tracker.py` odpytuje ten endpoint, żeby policzyć trend 14D i
+interpretację niezależnie od tego, gdzie jest odpalany (VPS albo Windows).
 
 ---
 
@@ -46,7 +59,6 @@ systemctl restart trading-smart-money
 systemctl restart trading-listings
 systemctl restart trading-volume
 systemctl restart trading-webhook
-systemctl restart trading-ngrok
 systemctl restart trading-copybot
 ```
 
@@ -58,8 +70,8 @@ systemctl start trading-smart-money
 
 ### Restart wszystkich demonów
 ```bash
-systemctl restart trading-smart-money trading-listings trading-volume trading-webhook trading-ngrok
-systemctl status trading-smart-money trading-listings trading-volume trading-webhook trading-ngrok --no-pager
+systemctl restart trading-smart-money trading-listings trading-volume trading-webhook
+systemctl status trading-smart-money trading-listings trading-volume trading-webhook --no-pager
 ```
 
 ### Aktualizacja kodu (po git push z laptopa)
@@ -67,7 +79,7 @@ systemctl status trading-smart-money trading-listings trading-volume trading-web
 cd /trading-ai
 git pull
 systemctl restart trading-smart-money trading-listings trading-volume trading-webhook
-systemctl status trading-smart-money trading-listings trading-volume trading-webhook trading-ngrok --no-pager
+systemctl status trading-smart-money trading-listings trading-volume trading-webhook --no-pager
 ```
 
 > ⚠️ Gdy `git pull` narzeka *"local changes would be overwritten"* na pliku który serwer sam zapisuje (np. `alerts.jsonl`, `annual.txt`) — porzuć lokalną wersję i ponów: `git checkout -- alerts.jsonl && git pull`. To tylko logi, odtworzą się.
@@ -317,55 +329,166 @@ ngrok config add-authtoken TWÓJ_AUTHTOKEN
 # authtoken znajdziesz na: https://dashboard.ngrok.com/authtokens
 ```
 
-### Plik service
+### ngrok — WYCOFANY (2026-06-22)
+
+ngrok tunelowanie zostało usunięte. Powód: free-tier ngrok wyczerpał miesięczny limit transferu
+(`ERR_NGROK_725`), co blokowało WSZYSTKIE webhooki (403 Forbidden) — łącznie z Alpaca i Extended —
+do końca miesiąca rozliczeniowego. To był już drugi/trzeci incydent tego typu.
+
+Pierwsza próba zamiany na `http://92.112.181.37:5005/tv` (bezpośrednio przez IP) odpadła —
+TradingView wymaga HTTPS dla niestandardowych portów ("Only port 80 is allowed for HTTP").
+Port 80/443 na VPS jest zajęty przez Traefik (obsługuje 8 innych projektów: kebabrank, kryptopit,
+radca, n8n, media-master, kokoro-tts) — **nie wolno** ruszać głównego configu Traefika.
+
+**Finalne rozwiązanie:** nowy, izolowany kontener `tv-webhook-proxy` (nginx:alpine) w
+`/opt/tv-webhook-proxy/` na VPS, podłączony do sieci `root_default` z własnym Traefik labelem
+(`Host(tv.prawosfera.online)`), w pełni addytywny — zero zmian w innych routerach/projektach.
+Traefik automatycznie wystawił certyfikat Let's Encrypt dla tej subdomeny (resolver `mytlschallenge`,
+ten sam co dla innych projektów).
 
 ```bash
-sudo nano /etc/systemd/system/trading-ngrok.service
+# Pliki konfiguracji (lokalnie w repo):
+#   deploy/tv-webhook-proxy/docker-compose.yml
+#   deploy/tv-webhook-proxy/nginx.conf
+# Deploy:
+scp deploy/tv-webhook-proxy/*.* root@92.112.181.37:/opt/tv-webhook-proxy/
+ssh root@92.112.181.37 "cd /opt/tv-webhook-proxy && docker compose up -d"
 ```
 
-Wklej:
-
-```ini
-[Unit]
-Description=ngrok tunnel — trading webhook
-After=network.target trading-webhook.service
-
-[Service]
-Environment=HOME=/root
-ExecStart=/snap/bin/ngrok http --url=gladiator-doorbell-handwoven.ngrok-free.dev 5005
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
+DNS: rekord A `tv.prawosfera.online` → `92.112.181.37` (TTL 14400, u rejestratora domeny).
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable trading-ngrok
-sudo systemctl start trading-ngrok
+# Zatrzymać/wyłączyć stary ngrok tunel (już zatrzymany):
+pkill ngrok 2>/dev/null
 ```
 
 ### Weryfikacja
 
 ```bash
-curl https://gladiator-doorbell-handwoven.ngrok-free.dev/health
+curl https://tv.prawosfera.online/health
 # Powinno zwrócić: {"status":"ok","trading_mode":"live",...}
 ```
 
-### TradingView Webhook URL
+### TradingView Webhook URL (aktualny)
 
 ```
-https://gladiator-doorbell-handwoven.ngrok-free.dev/tv?secret=tvhook_markowyy_2026
+https://tv.prawosfera.online/tv?secret=tvhook_markowyy_2026
 ```
+
+**WAŻNE:** zaktualizuj URL w każdym alercie TradingView (ZL-Volatility v1, IMBUS v1) —
+stary `https://gladiator-doorbell-handwoven.ngrok-free.dev/tv` już nie działa (403, limit ngrok),
+a `http://92.112.181.37:5005/tv` jest odrzucany przez TradingView (custom port + HTTP).
+
+### Endpointy tv_webhook.py (przez tę samą domenę)
+
+| Endpoint | Metoda | Opis |
+|----------|--------|------|
+| `/tv` | POST | TradingView alert → egzekucja (wymaga `?secret=`) |
+| `/health` | GET | status serwisu |
+| `/alerts` | GET | ostatnie 50 alertów |
+| `/clear` | DELETE | czyści alerts.jsonl (wymaga `?secret=`) |
+| `/oi_history` | GET | historia OI z `oi_snapshots` (2026-06-22+), zasilana cronem `oi_tracker.py --no-history` co godzinę. `?coin=BTC&days=14` → lista; bez `coin` → `{coin: [...]}`. Wymaga `?secret=`. Czyta `scripts/oi_tracker.py` (lokalnie na Windows albo z VPS — wybiera ten endpoint jako pierwszy, lokalny SQLite jako fallback) |
 
 ### Ważne uwagi
 
-- Domena `gladiator-doorbell-handwoven.ngrok-free.dev` jest przypisana do konta **KebabRank** na ngrok
-- `Environment=HOME=/root` jest wymagane — snap instaluje ngrok do `/root/snap/ngrok/` i bez HOME service nie znajdzie configu
-- ngrok zajmuje 1 połączenie z free planu (wystarczy dla webhook)
-- Po zmianie authtoken: `ngrok config add-authtoken NOWY_TOKEN` + `systemctl restart trading-ngrok`
-- Traefik + Docker na portach 80/443 NIE są ruszane — inne projekty działają normalnie
+- Traefik + Docker na portach 80/443 NIE są ruszane na poziomie config — `tv-webhook-proxy` to
+  tylko nowy kontener z własnymi labelami, identyczny mechanizm jak kebabrank/kryptopit/radca
+- Wymagany był 2× restart `root-traefik-1` żeby wymusić świeże żądanie ACME (DNS negative-cache,
+  ~10 min od dodania rekordu) — restart Traefika to ~2-5s przerwy dla WSZYSTKICH projektów za nim,
+  nie tylko webhooka. Potwierdzone że wszystkie 8 innych kontenerów przetrwało bez zmian.
+- `tv_webhook.py` wciąż słucha lokalnie na `127.0.0.1:5005` (systemd `tv-webhook.service`,
+  niezmieniony) — `tv-webhook-proxy` to jedyny nowy element, czysty reverse-proxy bez logiki
+
+---
+
+---
+
+## 📡 TradingView → VPS → Extended/Alpaca — pełny setup (2026-06-18)
+
+### Architektura — dwubiegunowy system
+
+```
+AUTOMATYCZNY (24/7 przez VPS):
+  TradingView alert → ngrok (VPS:443) → tv_webhook.py (VPS:5005)
+    ├─ venue="extended" → extended_order.py → Extended DEX (x10 SDK)
+    └─ venue="alpaca"   → alpaca_executor.py → Alpaca (paper)
+
+MANUALNY (lokalnie, na żądanie):
+  Claude / Hermes → extended_order.py lokalnie → Extended DEX
+                 → alpaca_executor.py lokalnie → Alpaca
+```
+
+Dashboard (server.py, port 5007) działa **lokalnie** na laptopie. VPS odpowiada tylko za webhook.
+
+---
+
+### Co naprawiono 2026-06-18
+
+**Problem 1 — brak `.env` na VPS**
+VPS nie miał pliku `.env`. Klucze były w środowisku procesu dashboardu (screen session, który żył od pierwszego wdrożenia). Po restarcie procesy straciłyby klucze. Naprawka: utworzono `/trading-ai/.env`.
+
+**Problem 2 — brak `EXTENDED_STARK_PRIVATE`**
+Klucz prywatny Extended był tylko w lokalnym `.env` na laptopie, nigdy nie trafił na VPS. Stąd każdy sygnał IMBUS zwracał `[BŁĄD] Brak w .env: EXTENDED_STARK_PRIVATE`. Alpaca działała bo miała klucze z dziedziczonego env dashboardu — Extended nie.
+
+**Problem 3 — brak pakietu `x10-python-trading-starknet`**
+SDK Extended nie był zainstalowany w `.venv` na VPS (`ModuleNotFoundError: No module named 'x10'`). Instalacja: `.venv/bin/pip install x10-python-trading-starknet`.
+
+**Problem 4 — usługa `trading-webhook` vs `tv-webhook`**
+Istniejąca dokumentacja mówiła o `trading-webhook.service`. Faktycznie aktywna usługa to `tv-webhook.service` (utworzona 2026-06-18, załadowana przez `EnvironmentFile`).
+
+---
+
+### Aktualny stan po naprawkach
+
+| Komponent | Status |
+|-----------|--------|
+| `tv-webhook.service` | ✅ aktywny, systemd, auto-restart |
+| `/trading-ai/.env` | ✅ istnieje, zawiera wszystkie klucze |
+| `x10-python-trading-starknet` | ✅ zainstalowany w .venv |
+| Extended (IMBUS v1) | ✅ test ręczny: BTC Long $50k weszło i zostało anulowane |
+| Alpaca (ZL-Volatility v1) | ⏳ nie testowane przez webhook — czekamy na sygnał |
+| IMBUS live sygnał | ⏳ czekamy na sygnał z TradingView |
+
+---
+
+### `/trading-ai/.env` — co zawiera (kategorie, nie wartości)
+
+```
+TRADING_MODE=live
+TV_SECRET=...
+EXTENDED_API_KEY / EXTENDED_STARK_PUBLIC / EXTENDED_STARK_PRIVATE / EXTENDED_VAULT / EXTENDED_CLIENT_ID
+ALPACA_API_KEY / ALPACA_API_SECRET / ALPACA_PAPER=true / ALPACA_BASE_URL / ALPACA_TRADING_MODE=paper
+```
+
+> ⚠️ `.env` jest w `.gitignore` — edytuj przez `nano /trading-ai/.env` na VPS. Nigdy nie commituj.
+
+---
+
+### Aktywna usługa webhooks — poprawne nazwy
+
+```bash
+# Sprawdź status
+systemctl status tv-webhook --no-pager
+
+# Logi na żywo
+tail -f /trading-ai/logs/tv_webhook.log
+
+# Restart po zmianach kodu
+systemctl restart tv-webhook
+
+# Health check
+curl http://localhost:5005/health
+# Oczekiwane: {"status":"ok","trading_mode":"live",...}
+```
+
+---
+
+### Na co czekamy — lista testów do wykonania
+
+1. **Sygnał IMBUS → Extended** — poczekać na alert z TradingView (BTC/SUI na 15m). Sprawdzić w logach `[Extended] Sizing:` i że order wyszedł na Extended.
+2. **Sygnał ZL-Volatility → Alpaca** — poczekać na alert z TradingView. Sprawdzić że alpaca_executor.py bracket order wchodzi (paper). Jeśli padnie brak kluczy Alpaka — dodać do `.env` i zrestartować usługę.
+3. **Pine risk_pct** — w IMBUS Pine suwak `risk_pct` jest wbudowany w JSON alertu (`str.tostring(risk_pct)`). Sprawdzić w logach że `risk_pct` ≠ 1 po zmianie w TV.
+4. **RGTI SL na Alpaca** — gdy zombie TP order (pending_cancel z 16.06) zostanie wyczyszczony przez Alpaca Paper Trading, uruchomić: `python scripts/alpaca_executor.py place_sl RGTI buy 437 22.04`
 
 ---
 

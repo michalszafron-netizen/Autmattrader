@@ -38,6 +38,10 @@ ROOT   = Path(__file__).parent.parent
 PY     = str(ROOT / '.venv' / 'Scripts' / 'python.exe')
 SCRIPTS = ROOT / 'scripts'
 DB_PATH = ROOT / 'data' / 'trading.db'
+
+# VPS webhook via HTTPS domain — replaces ngrok (free tier hit monthly bandwidth cap, ERR_NGROK_725)
+# Routed through existing Traefik (PathPrefix→Host router, Let's Encrypt cert) to tv_webhook.py:5005
+VPS_WEBHOOK_BASE = 'https://tv.prawosfera.online'
 ALERTS_FILE = ROOT / 'alerts.jsonl'
 
 load_dotenv(ROOT / '.env')
@@ -230,7 +234,7 @@ def status():
     try:
         import urllib.request as _ur
         _req = _ur.urlopen(
-            'https://gladiator-doorbell-handwoven.ngrok-free.dev/health',
+            VPS_WEBHOOK_BASE + '/health',
             timeout=4)
         if _req.status == 200:
             ngrok_ok = True
@@ -506,10 +510,10 @@ def _fetch_vps(endpoint: str, timeout: float = 2.5) -> dict:
     return {}
 
 
-_NGROK_ALERTS_URL = 'https://gladiator-doorbell-handwoven.ngrok-free.dev/alerts'
+_NGROK_ALERTS_URL = VPS_WEBHOOK_BASE + '/alerts'
 
 def _fetch_webhook_alerts(limit: int = 50) -> list:
-    """Fetch TV webhook alerts from VPS via ngrok (HTTPS). Falls back to local file."""
+    """Fetch TV webhook alerts directly from VPS. Falls back to local file."""
     try:
         with httpx.Client(timeout=5.0) as c:
             r = c.get(_NGROK_ALERTS_URL)
@@ -1142,7 +1146,7 @@ def strategies():
             'symbols': 'US Stocks',
             'timeframe': '15m',
             'status': 'active',
-            'webhook_url': 'https://gladiator-doorbell-handwoven.ngrok-free.dev/tv',
+            'webhook_url': VPS_WEBHOOK_BASE + '/tv',
         },
         {
             'name': 'IMBUS v1',
@@ -1152,7 +1156,7 @@ def strategies():
             'symbols': 'Crypto Perp',
             'timeframe': '15m',
             'status': 'active',
-            'webhook_url': 'https://gladiator-doorbell-handwoven.ngrok-free.dev/tv',
+            'webhook_url': VPS_WEBHOOK_BASE + '/tv',
         },
     ]
     return jsonify({'strategies': strategies_list, 'tv_alerts': tv_alerts})
@@ -1354,6 +1358,138 @@ def research_claude():
         'markdown': markdown,
         'file':     new_file,
     })
+
+
+@app.route('/api/research/stock-claude', methods=['POST'])
+def research_stock_claude():
+    """Deep stock/TradFi research via Claude.
+
+    Step 1: run stock_research.py to collect raw fundamentals + technicals.
+    Step 2: pass the data to Claude with a structured Polish prompt.
+    Claude saves the report to reports/research/stocks/ and returns markdown.
+    """
+    data    = request.get_json(force=True) or {}
+    ticker  = (data.get('ticker') or '').strip().upper()
+    is_pl   = bool(data.get('pl'))
+    if not ticker:
+        return jsonify({'ok': False, 'error': 'Brak tickera'}), 400
+
+    claude = find_claude_exe()
+    if not claude:
+        return jsonify({'ok': False, 'error': 'claude not found — uruchom dashboard z sesji PS gdzie tgtrade działał.'}), 500
+
+    # ── Step 1: raw data from yfinance ────────────────────────────────────────
+    yf_sym = f"{ticker}.WA" if is_pl else ticker
+    raw = run_script('stock_research.py', ['research', yf_sym], timeout=120)
+    raw_data = strip_ansi(raw.get('output', '') or raw.get('error', ''))[:5000]
+
+    today       = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    market_lbl  = 'GPW (Polska)' if is_pl else 'US / NYSE / NASDAQ'
+    stocks_dir  = ROOT / 'reports' / 'research' / 'stocks'
+    stocks_dir.mkdir(parents=True, exist_ok=True)
+    fname       = f"{ticker}_{'PL' if is_pl else 'US'}_{today}.md"
+    save_path   = f"reports/research/stocks/{fname}"
+
+    prompt = (
+        f"Zrób GŁĘBOKI research spółki giełdowej: **{ticker}** (rynek: {market_lbl}, data: {today}).\n\n"
+        f"Poniżej surowe dane zebrane przez nasz system (fundamenty, techniczne, news):\n"
+        f"```\n{raw_data}\n```\n\n"
+        f"Na podstawie tych danych ORAZ własnego researchu przez web search "
+        f"(szukaj wyników Q, prognoz, insiderów, newsów z ostatnich dni) "
+        f"przygotuj raport funduszu inwestycyjnego. Język: **polski**. Format: Markdown.\n\n"
+        f"Wymagana struktura:\n"
+        f"# RESEARCH: {ticker} — [pełna nazwa spółki] ({market_lbl})\n"
+        f"**Data:** {today} · **Cena:** [aktualna] · **Typ:** [sektor/typ]\n\n"
+        f"## 1. JEDNYM ZDANIEM\n[teza inwestycyjna max 2 zdania]\n\n"
+        f"## 2. WYCENA\n[tabela wskaźników P/E, P/S, P/B, EV/EBITDA z komentarzem vs sektor]\n\n"
+        f"## 3. TECHNICZNE\n[RSI, trend vs SMA, poziomy wsparcia/oporu, setup]\n\n"
+        f"## 4. ANALITYCY I INSIDERZY\n[konsensus, price targets, insider buys/sells]\n\n"
+        f"## 5. RYZYKA\n[max 3 bullet points]\n\n"
+        f"## 6. WERDYKT\n**KUP / CZEKAJ / UNIKAJ** — [uzasadnienie 2-3 zdania]\n\n"
+        f"WAŻNE: Jeśli to świeże IPO lub dane są niekompletne, zaznacz to i szacuj na podstawie "
+        f"dostępnych danych + porównania z branżą.\n\n"
+        f"ZAPISZ raport do pliku: {save_path}"
+    )
+
+    before = {str(f): f.stat().st_mtime for f in stocks_dir.glob('*.md')}
+
+    cmd = [claude, '--dangerously-skip-permissions', '--print', '-']
+    try:
+        r = subprocess.run(
+            cmd, input=prompt, capture_output=True, text=True, timeout=600,
+            cwd=str(ROOT), encoding='utf-8', errors='replace',
+            env={**os.environ, 'PYTHONIOENCODING': 'utf-8', 'FORCE_COLOR': '0', 'NO_COLOR': '1'},
+        )
+    except subprocess.TimeoutExpired:
+        return jsonify({'ok': False, 'error': 'Timeout 10 min'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+    # ── Detect saved .md ──────────────────────────────────────────────────────
+    markdown, new_file = '', ''
+    try:
+        after = {str(f): f.stat().st_mtime for f in stocks_dir.glob('*.md')}
+        new_files = [f for f in after if f not in before or after[f] > before.get(f, 0)]
+        if new_files:
+            newest   = max(new_files, key=lambda p: after[p])
+            markdown = Path(newest).read_text(encoding='utf-8', errors='replace')
+            new_file = Path(newest).name
+        if not markdown:
+            markdown = strip_ansi(r.stdout or '')
+    except Exception:
+        pass
+
+    return jsonify({
+        'ok':       bool(markdown) or r.returncode == 0,
+        'markdown': markdown,
+        'output':   strip_ansi(r.stdout or r.stderr or ''),
+        'file':     new_file,
+    })
+
+
+@app.route('/api/research/linkedin-post', methods=['POST'])
+def research_linkedin_post():
+    data     = request.get_json(force=True) or {}
+    markdown = (data.get('markdown') or '').strip()
+    ticker   = (data.get('ticker')   or '').strip().upper()
+    if not markdown:
+        return jsonify({'ok': False, 'error': 'Brak treści raportu'}), 400
+    claude = find_claude_exe()
+    if not claude:
+        return jsonify({'ok': False, 'error': 'claude not found'}), 500
+
+    prompt = f"""Jesteś ekspertem finansowym i doświadczonym twórcą treści na LinkedIn (50k+ obserwujących, specjalizacja: rynki akcji i krypto).
+Na podstawie poniższego raportu inwestycyjnego napisz post na LinkedIn.
+
+ZASADY FORMATU:
+- Długość: 180-260 słów — LinkedIn obcina po ~210 znakach bez "pokaż więcej", więc pierwsze 2 zdania to wszystko
+- Hook (pierwsze 1-2 zdania): ZATRZYMAJ przewijanie — konkretna liczba, nieoczywista teza, albo kontrariańska obserwacja. Zero "Dziś piszę o...", "Ciekawy raport...", "Hej LinkedIn..."
+- Styl: ekspert rozmawiający z kolegą-inwestorem po 1:1. Nie korporacyjny. Nie naganiacki.
+- Podaj 3-4 konkretne fakty / liczby z raportu — zero ogólników
+- Zakończenie: 1 pytanie do czytelnika LUB zaproszenie do pobrania karuzeli PDF z pełną analizą
+- Emotikony: max 3-4, tylko gdzie naprawdę wzmacniają, nie dekorują
+- Hashtagi (5-7) na samym końcu — mix: branżowe (#ETF #Akcje #Inwestycje) + ogólne (#LinkedIn #Trading)
+- Język: POLSKI
+- NIE używaj słów: "ekscytujący", "niesamowity", "sharing", "journey", "synergies"
+
+TICKER / SPÓŁKA: {ticker if ticker else '(z raportu)'}
+
+RAPORT DO ANALIZY:
+{markdown[:5000]}
+
+Zwróć WYŁĄCZNIE gotowy tekst posta. Żadnych komentarzy, nagłówków, cudzysłowów. Zacznij od pierwszego zdania posta."""
+
+    r = subprocess.run(
+        [claude, '--dangerously-skip-permissions', '--print', '-'],
+        input=prompt, capture_output=True, text=True, timeout=120,
+        cwd=str(ROOT), encoding='utf-8', errors='replace',
+        env={**os.environ, 'PYTHONIOENCODING': 'utf-8', 'FORCE_COLOR': '0', 'NO_COLOR': '1'}
+    )
+    post_text = strip_ansi((r.stdout or '').strip())
+    if not post_text:
+        err = strip_ansi(r.stderr or '').strip()
+        return jsonify({'ok': False, 'error': err or 'Claude nie zwrócił treści'}), 500
+    return jsonify({'ok': True, 'post': post_text})
 
 
 @app.route('/api/research/history')

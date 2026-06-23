@@ -152,6 +152,23 @@ def cancel_order(order_id: str) -> bool:
     return r.status_code == 204
 
 
+def place_stop_order(symbol: str, side: str, qty: int, stop_price: float) -> dict:
+    """Place a standalone stop-GTC order (for adding SL to existing position)."""
+    payload = {
+        "symbol":        symbol.upper(),
+        "qty":           str(qty),
+        "side":          side,           # "buy" for short SL, "sell" for long SL
+        "type":          "stop",
+        "time_in_force": "gtc",
+        "stop_price":    str(round(stop_price, 4)),
+    }
+    with client() as c:
+        r = c.post(f"{BASE_URL}/v2/orders", json=payload)
+    if not r.is_success:
+        raise RuntimeError(f"Alpaca {r.status_code}: {r.text}")
+    return r.json()
+
+
 def replace_sl_order(order_id: str, new_stop_price: float) -> dict:
     """Update SL: cancel old stop leg (even if 'held' in bracket), place new standalone stop-GTC.
 
@@ -307,6 +324,13 @@ def main() -> None:
     br.add_argument("--tp",     type=float, default=None, metavar="LIMIT_PRICE",
                     help="Take-profit limit price (optional)")
 
+    ps = sub.add_parser("place_sl",
+         help="Place new standalone stop-GTC (SL for existing position, no bracket needed)")
+    ps.add_argument("symbol")
+    ps.add_argument("side", choices=["buy", "sell"], help="buy=SL for short | sell=SL for long")
+    ps.add_argument("qty",        type=int,   help="Number of shares")
+    ps.add_argument("stop_price", type=float, help="Stop trigger price")
+
     us = sub.add_parser("update_sl",
          help="Replace an existing SL stop order with a new stop price")
     us.add_argument("order_id",   help="Existing SL order ID to replace")
@@ -376,6 +400,18 @@ def main() -> None:
         print(_json.dumps({"alpaca_order_id": result.get("id",""), "qty": int(args.qty),
                            "symbol": args.symbol.upper(), "side": side, "status": status,
                            "sl_order_id": sl_leg.get("id",""), "tp_order_id": tp_leg.get("id","")}))
+
+    elif args.cmd == "place_sl":
+        import json as _json
+        result = place_stop_order(args.symbol.upper(), args.side, args.qty, args.stop_price)
+        new_oid = result.get("id", "")
+        status  = result.get("status", "?")
+        console.print(
+            f"[green]SL placed[/green] [{MODE}] | "
+            f"{args.symbol.upper()} {args.side.upper()} {args.qty} stop @ ${args.stop_price:.4f} | "
+            f"status={status} | OID={new_oid[:12]}..."
+        )
+        print(_json.dumps({"sl_order_id": new_oid, "stop_price": args.stop_price, "status": status}))
 
     elif args.cmd == "cancel":
         ok = cancel_order(args.order_id)

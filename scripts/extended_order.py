@@ -55,6 +55,13 @@ VAULT_RAW   = os.getenv("EXTENDED_VAULT", "")
 _ext_mode = os.getenv("EXTENDED_TRADING_MODE") or os.getenv("TRADING_MODE") or "paper"
 LIVE_MODE = _ext_mode.lower() == "live"
 
+# Wejscia jako pasywny limit na cenie z sygnalu czesto nie wypelniaja sie (cena
+# z TV jest juz nieaktualna do czasu wykonania) i wisza do wygasniecia GTT bez
+# zadnego bledu w logu. EXTENDED_ENTRY_AGGRESSION_PCT przesuwa cene wejscia o
+# ten % od aktualnej mark price w strone przeciecia ksiazki, zeby zlecenie
+# wypelnilo sie od razu (taker) zamiast czekac na traf.
+ENTRY_AGGRESSION_PCT = float(os.getenv("EXTENDED_ENTRY_AGGRESSION_PCT", "0.2"))
+
 
 def _check_keys() -> None:
     missing = []
@@ -99,11 +106,34 @@ async def _place_order(args: argparse.Namespace) -> None:
 
     market     = args.market.upper()
     side_str   = args.side.lower()
-    amount     = Decimal(str(args.amount))
     price      = Decimal(str(args.price))
     sl_price   = Decimal(str(args.sl)) if args.sl else None
     tp_price   = Decimal(str(args.tp)) if args.tp else None
     reduce_only = args.reduce_only
+
+    # Validate market and get step sizes before anything else
+    spec = _get_market_spec(market)
+    if spec is None:
+        sys.exit(1)
+
+    # Round amount + price(s) to market precision — Extended rejects orders that violate either
+    amount = _round_amount(Decimal(str(args.amount)), spec)
+    if amount < spec["min"]:
+        print(f"[BLAD] Amount {amount} < minOrderSize {spec['min']} dla {market}")
+        sys.exit(1)
+    # Entry orders: chase the live mark price instead of resting on the (possibly
+    # stale) signal price, so the order crosses the book and fills immediately.
+    if not reduce_only:
+        mark = _get_mark_price(market)
+        if mark > 0:
+            aggressive = mark * (1 + ENTRY_AGGRESSION_PCT / 100) if side_str == "long" \
+                else mark * (1 - ENTRY_AGGRESSION_PCT / 100)
+            price = Decimal(str(aggressive))
+    price = _round_price(price, spec)
+    if sl_price is not None:
+        sl_price = _round_price(sl_price, spec)
+    if tp_price is not None:
+        tp_price = _round_price(tp_price, spec)
 
     side = OrderSide.BUY if side_str == "long" else OrderSide.SELL
 
@@ -211,6 +241,54 @@ def _get_position_size(market: str) -> tuple[str | None, float]:
     return None, 0.0
 
 
+def _get_market_spec(market: str) -> dict | None:
+    """Fetch market step sizes from Extended. Returns None if market not found."""
+    import httpx, ssl, truststore
+    _SSL = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    try:
+        with httpx.Client(verify=_SSL, timeout=8) as c:
+            r = c.get("https://api.starknet.extended.exchange/api/v1/info/markets")
+            r.raise_for_status()
+            body = r.json()
+            mkts = body.get("data", body) if isinstance(body, dict) else body
+            if isinstance(mkts, list):
+                for m in mkts:
+                    if (m.get("name") or "").upper() == market.upper():
+                        cfg = m.get("tradingConfig", {})
+                        return {
+                            "step":            Decimal(str(cfg.get("minOrderSizeChange") or "1")),
+                            "min":             Decimal(str(cfg.get("minOrderSize")        or "1")),
+                            "price_step":      Decimal(str(cfg.get("minPriceChange")      or "0.0001")),
+                            "asset_precision": int(m.get("assetPrecision") or 0),
+                        }
+                names = sorted(m.get("name", "") for m in mkts if m.get("name"))
+                print(f"[BLAD] Market {market} not found on Extended.")
+                print(f"  Dostepne rynki: {', '.join(names)}")
+    except Exception as e:
+        print(f"[WARN] get_market_spec {market}: {e}")
+    return None
+
+
+def _round_amount(raw_amount: Decimal, spec: dict) -> Decimal:
+    """Round an order quantity down to the market's step/precision."""
+    from decimal import ROUND_DOWN
+    step = spec["step"]
+    rounded = (raw_amount // step) * step
+    if spec["asset_precision"] == 0:
+        return Decimal(str(int(rounded)))
+    quant = Decimal(10) ** -spec["asset_precision"]
+    return rounded.quantize(quant, rounding=ROUND_DOWN)
+
+
+def _round_price(raw_price: Decimal, spec: dict) -> Decimal:
+    """Round a price to the nearest multiple of the market's price_step."""
+    from decimal import ROUND_HALF_UP
+    step = spec["price_step"]
+    if step <= 0:
+        return raw_price
+    return (raw_price / step).to_integral_value(rounding=ROUND_HALF_UP) * step
+
+
 def _get_mark_price(market: str) -> float:
     """REST read — returns current mark price for a market."""
     import httpx, ssl, truststore
@@ -239,12 +317,19 @@ async def _close_position(args: argparse.Namespace) -> None:
     market = args.market.upper()
     pct    = float(getattr(args, "pct", 100))
 
+    spec = _get_market_spec(market)
+    if spec is None:
+        sys.exit(1)
+
     pos_side, pos_size = _get_position_size(market)
     if pos_size <= 0:
         print(f"No open position for {market} — nothing to close.")
         return
 
-    close_qty  = Decimal(str(round(pos_size * pct / 100.0, 6)))
+    close_qty  = _round_amount(Decimal(str(pos_size * pct / 100.0)), spec)
+    if close_qty <= 0:
+        print(f"[BLAD] Closing amount rounds to 0 dla {market} (pos={pos_size}, pct={pct}).")
+        return
     close_side = OrderSide.SELL if pos_side == "LONG" else OrderSide.BUY
     side_str   = "SELL" if pos_side == "LONG" else "BUY"
 
@@ -253,7 +338,8 @@ async def _close_position(args: argparse.Namespace) -> None:
     if mark <= 0:
         print("[BLAD] Nie mozna pobrac mark price — nie wiem po ile zamknac.")
         return
-    fill_price = Decimal(str(round(mark * (0.95 if close_side == OrderSide.SELL else 1.05), 2)))
+    raw_fill   = Decimal(str(mark * (0.95 if close_side == OrderSide.SELL else 1.05)))
+    fill_price = _round_price(raw_fill, spec)
 
     print(f"\nExtended Close Position — {'LIVE' if LIVE_MODE else 'DRY-RUN'}")
     print(f"  Market:     {market}")
@@ -392,7 +478,25 @@ def main() -> None:
     ca_p = sub.add_parser("cancel-all", help="Anuluj WSZYSTKIE otwarte zlecenia")
     ca_p.set_defaults(func=_cancel_all)
 
+    # markets — lista dostepnych rynkow
+    sub.add_parser("markets", help="Lista dostepnych rynkow na Extended").set_defaults(func=None)
+
     args = p.parse_args()
+
+    if args.cmd == "markets":
+        import httpx, ssl, truststore
+        _SSL = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        with httpx.Client(verify=_SSL, timeout=10) as c:
+            r = c.get("https://api.starknet.extended.exchange/api/v1/info/markets")
+            body = r.json()
+            mkts = body.get("data", body) if isinstance(body, dict) else body
+            print(f"\n{'Market':<22} {'MinOrder':<12} {'Step':<8} {'PriceStep':<12} {'Precision'}")
+            print("-" * 65)
+            for m in sorted(mkts, key=lambda x: x.get("name", "")):
+                cfg = m.get("tradingConfig", {})
+                print(f"{m.get('name',''):<22} {cfg.get('minOrderSize','?'):<12} {cfg.get('minOrderSizeChange','?'):<8} {cfg.get('minPriceChange','?'):<12} {m.get('assetPrecision','?')}")
+        return
+
     asyncio.run(args.func(args))
 
 

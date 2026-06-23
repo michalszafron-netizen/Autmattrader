@@ -1409,6 +1409,93 @@ def display_brief(events: list[dict]) -> None:
     print("Econ today: " + " | ".join(items))
 
 
+def display_alpha(events: list[dict]) -> None:
+    """Compact calendar for Daily Alpha Brief — plain text, max 7 events total.
+
+    Format: 3-4 already-published HIGH/CRITICAL + 3 upcoming HIGH/CRITICAL.
+    Plain print() output (no Rich colors) — goes directly to Claude context.
+    """
+    from datetime import datetime, timezone as _tz
+    now_ts = datetime.now(_tz.utc).timestamp()
+
+    important_countries = {"US", "GB", "EU", "DE", "FR", "JP", "CN", "CA", "AU", "CH"}
+
+    published: list[dict] = []
+    upcoming:  list[dict] = []
+
+    for e in sorted(events, key=lambda x: x.get("time", "")):
+        label, _, _ = get_importance(e)
+        if label == "NISKI":
+            continue
+        country = e.get("country", "")
+        if country not in important_countries and not is_high_impact(e):
+            continue
+
+        # Determine if already released: has actual value OR time already passed
+        actual_raw = e.get("actual")
+        has_actual = actual_raw is not None and str(actual_raw).strip() not in ("", "null")
+        try:
+            ev_ts = datetime.fromisoformat(e["time"].replace("Z", "+00:00")).timestamp()
+        except Exception:
+            ev_ts = 0
+        is_past = ev_ts < now_ts
+
+        t       = format_time(e.get("time", ""))
+        name    = e.get("event", "")
+        est     = e.get("estimate")
+        prev    = e.get("prev")
+        actual  = e.get("actual") if has_actual else None
+        tip_tag = "[WYS]" if label == "WYSOKI" else "[KRY]" if label == "KRYTYCZNY" else "[SRD]"
+
+        # Build value string
+        vals = ""
+        if actual is not None:
+            vals += f"  actual:{actual}"
+        if est:
+            vals += f"  est:{est}"
+        if prev:
+            vals += f"  prev:{prev}"
+
+        entry = f"{t} {tip_tag} {country} — {name}{vals}"
+
+        if has_actual or is_past:
+            published.append(entry)
+        else:
+            upcoming.append(entry)
+
+    # Risk summary
+    total_critical = sum(1 for e in events if get_importance(e)[0] == "KRYTYCZNY")
+    total_high     = sum(1 for e in events if get_importance(e)[0] == "WYSOKI")
+    if total_critical >= 2:
+        risk = "WYSOKI"
+    elif total_critical == 1 or total_high >= 2:
+        risk = "SREDNI"
+    elif total_high == 1:
+        risk = "NISKI-SREDNI"
+    else:
+        risk = "NISKI"
+
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace") if hasattr(sys.stdout, "reconfigure") else None
+    print(f"ECON CALENDAR — ryzyko makro dzis: {risk}")
+    print("")
+
+    if published:
+        print("[OK] JUZ OPUBLIKOWANE:")
+        for line in published[:4]:
+            print(f"  {line}")
+    else:
+        print("[OK] Brak opublikowanych danych wysokiego wplywu.")
+
+    print("")
+
+    if upcoming:
+        print("[>>] NADCHODZACE DZIS:")
+        for line in upcoming[:3]:
+            print(f"  {line}")
+    else:
+        print("[>>] Brak nadchodzacych danych wysokiego wplywu na dzis.")
+
+
 def analyze_impact(event_name: str, actual: float, expected: float) -> None:
     surprise    = actual - expected
     surprise_pct = (surprise / abs(expected) * 100) if expected else 0
@@ -1476,6 +1563,7 @@ def main() -> None:
 
     p.add_argument("--days",     type=int, default=1)
     p.add_argument("--brief",    action="store_true", help="One-liner for daily alpha header")
+    p.add_argument("--alpha",    action="store_true", help="Compact plain-text output for Daily Alpha: max 7 events (4 published + 3 upcoming), HIGH/CRITICAL only")
     p.add_argument("--upcoming", action="store_true", help="Show only upcoming (not yet released) events today")
     p.add_argument("--full",     action="store_true", help="Pelny raport: co juz wyszlo + co jeszcze dzis wyjdzie + wplyw na BTC/Zloto/Srebro/Ropa/SP500/USD")
 
@@ -1497,6 +1585,8 @@ def main() -> None:
 
     if args.full:
         display_full(events)
+    elif args.alpha:
+        display_alpha(events)
     elif args.upcoming:
         display_upcoming(events)
     elif args.brief:

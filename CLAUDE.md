@@ -583,9 +583,7 @@ Steps Claude executes when you type this:
 - Run: `python scripts/extended_executor.py balance` — konto Extended: equity, margin, health
 - Run: `python scripts/alpaca_executor.py positions` — pozycje Alpaca paper (ZAWSZE pokaż: nawet "brak pozycji" + equity + buying power)
 - Run: `python scripts/fear_greed.py --brief` — Crypto Fear & Greed Index
-- Run: `python scripts/econ_calendar.py` — pełny kalendarz dziś: co już wyszło + EXPERT VIEW
-- Run: `python scripts/econ_calendar.py --upcoming` — lista nadchodzących (jeszcze nie opublikowanych) eventów na dziś
-- Run: `python scripts/econ_calendar.py --brief` — jedna linia skrót dla nagłówka
+- Run: `python scripts/econ_calendar.py --alpha` — kompaktowy kalendarz: max 7 eventów (4 opublikowane + 3 nadchodzące), tylko HIGH/CRITICAL, plain text
 - Oblicz % wykorzystanego max ryzyka (max portfolio risk = 6%)
 
 **STEP 0.5 — PREDICTION MARKETS (Polymarket, free, no key)**
@@ -598,9 +596,8 @@ Steps Claude executes when you type this:
 - Wyciągnij 5 bulletów; oznacz co może ruszyć assets w ciągu 24h
 
 **STEP 1.5 — OPEN INTEREST (Binance + Bybit + Extended)**
-- Run: `python scripts/oi_tracker.py --brief` — aggregate OI dla BTC/ETH/SOL/HYPE/LINK/XAU/XAG
-- Run: `python scripts/oi_tracker.py --trend --save` — OI z trendem vs poprzedni snapshot + zapis do DB
-- Zwroc uwage na: funding rate (crowded long/short) + spike >15% (alert)
+- Run: `python scripts/oi_tracker.py --brief` — aggregate OI dla BTC/ETH/SOL/HYPE/LINK/XAU/XAG, + trend 14D (vs cron na VPS, fallback lokalny DB) + jednolinijkowa interpretacja (quadrant OI/cena: nowe longi/shorty, short-covering, likwidacje, konsolidacja)
+- Zwroc uwage na: funding rate (crowded long/short) + spike >15% (alert) + sygnal "Interpretacja OI" z brief output
 - Dla **każdego** aktywa BTC/ETH/SOL/HYPE/LINK: napisz jedno zdanie po polsku co oznacza funding (kto płaci komu, co to znaczy dla kierunku) — nie tylko suche liczby
 
 **STEP 1.6 — TOKEN DASHBOARD (per-token unified view)**
@@ -795,56 +792,34 @@ Exact HL order:
 
 ### ECON CALENDAR
 
-Zawsze analizuj wpływ na te same aktywa bazowe: **BTC · Gold · Silver · Oil · Nasdaq** + każda otwarta pozycja z MY BOOK. Nawet jeśli user nie ma ich w portfelu — one tworzą trendy i wpływają na wszystko inne.
+Dane z `econ_calendar.py --alpha` (max 7 eventów HIGH/CRITICAL). Prezentuj jako dwie sekcje tabeli — zwięźle, NIE rozpisuj każdego eventu na pełną analizę.
+
+**Format sekcji ECON CALENDAR w raporcie:**
+
+```
+## ECON CALENDAR
+
+Zawsze analizuję wpływ na: BTC · Gold · Silver · Oil · Nasdaq (SP500 cena z PRE-STEP 0)
 
 ---
 
-**✅ OPUBLIKOWANE dziś** — dane już wyszły, nie ma scenariuszy, tylko WERDYKT i RZECZYWISTY WPŁYW:
+**✅ OPUBLIKOWANE dziś** (przed [HH:MM] UTC)
 
-Format każdego eventu:
+[czasem | kraj — event | wynik actual vs est → MOCNE/SŁABE/ZGODNE | 1-zdaniowy wpływ na rynek]
+[maks. 4 wiersze — po jednym na event]
 
-```
-🕐 [HH:MM UTC / HH:MM CEST] | [KRAJ] — [NAZWA] | Wynik: [X] vs est [Y] → [MOCNE / SŁABE / ZGODNE]
+**⏳ NADCHODZĄCE dziś**
 
-Wpływ na rynek:
-  BTC:     [↑/↓/→] — [1 zdanie dlaczego]
-  Gold:    [↑/↓/→] — [1 zdanie dlaczego]
-  Silver:  [↑/↓/→] — [1 zdanie dlaczego]
-  Oil:     [↑/↓/→] — [1 zdanie dlaczego]
-  Nasdaq:  [↑/↓/→] — [1 zdanie dlaczego]
-
-Moje pozycje:
-  [COIN] [LONG/SHORT]: ✅ wspiera pozycję / ❌ uderza w pozycję / ⚠️ neutralne — [1 zdanie]
+[czas | kraj — event | est: X | 1-zdaniowy scenariusz jeśli niespodzianka]
+[maks. 3 wiersze — po jednym na event]
 ```
 
-Zasady dla sekcji OPUBLIKOWANE:
-- NIE pisz "jeśli wyjdzie X" — dane już wyszły, napisz co wyszło i co to oznacza TERAZ
-- NIE pisz scenariuszy dla przeszłości — to strata miejsca
-- Powiedz wprost: "dane były SŁABE (47.8 vs est 48.2) → to znaczy że konsumenci tracą wiarę w gospodarkę → Fed może ciąć stopy (tanie pieniądze) → risk-on → BTC ↑ Gold ↑"
-- Jeśli brak danych o wyniku (nie podano w kalendarzu) — napisz "wynik niedostępny — obserwuj ruch ceny jako proxy"
-
----
-
-**⏳ NADCHODZĄCE dziś** — dane jeszcze nie wyszły → przygotuj scenariusze:
-
-Format każdego eventu:
-
-```
-🕐 [HH:MM UTC / HH:MM CEST] | [KRAJ] — [NAZWA] | Est: [X] | Ważność: [WYSOKI/ŚREDNI]
-
-Jeśli MOCNIEJSZE niż est (pozytywne dla gospodarki):
-  BTC [↑/↓] | Gold [↑/↓] | Silver [↑/↓] | Oil [↑/↓] | Nasdaq [↑/↓]
-  Moje pozycje: [COIN LONG/SHORT] → [zysk/strata] bo [1 zdanie]
-
-Jeśli SŁABSZE niż est (negatywne dla gospodarki):
-  BTC [↑/↓] | Gold [↑/↓] | Silver [↑/↓] | Oil [↑/↓] | Nasdaq [↑/↓]
-  Moje pozycje: [COIN LONG/SHORT] → [zysk/strata] bo [1 zdanie]
-```
-
-Zasady dla sekcji NADCHODZĄCE:
-- Scenariusze tylko tutaj — bo dane jeszcze nie wyszły
-- Zawsze tłumacz mechanizm: nie "CPI → Fed hawkish" ale "inflacja wyższa → Fed martwi się = nie tnie stóp (drogi kredyt) = mniej pieniędzy w obiegu = risk-off = BTC/akcje pod presją"
-- Jeśli brak nadchodzących eventów na dziś (weekend/święto) — napisz jedną linię: "Brak danych makro do końca dnia — rynek w trybie weekend liquidity (niska płynność)"
+Zasady:
+- Jeden wiersz na event — nie rozpisuj na BTC/Gold/Silver/Oil/Nasdaq per event
+- Dla opublikowanych: co wyszło + jeden zbiorczy komentarz gdzie kierunek (risk-on / risk-off / neutral)
+- Dla nadchodzących: tylko te które mogą realnie ruszyć rynkiem (HIGH/CRITICAL) + pora w UTC i lokalnie
+- Jeśli brak eventów HIGH+ — napisz jedną linię: "Brak danych makro dziś — rynek techniczny"
+- Overnight JP (inflacja, BoJ) zawsze oznacz: "⚠️ overnight gap risk"
 
 ### CREDITS USED
 Firecrawl: 3 kredyty tej sesji | Pozostało: X/1000 w miesiącu

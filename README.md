@@ -198,8 +198,14 @@ Plik profilu: `C:\Users\krypt\Documents\WindowsPowerShell\Microsoft.PowerShell_p
 | `quotes.py` | `python scripts/quotes.py --brief` | Live TradFi: Gold/Silver/Oil/SP500/VIX/DXY/NVDA |
 | `fear_greed.py` | `python scripts/fear_greed.py --brief` | Fear & Greed + trend 5d (`28→25→27→29→28 →`) |
 | `fear_greed.py` | `python scripts/fear_greed.py --days 7` | Historia 7 dni z wykresem |
-| `oi_tracker.py` | `python scripts/oi_tracker.py --brief` | OI: Binance+Bybit+Extended per coin |
-| `oi_tracker.py` | `python scripts/oi_tracker.py --trend --save` | OI trend + zapis do DB |
+| `oi_tracker.py` | `python scripts/oi_tracker.py --brief` | OI: Binance+Bybit+Extended per coin + trend 14D + interpretacja (long/short build-up, short-covering, likwidacje...) |
+| `oi_tracker.py` | `python scripts/oi_tracker.py` | Pełny raport: tabela + sparkline 14D + Expert View |
+| `oi_tracker.py` | `python scripts/oi_tracker.py --trend` | + porównanie TOTAL vs ostatni snapshot |
+
+Historia 14D jest zasilana cronem na VPS (`oi_tracker.py --no-history`, co godzinę) i czytana
+przez `GET /oi_history` na `tv_webhook.py` — działa nawet gdy lokalny dashboard jest wyłączony.
+Każde wywołanie zapisuje też snapshot lokalnie (zapis do DB jest teraz zawsze włączony, `--save`
+zostawiony tylko dla kompatybilności starych wywołań).
 | `token_dashboard.py` | `python scripts/token_dashboard.py` | Kafelki BTC/ETH/SOL/HYPE/LINK ze score |
 | `token_dashboard.py` | `python scripts/token_dashboard.py --save` | Dashboard + zapis do DB |
 | `macro_news.py` | `python scripts/macro_news.py --source coindesk` | Newsy crypto (1 kredyt) |

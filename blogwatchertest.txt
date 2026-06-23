@@ -1,0 +1,213 @@
+BlogWatcher v2 — 2026-06-18 15:38 UTC
+Firecrawl keys: 2 | sources: 7 | assets: 18
+
+  → CoinDesk — crypto markets ... FAIL HTTP 402
+  → The Block — crypto/DeFi markets ... OK
+  → Reuters — financial markets ... FAIL HTTP 402
+  → Reuters — world & geopolitics ... OK
+  → Kitco — gold & silver news ... FAIL HTTP 402
+  → OilPrice.com — crude oil & energy ... OK
+  → Barchart — commodity news ... FAIL HTTP 402
+
+Total: 19 articles parsed
+
+╭───────────────────────────── BlogWatcher Output ─────────────────────────────╮
+│ # 📰 BlogWatcher — 2026-06-18 15:39 UTC                                      │
+│                                                                              │
+│ ## Jak czytać raport — legenda symboli                                       │
+│                                                                              │
+│ **Sentyment (kierunek wpływu newsa na cenę aktywa):**                        │
+│ - `[+]` **Bullish** — news pozytywny, cena prawdopodobnie wzrośnie           │
+│ - `[-]` **Bearish** — news negatywny, cena prawdopodobnie spadnie            │
+│ - `[~]` **Neutral / Mixed** — bez wyraźnego kierunku lub zniuansowany        │
+│ - `[?]` **Unknown** — sentyment nieokreślony przez LLM (rzadko)              │
+│                                                                              │
+│ **Impact (siła wpływu na rynek):**                                           │
+│ - `[!!!]` **HIGH** — market-mover: FOMC, wybuch wojny, hack >$100M, major    │
+│ data print                                                                   │
+│ - `[!!]`  **MEDIUM** — notable: analyst calls, secondary data, sector news   │
+│ - `[!]`   **LOW** — kontekstowe / minor                                      │
+│                                                                              │
+│ **Net direction (ASSET IMPACT table):**                                      │
+│ - `BULL`  — przewaga bullish hits nad bearish dla tego aktywa                │
+│ - `BEAR`  — przewaga bearish nad bullish                                     │
+│ - `MIXED` — bull = bear (sprzeczne sygnały, rozbieżność = okazja do alpha)   │
+│ - `—`     — brak hits dziś (asset poza radarem newsów)                       │
+│                                                                              │
+│ **Position verdict (POSITION IMPACTS):**                                     │
+│ - `[OK]` **TEZA WZMOCNIONA** — news potwierdza kierunek Twojej pozycji       │
+│ - `[!]`  **TEZA POD PRESJĄ** — news sprzeczne z pozycją (rozważ SL/exit)     │
+│ - `[~]`  **MIXED** — niejednoznaczny sygnał (bull = bear w hits)             │
+│                                                                              │
+│ **Trade opportunities (assets bez pozycji):**                                │
+│ - `[+]` **LONG bias**  — więcej bullish niż bearish news = potencjalny LONG  │
+│ setup                                                                        │
+│ - `[-]` **SHORT bias** — odwrotnie                                           │
+│                                                                              │
+│ ## 🗞️ NEWS BRIEFING — co się dzieje na rynkach                               │
+│ _19 articles z 3 źródeł · 19 unikalnych historii_                            │
+│                                                                              │
+│ ### 🌍 Geopolityka                                                           │
+│ `7 hits` · `🟢5 / 🔴2 / 🟡0` · `🔥 4 HIGH` · **🟢 BULLISH bias**             │
+│                                                                              │
+│ - [+] `HIGH  ` **First tankers cross strait under Iran deal; Israeli strikes │
+│ raise doubt in Lebanon**  `[OIL]`                                            │
+│   > Three Saudi-flagged supertankers carrying 6 million barrels of crude     │
+│ sailed through the Strait of Hormuz, hours after a deal with Iran to end the │
+│ war that has disrupted global energy supplies.  _(src: reuters_world)_       │
+│ - [+] `HIGH  ` **Ukraine hits Moscow refinery in major drone attack on       │
+│ Russian capital**  `[OIL, GOLD]`                                             │
+│   > A significant drone strike targeted a refinery in Moscow as Ukraine      │
+│ escalates its offensive against Russian interests.  _(src: reuters_world)_   │
+│ - [+] `HIGH  ` **Ukraine brings the war to Moscow as huge blasts shake       │
+│ refinery**  `[OIL, GOLD]`                                                    │
+│   > Massive explosions were reported at a Moscow refinery as Ukraine's       │
+│ forces continue to expand their military operations.  _(src: reuters_world)_ │
+│                                                                              │
+│ ### 🛢️ Energia                                                               │
+│ `5 hits` · `🟢2 / 🔴3 / 🟡0` · `📊 1 HIGH` · **🔴 BEARISH bias**             │
+│                                                                              │
+│ - [-] `HIGH  ` **India’s Energy Import Bill Jumps 82% Due to High Oil        │
+│ Prices**  `[OIL]`                                                            │
+│   > India experiences a significant rise in its energy import costs,         │
+│ attributed to elevated global oil prices, sparking concerns over inflation   │
+│ and economic pressures.  _(src: oilprice)_                                   │
+│ - [-] `MEDIUM` **India's Pump Prices Stuck Even As Global Crude Crashes**    │
+│ `[OIL]`                                                                      │
+│   > Despite a significant drop in global crude prices, India's fuel prices   │
+│ remain unchanged, indicating a persistent pressure from local taxation and   │
+│ supply chain constraints.  _(src: oilprice)_                                 │
+│ - [+] `MEDIUM` **JPMorgan: European Stocks Are Attractively Cheap After Oil  │
+│ Price Slump**  `[SPX, NDX]`                                                  │
+│   > JPMorgan analysts suggest that recent declines in oil prices have led to │
+│ a buying opportunity in European stocks, as the market adjusts to lower      │
+│ energy costs.  _(src: oilprice)_                                             │
+│                                                                              │
+│ ### ₿ Crypto                                                                 │
+│ `4 hits` · `🟢1 / 🔴1 / 🟡2` · `📊 1 HIGH` · **🟡 MIXED**                    │
+│                                                                              │
+│ - [-] `HIGH  ` **Aztec investigates $2 million exploit of deprecated         │
+│ payments product**  `[—]`                                                    │
+│   > The investigation follows the discovery of a security breach in Aztec's  │
+│ deprecated product.  _(src: theblock)_                                       │
+│ - [~] `MEDIUM` **Stablecoin compliance startup Range raises $8.3 million     │
+│ from fintech and crypto VCs**  `[—]`                                         │
+│   > Range aims to enhance compliance in the stablecoin space with its latest │
+│ funding round.  _(src: theblock)_                                            │
+│ - [~] `MEDIUM` **Tether winds down aUSDT stablecoin and Alloy platform to    │
+│ sharpen focus**  `[—]`                                                       │
+│   > Tether is refocusing on its core products by winding down a USDT         │
+│ variant.  _(src: theblock)_                                                  │
+│                                                                              │
+│ ### 📜 Regulatory                                                            │
+│ `3 hits` · `🟢0 / 🔴3 / 🟡0` · `🔥 2 HIGH` · **🔴 BEARISH bias**             │
+│                                                                              │
+│ - [-] `HIGH  ` **'Bitcoin Rodney' pleads guilty in $1.8 billion crypto fraud │
+│ case**  `[BTC]`                                                              │
+│   > The high-profile case highlights ongoing fraud issues in the             │
+│ cryptocurrency world.  _(src: theblock)_                                     │
+│ - [-] `HIGH  ` **CME Group to sue CFTC over approval of perpetual futures,   │
+│ CEO tells CNBC**  `[LINK]`                                                   │
+│   > CME Group's legal challenge against the CFTC indicates potential         │
+│ regulatory battles ahead.  _(src: theblock)_                                 │
+│ - [-] `MEDIUM` **Kentucky files lawsuits against prediction market platforms │
+│ Kalshi and Polymarket**  `[—]`                                               │
+│   > Legal action taken against prediction markets raises concerns for the    │
+│ industry.  _(src: theblock)_                                                 │
+│                                                                              │
+│ ## 📋 TOP HEADLINES — pogrupowane tematycznie                                │
+│                                                                              │
+│ ### 🌍 Geopolityka                                                           │
+│ - [+] `HIGH  ` **[OIL]** First tankers cross strait under Iran deal; Israeli │
+│ strikes raise doubt in Lebanon  _(reuters_world)_                            │
+│ - [+] `HIGH  ` **[OIL, GOLD]** Ukraine hits Moscow refinery in major drone   │
+│ attack on Russian capital  _(reuters_world)_                                 │
+│ - [+] `HIGH  ` **[OIL, GOLD]** Ukraine brings the war to Moscow as huge      │
+│ blasts shake refinery  _(reuters_world)_                                     │
+│                                                                              │
+│ ### 🛢️ Energia                                                               │
+│ - [-] `HIGH  ` **[OIL]** India’s Energy Import Bill Jumps 82% Due to High    │
+│ Oil Prices  _(oilprice)_                                                     │
+│ - [-] `MEDIUM` **[OIL]** India's Pump Prices Stuck Even As Global Crude      │
+│ Crashes  _(oilprice)_                                                        │
+│ - [+] `MEDIUM` **[SPX, NDX]** JPMorgan: European Stocks Are Attractively     │
+│ Cheap After Oil Price Slump  _(oilprice)_                                    │
+│                                                                              │
+│ ### ₿ Crypto                                                                 │
+│ - [-] `HIGH  ` **[—]** Aztec investigates $2 million exploit of deprecated   │
+│ payments product  _(theblock)_                                               │
+│ - [~] `MEDIUM` **[—]** Stablecoin compliance startup Range raises $8.3       │
+│ million from fintech and crypto VCs  _(theblock)_                            │
+│ - [~] `MEDIUM` **[—]** Tether winds down aUSDT stablecoin and Alloy platform │
+│ to sharpen focus  _(theblock)_                                               │
+│                                                                              │
+│ ### 📜 Regulatory                                                            │
+│ - [-] `HIGH  ` **[BTC]** 'Bitcoin Rodney' pleads guilty in $1.8 billion      │
+│ crypto fraud case  _(theblock)_                                              │
+│ - [-] `HIGH  ` **[LINK]** CME Group to sue CFTC over approval of perpetual   │
+│ futures, CEO tells CNBC  _(theblock)_                                        │
+│ - [-] `MEDIUM` **[—]** Kentucky files lawsuits against prediction market     │
+│ platforms Kalshi and Polymarket  _(theblock)_                                │
+│                                                                              │
+│ ## 📊 ASSET IMPACT — wszystkie 18 base assets                                │
+│                                                                              │
+│ | Asset | Net | 🟢/🔴/🟡 | Key driver |                                      │
+│ |-------|-----|----------|------------|                                      │
+│ | **BTC** | 🔴 BEAR | 0/1/0 | 'Bitcoin Rodney' pleads guilty in $1.8 billion │
+│ crypto fraud case |                                                          │
+│ | **ETH** | — | 0/0/0 | _brak catalysts_ |                                   │
+│ | **SOL** | — | 0/0/0 | _brak catalysts_ |                                   │
+│ | **HYPE** | 🟢 BULL | 1/0/0 | Ark Invest buys $18 million worth of Coinbase │
+│ shares, offloads $29 m… |                                                    │
+│ | **LINK** | 🔴 BEAR | 0/1/0 | CME Group to sue CFTC over approval of        │
+│ perpetual futures, CEO tells … |                                             │
+│ | **BTC.D** | — | 0/0/0 | _brak catalysts_ |                                 │
+│ | **DXY** | — | 0/0/0 | _brak catalysts_ |                                   │
+│ | **US10Y** | — | 0/0/0 | _brak catalysts_ |                                 │
+│ | **VIX** | — | 0/0/0 | _brak catalysts_ |                                   │
+│ | **GOLD** | 🟢 BULL | 3/0/0 | Ukraine hits Moscow refinery in major drone   │
+│ attack on Russian capital |                                                  │
+│ | **SILVER** | 🟢 BULL | 1/0/0 | Death toll from Israeli fire in Gaza since  │
+│ ceasefire passes 1,000, s… |                                                 │
+│ | **OIL** | 🟡 MIXED | 5/5/0 | First tankers cross strait under Iran deal;   │
+│ Israeli strikes raise do… |                                                  │
+│ | **NATGAS** | — | 0/0/0 | _brak catalysts_ |                                │
+│ | **NDX** | 🟢 BULL | 1/0/0 | JPMorgan: European Stocks Are Attractively     │
+│ Cheap After Oil Price Slump |                                                │
+│ | **SPX** | 🟢 BULL | 1/0/0 | JPMorgan: European Stocks Are Attractively     │
+│ Cheap After Oil Price Slump |                                                │
+│ | **CORN** | — | 0/0/0 | _brak catalysts_ |                                  │
+│ | **COFFEE** | — | 0/0/0 | _brak catalysts_ |                                │
+│ | **COCOA** | — | 0/0/0 | _brak catalysts_ |                                 │
+│                                                                              │
+│ ## 💡 TRADE OPPORTUNITIES — assets bez pozycji                               │
+│                                                                              │
+│ 🟢 **GOLD** — LONG bias (3 bull / 0 bear)                                    │
+│    •  Ukraine hits Moscow refinery in major drone attack on Russian capital  │
+│    •  Ukraine brings the war to Moscow as huge blasts shake refinery         │
+│                                                                              │
+│ 🔴 **BTC** — SHORT bias (0 bull / 1 bear)                                    │
+│    •  'Bitcoin Rodney' pleads guilty in $1.8 billion crypto fraud case       │
+│                                                                              │
+│ 🟢 **HYPE** — LONG bias (1 bull / 0 bear)                                    │
+│    •  Ark Invest buys $18 million worth of Coinbase shares, offloads $29     │
+│ million in Robinhood                                                         │
+│                                                                              │
+│ 🔴 **LINK** — SHORT bias (0 bull / 1 bear)                                   │
+│    •  CME Group to sue CFTC over approval of perpetual futures, CEO tells    │
+│ CNBC                                                                         │
+│                                                                              │
+│ 🟢 **SILVER** — LONG bias (1 bull / 0 bear)                                  │
+│    •  Death toll from Israeli fire in Gaza since ceasefire passes 1,000,     │
+│ says health ministry                                                         │
+│                                                                              │
+│ 🟢 **SPX** — LONG bias (1 bull / 0 bear)                                     │
+│    •  JPMorgan: European Stocks Are Attractively Cheap After Oil Price Slump │
+│                                                                              │
+│ 🟢 **NDX** — LONG bias (1 bull / 0 bear)                                     │
+│    •  JPMorgan: European Stocks Are Attractively Cheap After Oil Price Slump │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+Credits used this run: ~7 (rotated across 2 key(s))
+Cache: C:\Users\krypt\trading-ai\.firecrawl\blogwatcher

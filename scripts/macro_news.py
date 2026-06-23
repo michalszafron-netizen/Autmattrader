@@ -39,7 +39,11 @@ from rich.panel import Panel
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-API_KEY = os.getenv("FIRECRAWL_API_KEY", "")
+_FIRECRAWL_KEYS = [k for k in [
+    os.getenv("FIRECRAWL_API_KEY"),
+    os.getenv("FIRECRAWL_API_KEY_2"),
+] if k]
+API_KEY = _FIRECRAWL_KEYS[0] if _FIRECRAWL_KEYS else ""
 BASE_URL = "https://api.firecrawl.dev/v1"
 
 console = Console()
@@ -182,24 +186,40 @@ CATEGORY_GROUPS = {
 # ── Scrape ────────────────────────────────────────────────────────────────────
 
 def scrape(url: str, extract_prompt: str) -> str:
-    with httpx.Client(verify=_SSL_CTX, timeout=90.0) as client:
-        r = client.post(
-            f"{BASE_URL}/scrape",
-            headers={"Authorization": f"Bearer {API_KEY}"},
-            json={
-                "url": url,
-                "formats": ["extract"],
-                "extract": {"prompt": extract_prompt},
-                "onlyMainContent": True,
-            },
-        )
-        r.raise_for_status()
-        data = r.json()
-
-    extract = data.get("data", {}).get("extract") or data.get("data", {}).get("markdown", "")
-    if isinstance(extract, dict):
-        extract = json.dumps(extract, indent=2, ensure_ascii=False)
-    return str(extract) if extract else "(no content returned)"
+    """Scrape URL via Firecrawl. On 402/429 (credits exhausted) retries with FIRECRAWL_API_KEY_2."""
+    keys_to_try = list(_FIRECRAWL_KEYS) if _FIRECRAWL_KEYS else [API_KEY]
+    last_err: Exception | None = None
+    for key in keys_to_try:
+        try:
+            with httpx.Client(verify=_SSL_CTX, timeout=90.0) as client:
+                r = client.post(
+                    f"{BASE_URL}/scrape",
+                    headers={"Authorization": f"Bearer {key}"},
+                    json={
+                        "url": url,
+                        "formats": ["extract"],
+                        "extract": {"prompt": extract_prompt},
+                        "onlyMainContent": True,
+                    },
+                )
+                if r.status_code in (402, 429) and key != keys_to_try[-1]:
+                    key_idx = keys_to_try.index(key) + 1
+                    console.print(f"[yellow]Key #{keys_to_try.index(key)+1} limit hit (HTTP {r.status_code}) — switching to key #{key_idx+1}[/yellow]")
+                    continue
+                r.raise_for_status()
+            data = r.json()
+            extract = data.get("data", {}).get("extract") or data.get("data", {}).get("markdown", "")
+            if isinstance(extract, dict):
+                extract = json.dumps(extract, indent=2, ensure_ascii=False)
+            return str(extract) if extract else "(no content returned)"
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (402, 429) and key != keys_to_try[-1]:
+                key_idx = keys_to_try.index(key) + 1
+                console.print(f"[yellow]Key #{keys_to_try.index(key)+1} limit hit — switching to key #{key_idx+1}[/yellow]")
+                last_err = e
+                continue
+            raise
+    raise last_err or RuntimeError("All Firecrawl keys exhausted")
 
 
 def run_source(key: str, source: dict, output_dir: Path, dry_run: bool) -> str:
@@ -229,9 +249,11 @@ def run_source(key: str, source: dict, output_dir: Path, dry_run: bool) -> str:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    if not API_KEY:
-        console.print("[red]FIRECRAWL_API_KEY not set in .env[/red]")
+    if not _FIRECRAWL_KEYS:
+        console.print("[red]FIRECRAWL_API_KEY (ani _2) not set in .env[/red]")
         sys.exit(1)
+    if len(_FIRECRAWL_KEYS) > 1:
+        console.print(f"[dim]Firecrawl: {len(_FIRECRAWL_KEYS)} klucze dostępne (fallback aktywny)[/dim]")
 
     p = argparse.ArgumentParser(description="Macro & news scraper via Firecrawl")
     p.add_argument(

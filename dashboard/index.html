@@ -338,6 +338,13 @@ header{
 .analysis-body ul,.analysis-body ol{padding-left:18px;margin:4px 0 10px}
 .analysis-body li{margin:3px 0;color:var(--txt)}
 .analysis-body blockquote{border-left:3px solid var(--green);padding:6px 12px;margin:8px 0;background:var(--green-dim);border-radius:0 6px 6px 0;color:var(--txt2);font-style:italic}
+/* collapsible legend */
+.legend-details{border:1px solid var(--border);border-radius:6px;margin:10px 0 16px;padding:0 12px}
+.legend-details summary{cursor:pointer;color:var(--txt3);font-size:12px;font-weight:600;padding:7px 0;list-style:none;user-select:none;letter-spacing:.3px}
+.legend-details summary::before{content:'▶ ';font-size:10px;color:var(--border2)}
+.legend-details[open] summary::before{content:'▼ '}
+.legend-details summary::-webkit-details-marker{display:none}
+.legend-details[open]{padding-bottom:8px}
 /* colour-coded keywords in analysis */
 .analysis-body td:has(.tag-long){color:var(--green)}
 .tag-long{color:var(--green);font-weight:700}
@@ -404,6 +411,25 @@ header{
 .md-report ul,.md-report ol{padding-left:20px;margin:5px 0}
 .md-report li{font-size:13px;margin:2px 0}
 .md-report a{color:var(--cyan);text-decoration:none}
+
+/* ── LINKEDIN CAROUSEL SLIDE CONTENT ── */
+.li-slide-content p{font-size:18px;margin:6px 0;color:#dde6f0;line-height:1.75}
+.li-slide-content h1{font-size:26px;color:#00d4ff;font-family:'Space Mono',monospace;margin:12px 0 8px;border-bottom:1px solid rgba(0,212,255,0.2);padding-bottom:6px}
+.li-slide-content h2{font-size:21px;color:#00ff88;font-family:'Space Mono',monospace;margin:14px 0 6px;border-left:3px solid #00ff88;padding-left:10px;text-transform:uppercase}
+.li-slide-content h3{font-size:18px;color:#7fcfee;font-family:'Space Mono',monospace;margin:10px 0 5px}
+.li-slide-content strong{color:#eaf2ff;font-weight:700}
+.li-slide-content em{color:#7a8da0}
+.li-slide-content ul,.li-slide-content ol{padding-left:26px;margin:8px 0}
+.li-slide-content li{font-size:17px;margin:5px 0;color:#dde6f0;line-height:1.65}
+.li-slide-content blockquote{border-left:3px solid #f7931a;padding:8px 14px;background:rgba(247,147,26,0.08);border-radius:0 6px 6px 0;margin:10px 0}
+.li-slide-content blockquote p{font-size:17px;color:#d4b896;margin:2px 0}
+.li-slide-content table{width:100%;border-collapse:collapse;font-size:15px;font-family:'Space Mono',monospace;margin:10px 0}
+.li-slide-content th{background:rgba(0,255,136,0.1);color:#00ff88;text-align:left;padding:7px 12px;border:1px solid rgba(255,255,255,0.12);font-size:13px;text-transform:uppercase;letter-spacing:.3px}
+.li-slide-content td{padding:6px 12px;border:1px solid rgba(255,255,255,0.07);color:#dde6f0;vertical-align:top}
+.li-slide-content tr:nth-child(even) td{background:rgba(255,255,255,0.02)}
+.li-slide-content code{font-family:'Space Mono',monospace;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);border-radius:3px;padding:2px 6px;font-size:15px;color:#f7931a}
+.li-slide-content hr{display:none}
+.li-slide-content a{color:#00d4ff;text-decoration:none}
 
 /* ── STATUS TABLE ── */
 .status-grid{display:flex;flex-direction:column;gap:8px}
@@ -552,10 +578,12 @@ header{
     <div class="bot-dots">
       <div class="bot-dot"><div class="dot" id="dot-claude"></div>Claude</div>
       <div class="bot-dot"><div class="dot" id="dot-hermes"></div>Hermes</div>
-      <div class="bot-dot"><div class="dot" id="dot-ngrok"></div>ngrok</div>
+      <div class="bot-dot"><div class="dot" id="dot-ngrok"></div>TV Webhook</div>
       <div class="bot-dot"><div class="dot" id="dot-tvhook"></div>TV Hook</div>
     </div>
     <div class="hdr-time mono" id="hdrTime">--:--</div>
+    <button id="langToggle" onclick="toggleLang()" title="Switch language / Zmień język"
+      style="margin-left:10px;padding:3px 9px;font-size:11px;font-weight:600;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--cyan);cursor:pointer;letter-spacing:.05em">EN</button>
   </div>
 </header>
 
@@ -575,6 +603,8 @@ header{
   <button class="nav-btn" onclick="showPanel('history')" title="Historia Analiz">📚<span class="tooltip">Historia Analiz</span></button>
   <button class="nav-btn" onclick="showPanel('research')" title="Research">🔬<span class="tooltip">Research</span></button>
   <button class="nav-btn" onclick="showPanel('costs')" title="Koszty API">💰<span class="tooltip">Koszty API</span></button>
+  <div style="flex:1"></div>
+  <button class="nav-btn" onclick="showPanel('glossary')" title="Słowniczek pojęć" style="margin-bottom:8px">📖<span class="tooltip">Słowniczek</span></button>
 </nav>
 
 <!-- ── MAIN CONTENT ── -->
@@ -607,6 +637,7 @@ header{
           <button class="cat-btn" onclick="setCategory('setup')">🎯 Setup</button>
           <button class="cat-btn" onclick="setCategory('compound')">⚡ Compound</button>
           <button class="cat-btn" onclick="setCategory('scripts')">🔧 Scripts</button>
+          <button class="cat-btn" onclick="setCategory('query')" style="color:var(--cyan);border-color:var(--cyan)">✏️ Zapytanie</button>
         </div>
         <!-- Prompt Chips -->
         <div class="prompts-grid" id="promptsGrid"></div>
@@ -650,10 +681,10 @@ header{
           </select>
         </div>
         <!-- Input -->
-        <textarea class="cmd-textarea" id="cmdInput" placeholder="Wpisz komendę lub wybierz prompt powyżej..." rows="3"></textarea>
+        <textarea class="cmd-textarea" id="cmdInput" data-i18n="placeholder.cmd" data-i18n-attr="placeholder" placeholder="Wpisz komendę lub wybierz prompt powyżej..." rows="3"></textarea>
         <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
-          <button class="btn btn-green" onclick="runCommand()">▶ Uruchom</button>
-          <button class="btn btn-outline btn-sm" onclick="clearResponse()">Wyczyść</button>
+          <button class="btn btn-green" onclick="runCommand()" data-i18n="cmd.run">▶ Uruchom</button>
+          <button class="btn btn-outline btn-sm" onclick="clearResponse()" data-i18n="cmd.clear">Wyczyść</button>
           <span id="cmdSpinner" style="display:none"><div class="spinner"></div></span>
           <span id="cmdStatus" style="font-size:11px;color:var(--txt2)"></span>
           <span id="tgSentStatus" class="tg-sent" style="display:none">📱 Wysłano do TG</span>
@@ -663,10 +694,11 @@ header{
       <!-- Response -->
       <div class="card" style="flex:1">
         <div class="card-hdr">
-          <span class="card-title">Odpowiedź</span>
+          <span class="card-title" data-i18n="cmd.response">Odpowiedź</span>
           <div style="display:flex;gap:6px">
-            <button class="btn btn-outline btn-sm" onclick="pushResponseToTG()" title="Wyślij odpowiedź do Telegrama">📱 TG</button>
-            <button class="btn btn-outline btn-sm" onclick="copyResponse()">📋 Kopiuj</button>
+            <button class="btn btn-outline btn-sm" id="btnTranslateResponse" onclick="translateResponse()" title="Przetłumacz odpowiedź" style="display:none;color:var(--cyan);border-color:var(--cyan)">🌐 Tłumacz</button>
+            <button class="btn btn-outline btn-sm" onclick="pushResponseToTG()" title="Wyślij odpowiedź do Telegrama" data-i18n="cmd.tg">📱 TG</button>
+            <button class="btn btn-outline btn-sm" onclick="copyResponse()" data-i18n="cmd.copy">📋 Kopiuj</button>
           </div>
         </div>
         <div class="response-box" id="responseBox">
@@ -780,7 +812,10 @@ header{
     <div class="card" style="overflow-y:auto">
       <div class="card-hdr">
         <span class="card-title" id="reportDetailTitle">Wybierz raport z listy</span>
-        <button class="btn btn-outline btn-sm" id="btnCopyReport" onclick="copyReportContent()" style="display:none">📋 Kopiuj</button>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-outline btn-sm" id="btnTranslateReport" onclick="translateReportDetail()" style="display:none;color:var(--cyan);border-color:var(--cyan)">🌐 Tłumacz</button>
+          <button class="btn btn-outline btn-sm" id="btnCopyReport" onclick="copyReportContent()" style="display:none">📋 Kopiuj</button>
+        </div>
       </div>
       <div id="reportDetail" class="md-report">
         <span style="color:var(--txt3);font-family:Inter,sans-serif;font-size:12px">← Kliknij raport żeby zobaczyć pełną treść</span>
@@ -906,6 +941,8 @@ header{
           <span style="font-size:11px;color:var(--txt3);font-family:'Space Mono',monospace" id="rDetailMeta"></span>
           <button class="btn btn-outline btn-sm" id="btnRPng" onclick="exportResearchImages()" style="display:none">🖼️ PNG</button>
           <button class="btn btn-outline btn-sm" id="btnRPdf" onclick="exportResearchPdf()" style="display:none">📄 PDF</button>
+          <button class="btn btn-outline btn-sm" id="btnRCarousel" onclick="exportLinkedInCarousel()" style="display:none;color:var(--cyan);border-color:var(--cyan)">🎠 Carousel</button>
+          <button class="btn btn-outline btn-sm" id="btnRPost" onclick="generateLinkedInPost()" style="display:none;color:#0077b5;border-color:#0077b5">🔗 Post LinkedIn</button>
           <button class="btn btn-outline btn-sm" id="btnRCopy" onclick="copyResearchReport()" style="display:none">📋 Kopiuj</button>
         </div>
       </div>
@@ -1011,6 +1048,7 @@ header{
       <div class="card-hdr">
         <span class="card-title" id="historyDetailTitle">Wybierz analizę z listy</span>
         <div style="display:flex;gap:6px">
+          <button class="btn btn-outline btn-sm" id="btnHistoryTranslate" style="display:none;color:var(--cyan);border-color:var(--cyan)" onclick="translateHistoryItem()">🌐 Tłumacz</button>
           <button class="btn btn-outline btn-sm" id="btnHistoryCopy" style="display:none" onclick="copyHistoryContent()">📋 Kopiuj</button>
           <button class="btn btn-outline btn-sm" id="btnHistoryDelete" style="display:none;color:var(--red)" onclick="deleteCurrentHistory()">🗑️ Usuń</button>
         </div>
@@ -1040,7 +1078,7 @@ header{
         </div>
         <div class="status-row">
           <div class="status-dot" id="sdot-ngrok" style="background:var(--txt3)"></div>
-          <span class="status-name">ngrok (TV webhook)</span>
+          <span class="status-name">TV Webhook (VPS direct)</span>
           <span class="status-info" id="sinfo-ngrok">Sprawdzam...</span>
         </div>
         <div class="status-row">
@@ -1259,6 +1297,38 @@ header{
   </div>
 </div>
 
+<!-- ═══ PANEL: SŁOWNICZEK ═══ -->
+<div id="panel-glossary" class="panel">
+  <div style="display:flex;flex-direction:column;gap:0;height:calc(100vh - 120px)">
+
+    <!-- Header + add form -->
+    <div class="card" style="flex-shrink:0;margin-bottom:12px">
+      <div class="card-hdr" style="margin-bottom:12px">
+        <span class="card-title">📖 Słowniczek pojęć tradingowych</span>
+        <span style="font-size:11px;color:var(--txt3)" id="glossaryCount">0 pojęć</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:flex-start">
+        <input id="glossaryInput" type="text" placeholder="Wpisz pojęcie (np. hawkish, funding rate, PCE…)"
+          style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--txt);font-size:13px;font-family:'Inter',sans-serif;outline:none"
+          onkeydown="if(event.key==='Enter')addGlossaryTerm()"
+          onfocus="this.style.borderColor='var(--cyan)'" onblur="this.style.borderColor='var(--border)'">
+        <button class="btn btn-green" onclick="addGlossaryTerm()" id="btnGlossaryAdd">+ Wyjaśnij</button>
+      </div>
+      <div id="glossaryAddStatus" style="font-size:11px;color:var(--txt3);margin-top:6px;min-height:16px"></div>
+    </div>
+
+    <!-- Search -->
+    <div style="margin-bottom:10px;flex-shrink:0">
+      <input id="glossarySearch" type="text" placeholder="🔍 Szukaj…"
+        style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:7px 12px;color:var(--txt);font-size:12px;font-family:'Inter',sans-serif;outline:none"
+        oninput="renderGlossary()" onfocus="this.style.borderColor='var(--cyan)'" onblur="this.style.borderColor='var(--border)'">
+    </div>
+
+    <!-- Terms list -->
+    <div id="glossaryList" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+</div>
+
 </main>
 </div><!-- /body-row -->
 </div><!-- /layout -->
@@ -1309,6 +1379,7 @@ let _smSelectedCoin  = null;   // aktywnie wybrany token w SM Activity chart
 let _smChartMode     = 'count'; // 'count' | 'notional'
 let _smChartRange    = 7;       // 3 | 7 | 14 (dni)
 let reportContent = '';
+let _lastResponseRaw = '';
 let _waitTimer = null;
 
 function startWaitCounter(responseBox) {
@@ -1350,6 +1421,7 @@ function showPanel(id) {
   if (id === 'history')    loadHistory();
   if (id === 'costs')      loadCosts();
   if (id === 'research')   { updateStockOptions(); loadResearchHistory(); }
+  if (id === 'glossary')   renderGlossary();
   if (id === 'alerts') {
     loadAlerts();
     // Clear sidebar badge when user opens alerts panel
@@ -1359,8 +1431,9 @@ function showPanel(id) {
 }
 
 // ── Research ───────────────────────────────────────────────────────────────
-let _researchTab  = 'token';
+let _researchTab    = 'token';
 let _researchReport = '';
+let _liPostCache    = { ticker: '', text: '' };  // last generated LinkedIn post
 
 // Stopwords stripped before passing query to token_research.py
 const _TOKEN_STOPWORDS = new Set([
@@ -1533,9 +1606,11 @@ function _showResearchResult(data, label) {
   const det = document.getElementById('rDetail');
   const title = document.getElementById('rDetailTitle');
   const meta  = document.getElementById('rDetailMeta');
-  const btn   = document.getElementById('btnRCopy');
-  const pdfBtn = document.getElementById('btnRPdf');
-  const pngBtn = document.getElementById('btnRPng');
+  const btn         = document.getElementById('btnRCopy');
+  const pdfBtn      = document.getElementById('btnRPdf');
+  const pngBtn      = document.getElementById('btnRPng');
+  const carouselBtn = document.getElementById('btnRCarousel');
+  const postBtn     = document.getElementById('btnRPost');
 
   if (data.markdown) {
     // Prefer saved .md file (richer formatting)
@@ -1554,9 +1629,11 @@ function _showResearchResult(data, label) {
 
   title.textContent = label;
   meta.textContent  = data.file || '';
-  btn.style.display = _researchReport ? 'inline-flex' : 'none';
-  pdfBtn.style.display = _researchReport ? 'inline-flex' : 'none';
-  pngBtn.style.display = _researchReport ? 'inline-flex' : 'none';
+  btn.style.display         = _researchReport ? 'inline-flex' : 'none';
+  pdfBtn.style.display      = _researchReport ? 'inline-flex' : 'none';
+  pngBtn.style.display      = _researchReport ? 'inline-flex' : 'none';
+  carouselBtn.style.display = _researchReport ? 'inline-flex' : 'none';
+  postBtn.style.display     = _researchReport ? 'inline-flex' : 'none';
 }
 
 async function runTokenResearch() {
@@ -1616,10 +1693,31 @@ async function runStockResearch() {
   _researchBtnState('btnRunStock', true);
   const det = document.getElementById('rDetail');
   const label = mode === 'screen' ? 'Stock Screen' : `Stock: ${input.toUpperCase()}`;
+  const spinMsg = mode === 'research'
+    ? `Claude analizuje <strong>${escHtml(input)}</strong>… (60-120 sek)`
+    : `Analiza <strong>${escHtml(mode === 'screen' ? 'screener' : input)}</strong>… (30-60 sek)`;
   det.innerHTML = `<div style="display:flex;align-items:center;gap:10px;padding:20px;color:var(--txt2)">
     <div class="spinner"></div>
-    <span>Analiza <strong>${escHtml(mode === 'screen' ? 'screener' : input)}</strong>… (30-60 sek)</span>
+    <span>${spinMsg}</span>
   </div>`;
+
+  // ── Claude deep-research path ─────────────────────────────────────────────
+  if (mode === 'research') {
+    const cleanedInput  = _parseStockQuery(input);
+    const ticker        = cleanedInput.split(/[\s,]+/).filter(Boolean)[0] || cleanedInput;
+    const plChk         = document.getElementById('rStockPL');
+    const isPL          = !!(plChk && plChk.checked);
+    const data = await fetch('/api/research/stock-claude', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({ticker: ticker.toUpperCase(), pl: isPL}),
+    }).then(r => r.json()).catch(e => ({ok: false, error: String(e)}));
+    _researchBtnState('btnRunStock', false);
+    _showResearchResult(data, label);
+    loadResearchHistory();
+    return;
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   const data = await fetch('/api/research/run', {
     method: 'POST',
@@ -1898,6 +1996,302 @@ function _downloadCanvasPng(canvas, filename) {
   a.download = filename;
   a.href = canvas.toDataURL('image/png');
   a.click();
+}
+
+// ─── LinkedIn Post Generator ──────────────────────────────────────────────────
+
+async function generateLinkedInPost() {
+  if (!_researchReport) return;
+  const btn     = document.getElementById('btnRPost');
+  const titleEl = document.getElementById('rDetailTitle');
+  const modal   = document.getElementById('liPostModal');
+  const ta      = document.getElementById('liPostText');
+  const ticker  = titleEl.textContent.replace(/\s+\d{4}-\d{2}-\d{2}.*$/, '').trim();
+
+  // If we already have a cached post for this ticker — restore it instantly, no API call
+  if (_liPostCache.text && _liPostCache.ticker === ticker) {
+    ta.value = _liPostCache.text;
+    ta.placeholder = '';
+    modal.style.display = 'flex';
+    _updateLiCharCount();
+    return;
+  }
+
+  const origLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Generuję…';
+  modal.style.display = 'flex';
+  ta.value = '';
+  ta.placeholder = '⏳ Claude analizuje raport i pisze post…';
+  _updateLiCharCount();
+
+  try {
+    const res = await fetch('/api/research/linkedin-post', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({ markdown: _researchReport, ticker }),
+    }).then(r => r.json()).catch(e => ({ ok: false, error: String(e) }));
+
+    if (res.ok && res.post) {
+      ta.value = res.post;
+      ta.placeholder = '';
+      _liPostCache = { ticker, text: res.post };
+    } else {
+      ta.value = '';
+      ta.placeholder = '❌ Błąd: ' + (res.error || 'nieznany');
+    }
+    _updateLiCharCount();
+  } catch (e) {
+    ta.placeholder = '❌ ' + e.message;
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = origLabel;
+  }
+}
+
+async function regenerateLiPost() {
+  const btn = document.getElementById('btnLiRegenerate');
+  const ta  = document.getElementById('liPostText');
+  if (!_researchReport) return;
+  btn.disabled = true;
+  btn.textContent = '⏳ Generuję…';
+  ta.value = '';
+  ta.placeholder = '⏳ Generuję nową wersję…';
+  _updateLiCharCount();
+
+  try {
+    const titleEl = document.getElementById('rDetailTitle');
+    const ticker  = titleEl.textContent.replace(/\s+\d{4}-\d{2}-\d{2}.*$/, '').trim();
+    const res = await fetch('/api/research/linkedin-post', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({ markdown: _researchReport, ticker }),
+    }).then(r => r.json()).catch(e => ({ ok: false, error: String(e) }));
+
+    if (res.ok && res.post) {
+      ta.value = res.post;
+      ta.placeholder = '';
+      const titleEl = document.getElementById('rDetailTitle');
+      const ticker  = titleEl.textContent.replace(/\s+\d{4}-\d{2}-\d{2}.*$/, '').trim();
+      _liPostCache = { ticker, text: res.post };
+    } else {
+      ta.value = '';
+      ta.placeholder = '❌ ' + (res.error || 'błąd');
+    }
+    _updateLiCharCount();
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = '↺ Generuj ponownie';
+  }
+}
+
+function copyLiPost() {
+  const ta = document.getElementById('liPostText');
+  if (!ta.value.trim()) return;
+  navigator.clipboard.writeText(ta.value).then(() => {
+    const btn = event.target;
+    const orig = btn.textContent;
+    btn.textContent = '✓ Skopiowano!';
+    btn.style.background = '#00a36c';
+    setTimeout(() => { btn.textContent = orig; btn.style.background = '#0077b5'; }, 2000);
+  });
+}
+
+function closeLiPostModal() {
+  document.getElementById('liPostModal').style.display = 'none';
+}
+
+function _updateLiCharCount() {
+  const ta  = document.getElementById('liPostText');
+  const el  = document.getElementById('liPostCharCount');
+  const len = ta.value.length;
+  el.textContent = len ? `${len} znaków` : '';
+  el.style.color = len > 3000 ? 'var(--red)' : len > 2000 ? 'var(--yellow)' : '#3d4f62';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const ta = document.getElementById('liPostText');
+  if (ta) ta.addEventListener('input', _updateLiCharCount);
+  // Close modal on backdrop click
+  const modal = document.getElementById('liPostModal');
+  if (modal) modal.addEventListener('click', e => { if (e.target === modal) closeLiPostModal(); });
+});
+
+// ─── LinkedIn Carousel Export ──────────────────────────────────────────────────
+// Generates a multi-page PDF where each page = one LinkedIn carousel slide.
+// Format: 1080×1080 px (1:1 square) — the most common LinkedIn carousel format.
+// Usage: open the post editor on LinkedIn, attach the PDF → instant carousel.
+
+function _parseMarkdownSections(md) {
+  const sections = [];
+  let cur = null;
+  for (const line of md.split('\n')) {
+    const m = line.match(/^##\s+(.+)/);
+    if (m) {
+      if (cur) sections.push(cur);
+      cur = { title: m[1].trim(), body: [] };
+    } else if (cur) {
+      cur.body.push(line);
+    }
+  }
+  if (cur && cur.body.join('').trim()) sections.push(cur);
+  return sections;
+}
+
+async function _renderOneSlide(html) {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;top:0;left:-9999px;width:1080px;height:1080px;overflow:hidden';
+  el.innerHTML = html;
+  document.body.appendChild(el);
+  try {
+    return await html2canvas(el, { backgroundColor: '#060c16', scale: 2, useCORS: true, width: 1080, height: 1080 });
+  } finally {
+    document.body.removeChild(el);
+  }
+}
+
+function _buildCoverSlide(titleText, dateStr) {
+  // Strip date suffix (YYYY-MM-DD) so cover shows "SPCX US" not "SPCX US 2026-06-17"
+  const cleanTitle = titleText.replace(/\s+\d{4}-\d{2}-\d{2}.*$/, '').trim() || titleText;
+  const safe = escHtml(cleanTitle);
+  const len  = cleanTitle.length;
+  const fontSize = len > 22 ? '44px' : len > 14 ? '60px' : len > 8 ? '80px' : '104px';
+  return `
+<div style="width:1080px;height:1080px;background-color:#060c16;background-image:linear-gradient(160deg,#060c16 0%,#0c1525 55%,#0d1928 100%),radial-gradient(rgba(0,255,136,0.025) 1px,transparent 1px);background-size:100% 100%,32px 32px;position:relative;overflow:hidden;font-family:'Inter',sans-serif;color:#dde6f0">
+  <!-- accent edges -->
+  <div style="position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,#00ff88,#00d4ff 60%,transparent)"></div>
+  <div style="position:absolute;top:0;right:0;width:4px;height:240px;background:linear-gradient(180deg,#00d4ff,transparent)"></div>
+  <div style="position:absolute;bottom:0;left:0;right:0;height:4px;background:linear-gradient(90deg,transparent 30%,#00ff88)"></div>
+
+  <!-- centered main content -->
+  <div style="position:absolute;top:0;left:0;right:0;bottom:88px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:60px">
+    <div style="font-family:'Space Mono',monospace;font-size:12px;color:#00d4ff;letter-spacing:3px;text-transform:uppercase;margin-bottom:36px;font-weight:700;opacity:.8">⬡ ALPHA DESK · RESEARCH</div>
+    <div style="width:48px;height:3px;background:linear-gradient(90deg,#00ff88,#00d4ff);border-radius:2px;margin-bottom:36px"></div>
+    <div style="font-family:'Space Mono',monospace;font-size:${fontSize};font-weight:700;color:#00ff88;letter-spacing:-1px;line-height:1.05;word-break:break-word;margin-bottom:24px">${safe}</div>
+    <div style="font-size:19px;color:#7a8da0;font-weight:300;line-height:1.5;max-width:600px">Analiza techniczna i fundamentalna</div>
+  </div>
+
+  <!-- sticky footer -->
+  <div style="position:absolute;bottom:0;left:0;right:0;height:88px;border-top:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;padding:0 56px;background:rgba(6,12,22,0.6)">
+    <div>
+      <div style="font-family:'Space Mono',monospace;font-size:11px;color:#3d4f62;letter-spacing:1px;margin-bottom:4px">DATA RAPORTU</div>
+      <div style="font-family:'Space Mono',monospace;font-size:16px;color:#dde6f0">${escHtml(dateStr)}</div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-family:'Space Mono',monospace;font-size:11px;color:#3d4f62;margin-bottom:4px">created by</div>
+      <div style="font-family:'Space Mono',monospace;font-size:16px;color:#00d4ff">Michał Szafron</div>
+    </div>
+  </div>
+</div>`;
+}
+
+function _buildSectionSlide(section, slideNum, totalSlides, ticker, dateStr) {
+  const bodyMd = section.body.join('\n');
+  const bodyHtml = (typeof marked !== 'undefined')
+    ? marked.parse(bodyMd, { breaks: true, gfm: true })
+    : `<p>${escHtml(bodyMd)}</p>`;
+  return `
+<div style="width:1080px;height:1080px;background-color:#060c16;background-image:linear-gradient(160deg,#060c16 0%,#0c1525 55%,#0d1928 100%),radial-gradient(rgba(0,255,136,0.02) 1px,transparent 1px);background-size:100% 100%,32px 32px;position:relative;overflow:hidden;font-family:'Inter',sans-serif;color:#dde6f0">
+  <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#00ff88 0%,#00d4ff 60%,transparent 100%)"></div>
+
+  <div style="padding:36px 48px 32px;height:100%;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:22px">
+      <span style="font-family:'Space Mono',monospace;font-size:12px;color:#00d4ff;letter-spacing:2px;font-weight:700">ALPHA DESK</span>
+      <span style="font-family:'Space Mono',monospace;font-size:12px;color:#3d4f62;letter-spacing:1px">${escHtml(ticker)} · ${slideNum}/${totalSlides}</span>
+    </div>
+
+    <div style="border-left:4px solid #00ff88;padding-left:18px;margin-bottom:16px">
+      <div style="font-family:'Space Mono',monospace;font-size:19px;color:#00ff88;font-weight:700;letter-spacing:.5px;text-transform:uppercase;line-height:1.3">${escHtml(section.title)}</div>
+    </div>
+
+    <div style="height:1px;background:linear-gradient(90deg,rgba(0,255,136,0.35),transparent);margin-bottom:18px"></div>
+
+    <div class="li-slide-content" style="flex:1;overflow:hidden">
+      ${bodyHtml}
+    </div>
+
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.07);display:flex;justify-content:space-between;align-items:center">
+      <span style="font-family:'Space Mono',monospace;font-size:11px;color:#00d4ff;letter-spacing:1px">${escHtml(ticker)}</span>
+      <span style="font-family:'Space Mono',monospace;font-size:11px;color:#3d4f62">${escHtml(dateStr)}</span>
+    </div>
+  </div>
+</div>`;
+}
+
+function _buildOutroSlide() {
+  return `
+<div style="width:1080px;height:1080px;background-color:#060c16;background-image:linear-gradient(160deg,#060c16 0%,#0c1525 55%,#0d1928 100%),radial-gradient(rgba(0,255,136,0.025) 1px,transparent 1px);background-size:100% 100%,32px 32px;position:relative;overflow:hidden;font-family:'Inter',sans-serif;color:#dde6f0">
+  <div style="position:absolute;bottom:0;left:0;right:0;height:4px;background:linear-gradient(90deg,#00ff88,#00d4ff 60%,transparent)"></div>
+  <div style="position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,transparent,#00d4ff)"></div>
+
+  <div style="padding:52px 56px;height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;gap:0">
+    <div style="font-family:'Space Mono',monospace;font-size:13px;color:#00d4ff;letter-spacing:3px;text-transform:uppercase;margin-bottom:36px;font-weight:700">⬡ ALPHA DESK</div>
+    <div style="font-size:48px;font-weight:800;color:#dde6f0;line-height:1.2;margin-bottom:18px">Dziękuję<br>za lekturę</div>
+    <div style="font-size:19px;color:#7a8da0;font-weight:300;margin-bottom:36px;line-height:1.6">Obserwuj mnie po więcej analiz<br>rynkowych i raportów.</div>
+    <div style="width:72px;height:3px;background:linear-gradient(90deg,#00ff88,#00d4ff);border-radius:2px;margin-bottom:56px"></div>
+    <div style="font-family:'Space Mono',monospace;font-size:12px;color:#3d4f62;line-height:1.8">Materiał ma charakter informacyjny.<br>Nie stanowi porady inwestycyjnej.</div>
+  </div>
+</div>`;
+}
+
+async function exportLinkedInCarousel() {
+  if (!_researchReport) return;
+  if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
+    alert('Biblioteka PDF nie została wczytana (sprawdź połączenie z internetem).');
+    return;
+  }
+
+  const btn       = document.getElementById('btnRCarousel');
+  const titleEl   = document.getElementById('rDetailTitle');
+  const metaEl    = document.getElementById('rDetailMeta');
+  const origLabel = btn.textContent;
+  btn.disabled    = true;
+
+  try {
+    const sections    = _parseMarkdownSections(_researchReport);
+    const ticker      = titleEl.textContent || 'TICKER';
+    const dateStr     = metaEl.textContent   || new Date().toLocaleDateString('pl-PL');
+    const slug        = _slugifyResearchTitle(ticker);
+    const totalSlides = sections.length + 2;
+
+    const { jsPDF } = window.jspdf;
+    // LinkedIn carousel: 1:1 square (1080×1080px)
+    // PDF page: 810×810pt (1080px × 72/96 = 810pt — square, unit:'pt' avoids jsPDF px-scaling quirks)
+    const SW = 1080, SH = 1080;
+    const PW = 810, PH = 810;
+    const pdf = new jsPDF({ unit: 'pt', format: [PW, PH] });
+
+    let firstPage = true;
+    const addSlide = async (html) => {
+      const canvas = await _renderOneSlide(html);
+      const img = canvas.toDataURL('image/jpeg', 0.93);
+      if (!firstPage) pdf.addPage([PW, PH]);
+      pdf.addImage(img, 'JPEG', 0, 0, PW, PH);
+      firstPage = false;
+    };
+
+    // Slide 1 — cover
+    btn.textContent = '⏳ 1/' + totalSlides + '…';
+    await addSlide(_buildCoverSlide(ticker, dateStr));
+
+    // Section slides
+    for (let i = 0; i < sections.length; i++) {
+      btn.textContent = `⏳ ${i + 2}/${totalSlides}…`;
+      await addSlide(_buildSectionSlide(sections[i], i + 2, totalSlides, ticker, dateStr));
+    }
+
+    // Outro slide
+    btn.textContent = `⏳ ${totalSlides}/${totalSlides}…`;
+    await addSlide(_buildOutroSlide());
+
+    pdf.save(`carousel_${slug}.pdf`);
+  } catch (e) {
+    console.error('carousel error', e);
+    alert('Błąd generowania carousel: ' + e.message);
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = origLabel;
+  }
 }
 
 // ── Costs ──────────────────────────────────────────────────────────────────
@@ -2698,9 +3092,11 @@ function switchReportTab(tab) {
   const detail = document.getElementById('reportDetail');
   const title  = document.getElementById('reportDetailTitle');
   const btn    = document.getElementById('btnCopyReport');
+  const btnTr  = document.getElementById('btnTranslateReport');
   if (detail) detail.innerHTML = '<span style="color:var(--txt3);font-family:Inter,sans-serif;font-size:12px">← Kliknij raport żeby zobaczyć pełną treść</span>';
   if (title)  title.textContent = 'Wybierz raport z listy';
   if (btn)    btn.style.display = 'none';
+  if (btnTr)  btnTr.style.display = 'none';
   if (tab === 'alpha') loadReports();
   else loadDailyBriefs();
 }
@@ -2748,6 +3144,7 @@ async function loadReportDetail(id, date) {
   const el = document.getElementById('reportDetail');
   const title = document.getElementById('reportDetailTitle');
   const btn = document.getElementById('btnCopyReport');
+  const btnTr = document.getElementById('btnTranslateReport');
   el.innerHTML = '<div style="color:var(--txt3);font-size:12px;padding:8px 0"><div class="spinner" style="display:inline-block;margin-right:8px"></div>Ładuję...</div>';
   title.textContent = `Raport: ${date}`;
   btn.style.display = 'block';
@@ -2755,6 +3152,7 @@ async function loadReportDetail(id, date) {
   if (data.content) {
     el.innerHTML = renderMd(data.content);
     reportContent = data.content;
+    if (btnTr) btnTr.style.display = 'block';
   } else {
     el.innerHTML = '<div style="color:var(--red);padding:8px">Błąd ładowania raportu</div>';
   }
@@ -2764,6 +3162,7 @@ async function loadBriefDetail(id, ts) {
   const el    = document.getElementById('reportDetail');
   const title = document.getElementById('reportDetailTitle');
   const btn   = document.getElementById('btnCopyReport');
+  const btnTr = document.getElementById('btnTranslateReport');
   el.innerHTML = '<div style="color:var(--txt3);font-size:12px;padding:8px 0"><div class="spinner" style="display:inline-block;margin-right:8px"></div>Ładuję...</div>';
   title.textContent = `Daily Brief: ${ts}`;
   btn.style.display = 'block';
@@ -2771,6 +3170,7 @@ async function loadBriefDetail(id, ts) {
   if (data.output) {
     el.innerHTML = renderMd(data.output);
     reportContent  = data.output;
+    if (btnTr) btnTr.style.display = 'block';
   } else {
     el.innerHTML = `<div style="color:var(--red);padding:8px">${escHtml(data.error || 'Błąd ładowania')}</div>`;
   }
@@ -2780,6 +3180,44 @@ function copyReportContent() {
   if (reportContent) navigator.clipboard.writeText(reportContent).then(() => {
     document.getElementById('btnCopyReport').textContent = '✓ Skopiowano';
     setTimeout(() => document.getElementById('btnCopyReport').textContent = '📋 Kopiuj', 2000);
+  });
+}
+
+async function _doTranslate(text, btn, onDone) {
+  if (!text || text.length < 20) return;
+  const origLabel = btn.textContent;
+  btn.textContent = '⏳ Tłumaczę...';
+  btn.disabled = true;
+  // Detect language: if majority of words are Polish-looking (ą,ę,ó,ś,ł,ć,ź,ż,ń), translate to EN; else to PL
+  const plChars = (text.match(/[ąęóśłćźżń]/gi) || []).length;
+  const targetLang = plChars > 5 ? 'English' : 'Polish';
+  const prompt = `Translate the following text to ${targetLang}. Keep all formatting, markdown, tables, and symbols intact. Do not add commentary — output only the translated text.\n\n${text}`;
+  const res = await api('/claude_run', { method: 'POST', body: JSON.stringify({ prompt }) });
+  btn.disabled = false;
+  if (res.ok && res.output) {
+    onDone(res.output);
+    btn.textContent = targetLang === 'Polish' ? '🌐 → EN' : '🌐 → PL';
+  } else {
+    btn.textContent = '❌ Błąd';
+    setTimeout(() => { btn.textContent = origLabel; }, 2000);
+  }
+}
+
+async function translateResponse() {
+  const btn = document.getElementById('btnTranslateResponse');
+  const box = document.getElementById('responseBox');
+  await _doTranslate(_lastResponseRaw, btn, (translated) => {
+    _lastResponseRaw = translated;
+    box.innerHTML = renderAnalysis(translated);
+  });
+}
+
+async function translateReportDetail() {
+  const btn = document.getElementById('btnTranslateReport');
+  const el  = document.getElementById('reportDetail');
+  await _doTranslate(reportContent, btn, (translated) => {
+    reportContent = translated;
+    el.innerHTML  = renderMd(translated);
   });
 }
 
@@ -2822,8 +3260,108 @@ function _promptToScriptKey(prompt) {
 }
 
 // Render markdown analysis text as formatted HTML
+// ── i18n ─────────────────────────────────────────────────────────────────────
+const I18N = {
+  PL: {
+    'cmd.title':      'COMMAND CENTER',
+    'cmd.run':        '▶ Uruchom',
+    'cmd.clear':      'Wyczyść',
+    'cmd.response':   'ODPOWIEDŹ',
+    'cmd.copy':       '📋 Kopiuj',
+    'cmd.tg':         'TG',
+    'cat.query':      '✏️ Zapytanie',
+    'cat.scripts':    '🔧 Scripts',
+    'pos.live':       'POZYCJE (LIVE)',
+    'alerts.title':   'OSTATNIE ALERTY',
+    'placeholder.cmd': 'Wpisz komendę lub wybierz prompt powyżej...',
+    'placeholder.query': 'Zadaj dowolne pytanie... Np. "Co sądzisz o BTC przy tych poziomach?", "Czy powinienem teraz wejść w HYPE?", "Jakie są kluczowe eventy na ten tydzień?"',
+    'lang.suffix':    '',
+    'lang.wait':      '🧠 Uruchamiam Claude (--print)...\nProsty prompt: ~1 min. Daily Brief / multi-step: ~5-12 min. Poczekaj.',
+    'lang.thinking':  '🧠 Claude myśli...',
+  },
+  EN: {
+    'cmd.title':      'COMMAND CENTER',
+    'cmd.run':        '▶ Run',
+    'cmd.clear':      'Clear',
+    'cmd.response':   'RESPONSE',
+    'cmd.copy':       '📋 Copy',
+    'cmd.tg':         'TG',
+    'cat.query':      '✏️ Query',
+    'cat.scripts':    '🔧 Scripts',
+    'pos.live':       'POSITIONS (LIVE)',
+    'alerts.title':   'RECENT ALERTS',
+    'placeholder.cmd': 'Enter a command or pick a prompt above...',
+    'placeholder.query': 'Ask anything... E.g. "What do you think about BTC right now?", "Should I enter HYPE?", "Key events this week?"',
+    'lang.suffix':    '\n\nPlease respond in English.',
+    'lang.wait':      '🧠 Starting Claude (--print)...\nSimple prompt: ~1 min. Daily Brief / multi-step: ~5-12 min. Please wait.',
+    'lang.thinking':  '🧠 Claude is thinking...',
+  }
+};
+
+let _lang = localStorage.getItem('dash_lang') || 'PL';
+
+function t(key) { return (I18N[_lang] || I18N.PL)[key] || key; }
+
+function toggleLang() {
+  _lang = _lang === 'PL' ? 'EN' : 'PL';
+  localStorage.setItem('dash_lang', _lang);
+  const btn = document.getElementById('langToggle');
+  if (btn) {
+    btn.textContent = _lang === 'PL' ? 'EN' : 'PL';
+    btn.title = _lang === 'PL' ? 'Switch to English' : 'Przełącz na polski';
+    btn.style.color = _lang === 'EN' ? 'var(--green)' : 'var(--cyan)';
+  }
+  // Update data-i18n elements
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.dataset.i18n;
+    const attr = el.dataset.i18nAttr;
+    if (attr) el.setAttribute(attr, t(key));
+    else el.textContent = t(key);
+  });
+  // Update textarea placeholder based on current category
+  const inp = document.getElementById('cmdInput');
+  if (inp) {
+    const isCat = window._currentCategory === 'query';
+    inp.placeholder = isCat ? t('placeholder.query') : t('placeholder.cmd');
+  }
+  // Visual toast
+  const toast = document.createElement('div');
+  toast.textContent = _lang === 'EN' ? '🌐 English mode' : '🌐 Tryb polski';
+  toast.style.cssText = 'position:fixed;top:48px;right:16px;background:var(--bg3);border:1px solid var(--border);color:var(--txt);padding:6px 14px;border-radius:6px;font-size:12px;z-index:9999;transition:opacity .4s';
+  document.body.appendChild(toast);
+  setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 400); }, 1800);
+}
+
+// Init lang toggle state on load
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('langToggle');
+  if (btn) {
+    btn.textContent = _lang === 'PL' ? 'EN' : 'PL';
+    btn.style.color = _lang === 'EN' ? 'var(--green)' : 'var(--cyan)';
+  }
+});
+
+// ── Rich Panel border stripper ────────────────────────────────────────────────
+function stripRichPanel(text) {
+  const BOX_TOP    = /^[\s]*[╭╰][─╮╯\s\w—\-·|]+[╭╰╮╯]\s*$/;
+  const BOX_BORDER = '│'; // │
+  return text.split('\n').map(line => {
+    if (BOX_TOP.test(line)) return '';          // remove ╭...╮ / ╰...╯ lines
+    if (line.includes(BOX_BORDER)) {
+      // "│ content  │" → "content"
+      let c = line;
+      if (c.trimStart().startsWith(BOX_BORDER)) {
+        c = c.replace(/^[\s]*│\s?/, '');   // strip leading │ + optional space
+        c = c.replace(/\s*│\s*$/, '');     // strip trailing │
+      }
+      return c;
+    }
+    return line;
+  }).join('\n');
+}
+
 function renderAnalysis(rawText) {
-  const text = stripAnsi(rawText || '(brak treści)');
+  const text = stripRichPanel(stripAnsi(rawText || '(brak treści)'));
   if (typeof marked !== 'undefined') {
     try {
       const renderer = new marked.Renderer();
@@ -2838,7 +3376,14 @@ function renderAnalysis(rawText) {
         return `<${tag}>${c}</${tag}>`;
       };
       marked.use({ renderer, breaks: true, gfm: true });
-      return `<div class="analysis-body">${marked.parse(text)}</div>`;
+      let html = marked.parse(text);
+      // Wrap "Jak czytać raport" legend in a collapsible <details> block
+      html = html.replace(
+        /(<h2[^>]*>.*?[Jj]ak czyta[ćc] raport.*?<\/h2>)([\s\S]*?)(<h2[^>]*>|$)/,
+        (_, heading, body, next) =>
+          `<details class="legend-details"><summary>${heading.replace(/<\/?h2[^>]*>/g,'')}</summary>${body}</details>${next}`
+      );
+      return `<div class="analysis-body">${html}</div>`;
     } catch(e) { /* fallback */ }
   }
   // Fallback: styled pre block
@@ -2991,8 +3536,9 @@ async function showHistoryItem(id, el) {
       detail.innerHTML = highlightDataOutput(_currentHistoryOutput);
     }
   }
-  document.getElementById('btnHistoryCopy').style.display   = 'inline-flex';
-  document.getElementById('btnHistoryDelete').style.display = 'inline-flex';
+  document.getElementById('btnHistoryCopy').style.display      = 'inline-flex';
+  document.getElementById('btnHistoryDelete').style.display    = 'inline-flex';
+  document.getElementById('btnHistoryTranslate').style.display = 'inline-flex';
 }
 
 async function deleteHistoryItem(id) {
@@ -3005,8 +3551,9 @@ async function deleteHistoryItem(id) {
     if (_currentHistoryId === id) {
       document.getElementById('historyDetail').innerHTML = '<span style="color:var(--txt3)">Wpis usunięty.</span>';
       document.getElementById('historyDetailTitle').textContent = 'Wybierz analizę z listy';
-      document.getElementById('btnHistoryCopy').style.display   = 'none';
-      document.getElementById('btnHistoryDelete').style.display = 'none';
+      document.getElementById('btnHistoryCopy').style.display      = 'none';
+      document.getElementById('btnHistoryDelete').style.display    = 'none';
+      document.getElementById('btnHistoryTranslate').style.display = 'none';
       _currentHistoryId = null;
     }
   }
@@ -3023,6 +3570,16 @@ function copyHistoryContent() {
       if (btn) { btn.textContent = '✓ Skopiowano'; setTimeout(() => btn.textContent = '📋 Kopiuj', 2000); }
     });
   }
+}
+
+async function translateHistoryItem() {
+  const btn    = document.getElementById('btnHistoryTranslate');
+  const detail = document.getElementById('historyDetail');
+  await _doTranslate(_currentHistoryOutput, btn, (translated) => {
+    _currentHistoryOutput = translated;
+    const isMarkdown = /^#+\s|^\*\*|^-\s\[|\|.*\|/.test(translated);
+    detail.innerHTML = isMarkdown ? renderAnalysis(translated) : highlightDataOutput(translated);
+  });
 }
 
 // ── Whale Snapshot — pre-execution flow ──────────────────────────────────────
@@ -3113,7 +3670,7 @@ Jeśli nie ma diffu — napisz "Brak poprzedniego snapshotu — pierwszy run" i 
 
   const analyzeRes = await api('/claude_run', {
     method: 'POST',
-    body: JSON.stringify({prompt: analysisPrompt})
+    body: JSON.stringify({prompt: analysisPrompt + t('lang.suffix')})
   });
   stopWaitCounter();
 
@@ -3691,6 +4248,45 @@ function renderAlertTab(tab) {
           ${a.notional ? `<span class="al-notional">${escHtml(_fN(a.notional))}</span>` : ''}
           ${label ? `<span class="al-label" title="${escHtml(labelTip)}">${escHtml(label)}</span>` : '<span class="al-spacer"></span>'}
           ${wHtml}
+        </div>
+      </div>`;
+    }
+
+    // ── TV Webhook tab — szczegółowy layout ──────────────────────────────────
+    if (tab === 'tv') {
+      // Ukryj wpisy "received" — każdy sygnał logowany jest dwa razy
+      // (received → potem executed/failed). Pokazujemy tylko wynik końcowy.
+      if ((a.status || '').toLowerCase() === 'received') return '';
+
+      const rawSide = (a.side || '').toLowerCase();
+      const dir     = rawSide === 'buy' || rawSide === 'long'   ? 'LONG'
+                    : rawSide === 'sell' || rawSide === 'short'  ? 'SHORT'
+                    : rawSide === 'close'                        ? 'CLOSE'
+                    : rawSide.toUpperCase() || '?';
+      const dirClr  = dir === 'LONG' ? 'var(--green)' : dir === 'SHORT' ? 'var(--red)' : 'var(--txt3)';
+      const st      = (a.status || '').toLowerCase();
+      const stLbl   = st === 'executed' ? 'OK' : (st === 'failed' || st === 'error') ? 'BŁĄD' : st.toUpperCase();
+      const stClr   = st === 'executed' ? 'var(--green)' : (st === 'failed' || st === 'error') ? 'var(--red)' : 'var(--yellow)';
+      const priceStr = a.price    ? `$${Number(a.price).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}` : '';
+      const slStr    = a.sl_price ? `SL:${Number(a.sl_price).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}` : '';
+      const venueStr = a.venue    ? a.venue : '';
+      const stratStr = a.strategy ? a.strategy.replace(/-v\d+$/,'') : '';
+      const noteStr  = (a.note||'').slice(0,90);
+      return `<div class="alert-item" style="flex-direction:row;align-items:center;gap:8px;padding:8px 12px">
+        <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span style="font-size:10px;color:${stClr};border:1px solid ${stClr};border-radius:3px;padding:1px 5px;font-family:'Space Mono',monospace;flex-shrink:0">${stLbl}</span>
+            <span style="font-size:13px;font-weight:700;color:${dirClr}">${escHtml(dir)}</span>
+            <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--txt1)">${escHtml(a.symbol||'?')}</span>
+            ${priceStr ? `<span style="font-size:12px;color:var(--txt2)">${escHtml(priceStr)}</span>` : ''}
+            ${slStr    ? `<span style="font-size:11px;color:var(--red)">${escHtml(slStr)}</span>` : ''}
+            ${venueStr ? `<span style="font-size:10px;color:var(--cyan);background:rgba(0,212,255,0.08);padding:1px 6px;border-radius:3px">${escHtml(venueStr)}</span>` : ''}
+          </div>
+          ${(noteStr && st !== 'executed') ? `<div style="font-size:10px;color:var(--txt3);font-family:'Space Mono',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(a.note||'')}">${escHtml(noteStr)}</div>` : ''}
+        </div>
+        <div style="font-size:11px;color:var(--txt3);white-space:nowrap;text-align:right;flex-shrink:0;line-height:1.5">
+          <div style="color:var(--txt2)">${escHtml(time)}</div>
+          ${stratStr ? `<div style="font-size:10px">${escHtml(stratStr)}</div>` : ''}
         </div>
       </div>`;
     }
@@ -4358,7 +4954,7 @@ function _tradeRows(trades) {
       : `SL:<span style="color:var(--red)">${escHtml(String(t.sl||'?'))}</span>`;
 
     const qtyPart  = t.qty ? `<span style="font-size:10px;color:var(--txt3)">${t.qty} szt</span>` : '';
-    const dateStr  = fmtTs(t.tsC||t.tsO, {dateOnly:true});
+    const dateStr  = fmtTs(t.tsC||t.tsO);
     const bgStyle  = isOpen && !t.paper ? 'background:rgba(0,212,255,0.04);' : isErr ? 'background:rgba(255,149,0,0.04);' : '';
     return `<div class="signal-row" style="${bgStyle}">
       <span class="sig-status ${stCls}" style="${isErr?'color:var(--orange);border-color:var(--orange)':''}">${stLbl}</span>
@@ -4495,7 +5091,7 @@ const PROMPTS = {
     {label:'📅 Daily Alpha',  desc:'Skrócony sygnał dnia przez TG Trade (/daily-alpha)', text:'/daily-alpha'},
     {label:'📊 Daily Brief',  desc:'fetch_positions + whale snapshot + blogwatcher + OI/funding → TOP LONG/SHORT setup dnia', text:'Uruchom moją poranną zmianę: fetch_positions (wszystkie giełdy) + whale snapshot (hl_whale_tracker --top 20 --window week) + blogwatcher digest + OI i funding dla BTC/ETH/SOL/HYPE/LINK. Dla każdego aktywa wyjaśnij PO POLSKU: kto płaci funding (longi czy shorty) i co to oznacza dla kierunku ceny. Na końcu: TOP 1 LONG setup, TOP 1 SHORT setup, 1 watchlist, portfolio ranking.'},
     {label:'💰 My Book',      desc:'Aktualne pozycje na wszystkich giełdach z oceną: in confluence / neutral / fighting tape', text:'Pokaż moje aktualne pozycje na wszystkich giełdach i oceń każdą: in confluence / neutral / fighting tape'},
-    {label:'📰 News Digest',  desc:'Blogwatcher: świeże nagłówki z crypto blogów i mediów (--refresh)', text:'python scripts/blogwatcher.py --refresh'},
+    {label:'📰 News Digest',  desc:'Blogwatcher: świeże nagłówki z crypto blogów i mediów (świeże pobieranie)', text:'python scripts/blogwatcher.py --no-cache'},
     {label:'🌍 Econ → Aktywa', desc:'Spojrzenie NA PRZÓD (3 dni, US/EU/DE/JP) — Claude łączy nadchodzące wydarzenia z Twoim portfolio i ocenia kierunek dla BTC/ETH/SOL/HYPE/LINK/GOLD/SILVER/OIL/SP500. Samo DZIŚ + już opublikowane dane → "econ pełny dzień" w zakładce Skrypty (za darmo, bez Claude)', text:'Pokaż nadchodzące wydarzenia z kalendarza ekonomicznego na najbliższe 3 dni (python scripts/econ_calendar.py --days 3), ale skup się TYLKO na US, Strefie Euro (EU), Niemczech (DE) i Japonii (JP) — pomiń pozostałe kraje. Dla każdego ważnego wydarzenia (KRYTYCZNY/WYSOKI), które jeszcze się NIE wydarzyło, wyjaśnij PO POLSKU jak hawkish vs dovish surprise wpłynie na: BTC, ETH, SOL, HYPE, LINK, GOLD, SILVER, OIL, SP500. Na końcu jedno zdanie: który z najbliższych 3 dni wymaga największej ostrożności w pozycjach.'},
   ],
   whale: [
@@ -4543,20 +5139,67 @@ let currentCategory = 'daily';
 
 function setCategory(cat) {
   currentCategory = cat;
+  window._currentCategory = cat;
   document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
   event.target.classList.add('active');
   renderPrompts();
+  const inp = document.getElementById('cmdInput');
+  if (cat === 'query') {
+    inp.value = '';
+    inp.dataset.action = '';
+    inp.placeholder = t('placeholder.query');
+    inp.rows = 6;
+    document.getElementById('botSelect').value = 'tgtrade';
+  } else {
+    inp.placeholder = t('placeholder.cmd');
+    inp.rows = 3;
+  }
 }
+
+const QUERY_EXAMPLES = [
+  ['📈 Outlook BTC/ETH', 'Jak oceniasz aktualny setup BTC i ETH? Trend, momentum, kluczowe poziomy — co warto teraz zrobić?'],
+  ['🎯 Najlepszy setup', 'Znajdź mi 1 najlepszy setup tradingowy na dziś. Jeden instrument, jedna strona, konkretny plan wejścia ze SL i TP.'],
+  ['💼 Oceń moje pozycje', 'Sprawdź moje otwarte pozycje (fetch_positions) i oceń każdą: in confluence / neutral / fighting tape. Co zamknąć?'],
+  ['🌍 Co ważnego dziś?', 'Co jest dziś najważniejsze makroekonomicznie i technicznie? Jakie eventy i dane mogą poruszyć rynki w ciągu 24-48h?'],
+  ['💡 Wolne pytanie', ''],
+];
 
 function renderPrompts() {
   const grid = document.getElementById('promptsGrid');
+  const descEl = document.getElementById('cmdChipDesc');
+
+  if (currentCategory === 'query') {
+    grid.innerHTML = `
+      <div style="color:var(--txt3);font-size:11px;font-family:'Space Mono',monospace;padding:2px 0 6px;line-height:1.6">
+        Zadaj dowolne pytanie — Claude przeczyta kontekst rynkowy i odpowie po polsku.<br>
+        <span style="color:var(--txt2)">Podpowiedzi (kliknij żeby wypełnić, potem edytuj):</span>
+      </div>
+      ${QUERY_EXAMPLES.map(([ label, text ], i) =>
+        `<div class="prompt-chip" data-qidx="${i}" style="color:var(--cyan);border-color:var(--cyan);opacity:.9">${escHtml(label)}</div>`
+      ).join('')}
+    `;
+    if (descEl) descEl.textContent = '✏️ Wpisz dowolne pytanie — trafi bezpośrednio do Claude (tgtrade)';
+    grid.querySelectorAll('.prompt-chip').forEach(el => {
+      el.addEventListener('click', () => {
+        grid.querySelectorAll('.prompt-chip').forEach(c => c.classList.remove('active'));
+        el.classList.add('active');
+        const t = QUERY_EXAMPLES[parseInt(el.dataset.qidx, 10)][1];
+        const inp = document.getElementById('cmdInput');
+        inp.value = t;
+        inp.dataset.action = '';
+        inp.focus();
+        if (descEl) descEl.textContent = t ? '▸ Edytuj pytanie według potrzeb i kliknij Uruchom' : '▸ Wpisz własne pytanie poniżej';
+      });
+    });
+    return;
+  }
+
   const prompts = PROMPTS[currentCategory] || [];
   // Store texts in data-idx to avoid broken inline onclick with JSON strings
   grid.innerHTML = prompts.map((p, i) =>
     `<div class="prompt-chip" data-cat="${escHtml(currentCategory)}" data-idx="${i}" title="${escHtml(p.desc||p.label)}">${escHtml(p.label)}</div>`
   ).join('');
   // Clear desc when category changes
-  const descEl = document.getElementById('cmdChipDesc');
   if (descEl) descEl.textContent = '';
   grid.querySelectorAll('.prompt-chip').forEach(el => {
     el.addEventListener('click', () => {
@@ -4675,11 +5318,12 @@ async function runCommand() {
       });
     } else {
       // Natural language → claude --print
-      status.textContent = '🧠 Claude myśli...';
-      responseBox.textContent = '🧠 Uruchamiam Claude (--print)...\nProsty prompt: ~1 min. Daily Brief / multi-step: ~5-12 min. Poczekaj.';
+      status.textContent = t('lang.thinking');
+      responseBox.textContent = t('lang.wait');
+      const claudePrompt = input + t('lang.suffix');
       result = await api('/claude_run', {
         method: 'POST',
-        body: JSON.stringify({prompt: input})
+        body: JSON.stringify({prompt: claudePrompt})
       });
     }
 
@@ -4724,11 +5368,13 @@ async function runCommand() {
 
   // ── Render: use markdown for claude_run results, plain text for scripts ──
   const isClaude = bot === 'tgtrade' && !input.startsWith('python') && !/^[\w_]+\.py(\s|$)/.test(input.trim());
+  _lastResponseRaw = rawOut;
   if (isClaude && result.ok) {
     responseBox.innerHTML = renderAnalysis(rawOut);
   } else {
     responseBox.innerHTML = highlightDataOutput(rawOut);
   }
+  document.getElementById('btnTranslateResponse').style.display = 'inline-flex';
 
   // ── Auto-save substantial results to Historia Analiz ──
   // (skip if the backend already saved this run via SAVE_HISTORY)
@@ -4896,6 +5542,164 @@ async function init() {
 }
 
 init();
+
+// ── SŁOWNICZEK ────────────────────────────────────────────────────────────────
+
+const GLOSSARY_KEY = 'dash_glossary_v1';
+
+const GLOSSARY_DEFAULTS = [
+  { term: 'Hawkish', def: 'Nastawienie jastrzębie — bank centralny lub decydent skłonny do podwyżek stóp procentowych w celu walki z inflacją. Hawkish Fed = wyższe stopy = silniejszy dolar, zazwyczaj negatywny dla akcji i krypto.' },
+  { term: 'Dovish', def: 'Nastawienie gołębie — bank centralny skłonny do obniżek stóp lub luzowania polityki w celu wsparcia wzrostu gospodarczego. Dovish Fed = niższe stopy = słabszy dolar, zazwyczaj pozytywny dla ryzykownych aktywów.' },
+  { term: 'FOMC', def: 'Federal Open Market Committee — komitet decyzyjny Rezerwy Federalnej USA ustalający stopy procentowe. Posiedzenia co 6 tygodni; każda decyzja lub konferencja prasowa może poruszyć rynkami globalnie.' },
+  { term: 'CPI', def: 'Consumer Price Index — wskaźnik cen konsumenckich, główna miara inflacji w USA. Wydruk wyższy od oczekiwań = presja na Fed do podwyżek (hawkish), niższy = gołębi sygnał.' },
+  { term: 'NFP', def: 'Non-Farm Payrolls — comiesięczne dane o zatrudnieniu poza sektorem rolniczym w USA, publikowane w pierwszą sobotę miesiąca. Silny NFP = zdrowa gospodarka, presja na wyższe stopy; słaby NFP = obawy recesji.' },
+  { term: 'PCE', def: 'Personal Consumption Expenditures — preferowana przez Fed miara inflacji, szersza niż CPI. Core PCE (bez żywności i energii) to kluczowy wskaźnik obserwowany przez Rezerwę Federalną.' },
+  { term: 'DXY', def: 'US Dollar Index — kurs dolara względem koszyka 6 walut (EUR 57,6%, JPY 13,6%, GBP 11,9%, CAD, SEK, CHF). Wzrost DXY to zazwyczaj presja na złoto, krypto i surowce wyceniane w USD.' },
+  { term: 'QE', def: 'Quantitative Easing (Luzowanie Ilościowe) — bank centralny skupuje obligacje i inne aktywa, wpompowując pieniądze w system. Efekt: niższe rentowności, tańszy kredyt, wzrost ryzykownych aktywów.' },
+  { term: 'QT', def: 'Quantitative Tightening (Zacieśnienie Ilościowe) — bank centralny redukuje bilans, wycofując płynność z rynku. Odwrotność QE: wyższe rentowności, droższy kredyt, presja na akcje i krypto.' },
+  { term: 'Funding Rate', def: 'Opłata między longerami a shorterami na kontraktach perpetual (bezterminowych). Dodatni funding = longerzy płacą shorterom (rynek przegrzany, wielu longerów); ujemny = shortujący płacą longerom (presja sprzedażowa).' },
+  { term: 'Open Interest', def: 'Łączna wartość lub liczba otwartych kontraktów futures/perp na danym rynku. Rosnący OI przy rosnącej cenie = nowe pieniądze wchodzą w trend. Spadający OI = zamykanie pozycji, słabnący trend.' },
+  { term: 'Liquidation', def: 'Przymusowe zamknięcie pozycji przez giełdę gdy traderowi skończy się depozyt zabezpieczający (margin). Kaskada likwidacji long może wywołać gwałtowny spadek i odwrotnie przy shortsqueeze.' },
+  { term: 'BTC.D', def: 'Dominacja Bitcoina — procentowy udział BTC w całkowitej kapitalizacji rynku krypto. Rosnące BTC.D = kapitał ucieka z altcoinów do BTC; spadające BTC.D = sezon altcoinów (altseason).' },
+  { term: 'Risk-on / Risk-off', def: 'Nastrój rynkowy: Risk-on = inwestorzy kupują ryzykowne aktywa (akcje, krypto, waluty EM); Risk-off = ucieczka do bezpiecznych przystani (USD, złoto, obligacje rządowe USA). Geopolityka i dane makro zmieniają ten nastrój.' },
+  { term: 'Confluence', def: 'Zbieżność kilku niezależnych sygnałów lub poziomów w jednym miejscu — np. poziom Fibonacciego + SMA200 + poprzedni szczyt. Silna confluencja = wyższe prawdopodobieństwo reakcji ceny.' },
+  { term: 'Spread', def: 'Różnica między ceną ask (oferta sprzedaży) a bid (oferta kupna). Szeroki spread = niska płynność lub wysoka zmienność. Spread to ukryty koszt wejścia w pozycję.' },
+  { term: 'Divergence', def: 'Rozbieżność między kierunkiem ceny a wskaźnikiem (np. RSI, MACD). Bearish divergence: cena robi nowe szczyty, wskaźnik nie — sygnał słabnącego momentum. Bullish divergence — odwrotnie.' },
+  { term: 'Short Squeeze', def: 'Gwałtowny wzrost ceny wymuszający zamknięcie pozycji krótkich (short), co nakręca dalszy wzrost. Następuje gdy aktywo mocno shortowane nagle rośnie i shorterzy są zmuszeni odkupować.' },
+  { term: 'Market Structure', def: 'Analiza kolejnych szczytów (HH — Higher High, LH — Lower High) i dołków (HL — Higher Low, LL — Lower Low) na wykresie. Uptrend = HH + HL; downtrend = LH + LL; przełamanie struktury (BOS/CHoCH) sygnalizuje zmianę trendu.' },
+  { term: 'Yield / Rentowność obligacji', def: 'Stopa zwrotu z obligacji skarbowych. Rosnące yieldy USA (np. 10Y) = droższy pieniądz, presja na akcje i złoto. Inwersja krzywej (2Y > 10Y) historycznie zapowiada recesję.' },
+];
+
+function _loadGlossary() {
+  try {
+    const raw = localStorage.getItem(GLOSSARY_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch(e) {}
+  // First run — seed with defaults
+  const data = GLOSSARY_DEFAULTS.map(g => ({ ...g, custom: false, added: Date.now() }));
+  localStorage.setItem(GLOSSARY_KEY, JSON.stringify(data));
+  return data;
+}
+
+function _saveGlossary(data) {
+  localStorage.setItem(GLOSSARY_KEY, JSON.stringify(data));
+}
+
+function renderGlossary() {
+  const data  = _loadGlossary();
+  const query = (document.getElementById('glossarySearch')?.value || '').toLowerCase();
+  const list  = document.getElementById('glossaryList');
+  const count = document.getElementById('glossaryCount');
+  if (!list) return;
+
+  const filtered = query
+    ? data.filter(g => g.term.toLowerCase().includes(query) || g.def.toLowerCase().includes(query))
+    : data;
+
+  if (count) count.textContent = `${data.length} pojęć`;
+
+  if (!filtered.length) {
+    list.innerHTML = `<div style="color:var(--txt3);font-size:13px;padding:20px 0;text-align:center">Brak wyników dla "${escHtml(query)}"</div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map((g, i) => {
+    const realIdx = data.indexOf(g);
+    return `<div class="card" style="padding:12px 14px;flex-shrink:0">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
+        <span style="font-size:14px;font-weight:700;color:var(--cyan)">${escHtml(g.term)}</span>
+        ${g.custom ? '<span style="font-size:10px;color:var(--txt3);background:var(--bg3);padding:1px 6px;border-radius:4px;border:1px solid var(--border)">własne</span>' : ''}
+        <button onclick="deleteGlossaryTerm(${realIdx})" title="Usuń" style="margin-left:auto;background:none;border:none;color:var(--txt3);cursor:pointer;font-size:14px;padding:0 2px;line-height:1" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--txt3)'">✕</button>
+      </div>
+      <div style="font-size:13px;color:var(--txt);line-height:1.65">${escHtml(g.def)}</div>
+    </div>`;
+  }).join('');
+}
+
+async function addGlossaryTerm() {
+  const input  = document.getElementById('glossaryInput');
+  const status = document.getElementById('glossaryAddStatus');
+  const btn    = document.getElementById('btnGlossaryAdd');
+  const term   = (input?.value || '').trim();
+  if (!term) { if (status) status.textContent = 'Wpisz pojęcie.'; return; }
+
+  const data = _loadGlossary();
+  if (data.find(g => g.term.toLowerCase() === term.toLowerCase())) {
+    if (status) status.textContent = `"${term}" już istnieje w słowniku.`;
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '⏳';
+  if (status) status.textContent = `Generuję wyjaśnienie dla "${term}"…`;
+
+  const prompt = `Wyjaśnij pojęcie tradingowe/finansowe "${term}" po polsku w 2-3 zdaniach. ` +
+    `Skup się na tym co to oznacza w praktyce dla tradera, jaki ma wpływ na rynki. ` +
+    `Odpowiedz TYLKO definicją, bez wstępu, bez cudzysłowów okalających, bez nagłówka.`;
+
+  const res = await api('/claude_run', { method: 'POST', body: JSON.stringify({ prompt }) });
+
+  btn.disabled = false;
+  btn.textContent = '+ Wyjaśnij';
+
+  if (res.ok && res.output && res.output.length > 20) {
+    data.push({ term, def: res.output.trim(), custom: true, added: Date.now() });
+    _saveGlossary(data);
+    input.value = '';
+    if (status) { status.style.color = 'var(--green)'; status.textContent = `✓ Dodano "${term}"`; setTimeout(() => { if(status) { status.textContent=''; status.style.color=''; }}, 3000); }
+    renderGlossary();
+  } else {
+    if (status) { status.style.color = 'var(--red)'; status.textContent = 'Błąd generowania — spróbuj ponownie.'; }
+  }
+}
+
+function deleteGlossaryTerm(idx) {
+  const data = _loadGlossary();
+  if (idx < 0 || idx >= data.length) return;
+  const term = data[idx].term;
+  data.splice(idx, 1);
+  _saveGlossary(data);
+  renderGlossary();
+}
+
 </script>
+
+<!-- ═══ MODAL: LinkedIn Post ═══ -->
+<div id="liPostModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.72);backdrop-filter:blur(6px);align-items:center;justify-content:center">
+  <div style="background:#0c1525;border:1px solid rgba(0,119,181,0.35);border-radius:14px;width:min(700px,94vw);max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.6)">
+
+    <!-- header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 24px 16px;border-bottom:1px solid rgba(255,255,255,0.07)">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:32px;height:32px;background:#0077b5;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#fff;font-family:'Space Mono',monospace">in</div>
+        <div>
+          <div style="font-family:'Space Mono',monospace;font-size:13px;color:#dde6f0;font-weight:700">Post LinkedIn</div>
+          <div style="font-size:11px;color:#3d4f62;margin-top:2px">Wygenerowany przez Claude · edytuj przed kopiowaniem</div>
+        </div>
+      </div>
+      <button onclick="closeLiPostModal()" style="background:none;border:none;color:#3d4f62;cursor:pointer;font-size:20px;padding:4px 8px;line-height:1;transition:color .15s" onmouseover="this.style.color='#dde6f0'" onmouseout="this.style.color='#3d4f62'">✕</button>
+    </div>
+
+    <!-- textarea -->
+    <div style="padding:20px 24px;flex:1;overflow-y:auto">
+      <textarea id="liPostText"
+        style="width:100%;min-height:300px;background:#060c16;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:16px;color:#dde6f0;font-family:'Inter',sans-serif;font-size:15px;line-height:1.7;resize:vertical;outline:none;transition:border-color .2s"
+        onfocus="this.style.borderColor='rgba(0,119,181,0.5)'"
+        onblur="this.style.borderColor='rgba(255,255,255,0.1)'"
+        placeholder="Generuję post..."></textarea>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px">
+        <span id="liPostCharCount" style="font-family:'Space Mono',monospace;font-size:11px;color:#3d4f62"></span>
+        <span style="font-size:11px;color:#3d4f62">LinkedIn obcina po ~210 zn. bez „pokaż więcej"</span>
+      </div>
+    </div>
+
+    <!-- footer -->
+    <div style="padding:16px 24px;border-top:1px solid rgba(255,255,255,0.07);display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="regenerateLiPost()" id="btnLiRegenerate" style="background:none;border:1px solid rgba(255,255,255,0.12);color:#7a8da0;border-radius:8px;padding:9px 18px;cursor:pointer;font-size:13px;font-family:'Inter',sans-serif;transition:all .15s" onmouseover="this.style.borderColor='rgba(255,255,255,0.25)';this.style.color='#dde6f0'" onmouseout="this.style.borderColor='rgba(255,255,255,0.12)';this.style.color='#7a8da0'">↺ Generuj ponownie</button>
+      <button onclick="copyLiPost()" style="background:#0077b5;border:none;color:#fff;border-radius:8px;padding:9px 22px;cursor:pointer;font-size:13px;font-weight:600;font-family:'Inter',sans-serif;transition:background .15s" onmouseover="this.style.background='#005f8e'" onmouseout="this.style.background='#0077b5'">📋 Kopiuj post</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
