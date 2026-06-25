@@ -167,7 +167,8 @@ def fetch_trade_style(wallet: str) -> dict:
     (drabinki zawyzaja). Plus aktywne dni — czy handluje regularnie czy zrywami.
     """
     out = {"fills_7d": 0, "fills_30d": 0, "closes_30d": 0, "active_days_30d": 0,
-           "last_trade_h": None, "active": False, "closes_per_week": 0.0}
+           "last_trade_h": None, "active": False, "closes_per_week": 0.0,
+           "roundtrips_30d": 0, "roundtrips_per_week": 0.0, "median_hold_h": None}
     try:
         now = datetime.now(timezone.utc)
         now_ms = now.timestamp() * 1000
@@ -191,6 +192,37 @@ def fetch_trade_style(wallet: str) -> dict:
             hrs = (now_ms - last_ms) / 3600000
             out["last_trade_h"] = round(hrs, 1)
             out["active"] = hrs < 48
+
+            # PRAWDZIWE round-tripy + czas trzymania — KLUCZ do odroznienia
+            # scalpingu (krotkie trzymanie) od drabinkowania (duzo czesciowych zamkniec,
+            # dlugie trzymanie). Rekonstruujemy pozycje per coin z filli (side B/A).
+            bycoin: dict[str, list] = {}
+            for f in fills:
+                bycoin.setdefault(f.get("coin", "?"), []).append(f)
+            holds: list[float] = []
+            roundtrips = 0
+            for coin, fs in bycoin.items():
+                fs = sorted(fs, key=lambda x: x.get("time", 0))
+                pos = 0.0
+                open_t = None
+                for f in fs:
+                    sz = float(f.get("sz", "0") or 0)
+                    signed = sz if f.get("side") == "B" else -sz
+                    prev = pos
+                    if prev == 0 and signed != 0:
+                        open_t = f.get("time")
+                    pos = round(prev + signed, 8)
+                    # pelne zamkniecie (pozycja do zera) lub flip kierunku = round-trip
+                    if prev != 0 and (pos == 0 or (prev > 0) != (pos > 0)):
+                        roundtrips += 1
+                        if open_t:
+                            holds.append((f.get("time", 0) - open_t) / 3600000)
+                        open_t = f.get("time") if pos != 0 else None
+            out["roundtrips_30d"] = roundtrips
+            out["roundtrips_per_week"] = round(roundtrips / (30 / 7), 1)
+            if holds:
+                holds.sort()
+                out["median_hold_h"] = round(holds[len(holds) // 2], 1)
     except Exception:
         pass
     return out
@@ -240,23 +272,25 @@ def verdict(state, pnl, style, track, capital, min_notional=10.0) -> dict:
     last_h = style.get("last_trade_h")
     cpw = style.get("closes_per_week", 0)
 
-    # 2a. Czestotliwosc — rozrozniamy SCALPING od DRABINKOWANIA
-    # Drabinkowanie = wiele fillow w 1-2 pozycjach (skalowanie duzej pozycji) — copy nadazy za kierunkiem
-    # Scalping = wiele fillow w wielu roznych coinach — copy nie nadazy
-    is_drabinkowanie = cpw > 50 and n_positions <= 2
-    is_scalper = cpw > 50 and not is_drabinkowanie
-    if is_drabinkowanie:
-        flags_warn.append(
-            f"Pozorna wysoka czestotliwosc: {cpw}/tydz, ale tylko {n_positions} pozycj"
-            f"{'a' if n_positions == 1 else 'e'} — drabinkowanie (skalowanie duzej poz.), NIE scalping. "
-            f"Copy system moze sledzic kierunek.")
-    elif is_scalper:
+    # 2a. SCALPING vs DRABINKOWANIE — kluczem jest CZAS TRZYMANIA, nie liczba zamkniec.
+    # Scalper trzyma minuty (polling 60s nie wejdzie+wyjdzie w jego oknie).
+    # Drabinkowicz/pozycyjny trzyma godziny-dni mimo wielu czesciowych zamkniec -> kopiowalny.
+    # (Lekcja: 0x67a7 mial 235 "zamkniec"/tydz ALE mediana trzymania 40-77h = drabinkowanie, nie scalping.)
+    mh = style.get("median_hold_h")              # mediana trzymania round-tripu (h)
+    rtpw = style.get("roundtrips_per_week", 0)   # PRAWDZIWE round-tripy/tydz (nie czesciowe zamkniecia)
+    is_scalper = mh is not None and mh < 1.0 and rtpw > 20
+    if is_scalper:
         flags_bad.append(
-            f"SCALPER — {cpw}/tydz (~{cpw/7:.1f}/dzien) na wielu coinach: "
-            f"polling-based copy system nie nadazy; obserwuj, ale NIE kopiuj automatycznie")
-    elif cpw > 20:
+            f"SCALPER — mediana trzymania {mh}h, {rtpw} round-tripow/tydz: "
+            f"polling 60s nie wejdzie+wyjdzie w jego oknie; obserwuj, ale NIE kopiuj automatycznie")
+    elif cpw > 50 and (mh is None or mh >= 1.0):
+        hold_txt = f"mediana trzymania {mh}h" if mh is not None else "dlugie trzymanie (brak pelnych zamkniec w oknie)"
         flags_warn.append(
-            f"Wysoka czestotliwosc: {cpw}/tydz (~{cpw/7:.1f}/dzien) — krotkie pozycje moga uciec przed polling cycle")
+            f"Drabinkowanie: {cpw} czesciowych zamkniec/tydz, ale {hold_txt} — "
+            f"skaluje pozycje, NIE scalpuje. Copy nadazy za kierunkiem.")
+    elif rtpw > 20:
+        flags_warn.append(
+            f"Wysoka czestotliwosc: {rtpw} round-tripow/tydz — krotsze pozycje moga uciec przed polling cycle")
 
     if style.get("active"):
         flags_good.append(

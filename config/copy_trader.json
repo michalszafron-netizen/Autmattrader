@@ -6,20 +6,20 @@
   "traders": [
     {
       "address": "0x83b00972aafcc3d06d45b1b823079f9a414da46e",
-      "label": "0x83b0 — Prosty 2-poz (all-time +2175%, ETH-S/HYPE-L, aktywny) [paper +84%]",
+      "label": "0x83b0 — Akcje xyz (paper +339%, MU/SNDK, 66% win, churn) [GWIAZDA]",
       "active": true
     },
     {
-      "address": "0x9020d2115a4d6151b5307aa9a58b9e8601e2187d",
-      "label": "0x9020 — ELITE83, taktyczny 0.37/dzien (HYPE-S/ETH-S/SOL-S, konto $540k, 14% margin)",
+      "address": "0x67a773143ea4fdaf7a77cc6069ffddb4573ff82b",
+      "label": "0x67a7 — Akcje xyz LONG (KOPIUJ, drabinka 43h hold, ELITE100, +$144k, MU/SNDK/SKHX)",
       "active": true
     },
     {
-      "address": "0xa4be91acc74feabab71b8878b66b8f5277212520",
-      "label": "0xa4be — RELIABLE, WR93%, 237 dni (SOL-S/BTC-S/ETH-S, BALANCED risk, $52k)",
+      "address": "0xe67dbf2d051106b42104c1a6631af5e5a458b682",
+      "label": "0xe67d — Crypto BTC short (KOPIUJ, drabinka 9h hold, ELITE, +$259k, ma stop)",
       "active": true
     }
   ],
   "trader_address": "0x83b00972aafcc3d06d45b1b823079f9a414da46e",
-  "trader_label": "0x83b0 — Prosty 2-poz (all-time +2175%)"
+  "trader_label": "0x83b0 — Akcje xyz (paper +339%)"
 }
