@@ -292,6 +292,24 @@ def verdict(state, pnl, style, track, capital, min_notional=10.0) -> dict:
         flags_warn.append(
             f"Wysoka czestotliwosc: {rtpw} round-tripow/tydz — krotsze pozycje moga uciec przed polling cycle")
 
+    # 2b. PROFIL ROUND-TRIPOW — nagroda za "churn" (krotko-sredni hold + duzo realnych
+    # round-tripow), kara za "dlugi hold" (late-entry risk), NIEZALEZNIE od tego czy
+    # pozycje akurat TERAZ wygladaja swiezo (to lapie pkt 6 nizej, punktowo).
+    # Dowod z paper (13 dni): 0x83b0 hold 14.9h/6.1rt-tydz +496%/72%win VS
+    # 0x67a7 hold 26.6h/4.0rt-tydz -34%/0%win VS 0xe67d hold 9.6h/10.5rt-tydz ~flat.
+    # Oba "nie sa scalperem", ale jeden kreci czesto i nas dogania, drugi trzyma
+    # dlugo i wchodzimy w SRODEK jego ruchu (nawet gdy danego dnia pozycja jest "swieza").
+    is_churner = not is_scalper and mh is not None and 1.0 <= mh <= 24.0 and rtpw >= 5
+    is_long_holder = mh is not None and mh > 24.0
+    if is_churner:
+        flags_good.append(
+            f"Churn profil: hold {mh}h, {rtpw} round-tripow/tydz — czesto otwiera swieze "
+            f"pozycje, copy dogania ten sam ruch (wzorzec najlepszego wyniku w paper)")
+    elif is_long_holder:
+        flags_warn.append(
+            f"Dlugi hold: mediana {mh}h (~{mh/24:.1f} dnia) — late copier wchodzi w SRODEK "
+            f"jego ruchu, nie na starcie; ryzyko nawet gdy pozycje teraz wygladaja swiezo")
+
     if style.get("active"):
         flags_good.append(
             f"Aktywny: {closes30} zamkniec/30d (~{cpw}/tydz), "
@@ -389,6 +407,10 @@ def verdict(state, pnl, style, track, capital, min_notional=10.0) -> dict:
         # Track record moze byc swietny, ale teraz siedzi na starych winnerach —
         # late copier nie zlapie zablokowanego zysku. Max OBSERWUJ (czekaj na swieze entry).
         v = "OBSERWUJ" if score >= 1 else "UNIKAJ"
+    elif is_long_holder:
+        # Lekcja 0x67a7: dlugi hold = strukturalne ryzyko spoznionego wejscia,
+        # nawet bez aktualnych "starych winnerow". Max OBSERWUJ.
+        v = "OBSERWUJ" if score >= 2 else "UNIKAJ"
     elif score >= 3:
         v = "KOPIUJ"
     elif score >= 1:
