@@ -59,10 +59,23 @@ FED_RSS_URL  = "https://www.federalreserve.gov/feeds/speeches.xml"
 # EDGAR requires a User-Agent identifying the requester (their ToS).
 _UA = "trading-ai-research contact@trading-ai.local"
 
-MIN_BUY_USD  = 100_000   # Eddie: minimum insider buy value
+MIN_BUY_USD  = 50_000    # Eddie: minimum insider buy value (obniżone z 100k)
 EDGAR_DELAY  = 0.15      # seconds between EDGAR requests (10 req/s limit)
+EDGAR_DAYS_BACK = 3      # window: last 3 days (catches weekends/holidays)
+EDGAR_PARSE_MAX = 100    # parse up to 100 filings (było 30)
 
 SENIOR_ROLES = {"ceo", "cfo", "president", "chairman", "director", "chief"}
+
+# Priorytetowa watchlista — BTC/crypto/fintech firmy
+BTC_WATCHLIST = {
+    "MSTR", "COIN", "HOOD", "IBIT", "FBTC", "GBTC", "BITB", "ARKB",
+    "RIOT", "MARA", "CLSK", "CIFR", "HUT", "BTBT", "WULF",  # BTC miners
+    "NVDA", "AMD",   # AI/GPU — korelacja crypto
+    "TSLA", "META", "GOOGL", "MSFT", "AAPL",  # Big tech insiders
+}
+
+# CIK dla MSTR (MicroStrategy) — do skanowania 8-K zakupów BTC
+MSTR_CIK = "0001050446"
 
 # ── DeepSeek API ──────────────────────────────────────────────────────────────
 DEEPSEEK_KEY   = os.getenv("DEEPSEEK_API_KEY", "")
@@ -152,7 +165,7 @@ def _xf(node: ET.Element, path: str) -> float:
 
 # ── EDDIE — SEC Form 4 ────────────────────────────────────────────────────────
 
-def _fetch_form4_index(days_back: int = 1) -> list[dict]:
+def _fetch_form4_index(days_back: int = EDGAR_DAYS_BACK) -> list[dict]:
     """Hit EDGAR EFTS to get recent Form 4 filing metadata."""
     today = datetime.now(timezone.utc).date()
     start = (today - timedelta(days=days_back)).isoformat()
@@ -163,7 +176,10 @@ def _fetch_form4_index(days_back: int = 1) -> list[dict]:
             resp = c.get(
                 EDGAR_EFTS,
                 params={"forms": "4", "dateRange": "custom",
-                        "startdt": start, "enddt": end, "_source": "accession_no,entity_name,file_date"},
+                        "startdt": start, "enddt": end,
+                        "_source": "accession_no,entity_name,file_date",
+                        "hits.hits.total": "true",
+                        "hits.hits.total.value": 500},
                 timeout=20,
             )
             resp.raise_for_status()
@@ -174,6 +190,64 @@ def _fetch_form4_index(days_back: int = 1) -> list[dict]:
 
     hits = data.get("hits", {}).get("hits", [])
     return [h.get("_source", {}) for h in hits if h.get("_source")]
+
+
+def _fetch_form4_for_ticker(ticker: str, days_back: int = EDGAR_DAYS_BACK) -> list[dict]:
+    """Fetch Form 4 filings for a specific ticker from EDGAR full-text search."""
+    today = datetime.now(timezone.utc).date()
+    start = (today - timedelta(days=days_back)).isoformat()
+    end   = today.isoformat()
+    try:
+        with _edgar_client() as c:
+            resp = c.get(
+                "https://efts.sec.gov/LATEST/search-index",
+                params={"q": f'"{ticker}"', "forms": "4", "dateRange": "custom",
+                        "startdt": start, "enddt": end,
+                        "_source": "accession_no,entity_name,file_date"},
+                timeout=20,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        return []
+    hits = data.get("hits", {}).get("hits", [])
+    return [h.get("_source", {}) for h in hits if h.get("_source")]
+
+
+def _fetch_mstr_8k(days_back: int = 7) -> list[dict]:
+    """Fetch recent 8-K filings for MSTR — captures Bitcoin purchase announcements."""
+    today = datetime.now(timezone.utc).date()
+    start = (today - timedelta(days=days_back)).isoformat()
+    url   = f"https://data.sec.gov/submissions/CIK{MSTR_CIK}.json"
+    try:
+        with _edgar_client() as c:
+            resp = c.get(url, timeout=20)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as e:
+        console.print(f"[yellow][eddie] MSTR 8-K fetch error: {e}[/yellow]")
+        return []
+
+    filings = data.get("filings", {}).get("recent", {})
+    forms   = filings.get("form", [])
+    dates   = filings.get("filingDate", [])
+    accs    = filings.get("accessionNumber", [])
+    descs   = filings.get("primaryDocument", [])
+
+    results = []
+    for i, form in enumerate(forms):
+        if form not in ("8-K", "8-K/A"):
+            continue
+        fdate = dates[i] if i < len(dates) else ""
+        if fdate < start:
+            break
+        results.append({
+            "form": form,
+            "date": fdate,
+            "accession": accs[i] if i < len(accs) else "",
+            "doc": descs[i] if i < len(descs) else "",
+        })
+    return results
 
 
 def _fetch_form4_xml(accession_no: str) -> str | None:
@@ -271,17 +345,32 @@ def _parse_form4_xml(xml_text: str) -> Form4Buy | None:
 
 
 def run_eddie(dry_run: bool = False) -> InsiderSignal:
-    """Eddie: SEC Form 4 insider buy scanner."""
+    """Eddie: SEC Form 4 insider buy scanner + MSTR 8-K BTC purchase tracker."""
     console.print("[cyan][eddie][/cyan] Fetching SEC EDGAR Form 4 filings…")
-    index = _fetch_form4_index(days_back=1)
-    if not index:
-        # Try 2-day window (weekends/holidays)
-        index = _fetch_form4_index(days_back=2)
 
-    console.print(f"[cyan][eddie][/cyan] Found {len(index)} filings, parsing up to 30…")
+    # 1) Priorytet: Form 4 dla firm z BTC watchlisty
+    watchlist_buys: list[Form4Buy] = []
+    console.print(f"[cyan][eddie][/cyan] Scanning BTC watchlist ({len(BTC_WATCHLIST)} tickers)…")
+    for ticker in sorted(BTC_WATCHLIST):
+        wl_entries = _fetch_form4_for_ticker(ticker)
+        for entry in wl_entries[:5]:
+            acc = entry.get("accession_no", "")
+            if not acc:
+                continue
+            xml = _fetch_form4_xml(acc)
+            if not xml:
+                continue
+            buy = _parse_form4_xml(xml)
+            if buy and buy.ticker == ticker:
+                watchlist_buys.append(buy)
+        time.sleep(EDGAR_DELAY)
+
+    # 2) Ogólny scan Form 4 (szeroki)
+    index = _fetch_form4_index()
+    console.print(f"[cyan][eddie][/cyan] Found {len(index)} filings, parsing up to {EDGAR_PARSE_MAX}…")
 
     buys: list[Form4Buy] = []
-    for entry in index[:30]:
+    for entry in index[:EDGAR_PARSE_MAX]:
         acc = entry.get("accession_no", "")
         if not acc:
             continue
@@ -292,36 +381,75 @@ def run_eddie(dry_run: bool = False) -> InsiderSignal:
         if buy:
             buys.append(buy)
 
+    # Połącz — watchlista na górze, bez duplikatów
+    seen = set()
+    all_buys: list[Form4Buy] = []
+    for b in watchlist_buys + buys:
+        key = (b.ticker, b.filer, b.date)
+        if key not in seen:
+            seen.add(key)
+            all_buys.append(b)
+    buys = all_buys
+
+    # 3) MSTR 8-K — zakupy BTC przez firmę
+    mstr_8k = _fetch_mstr_8k()
+    mstr_8k_summary = ""
+    if mstr_8k:
+        console.print(f"[cyan][eddie][/cyan] MSTR 8-K filings last 7d: {len(mstr_8k)}")
+        mstr_8k_summary = "\n\nMSTR (MicroStrategy) 8-K filings (BTC purchases):\n"
+        for f in mstr_8k[:5]:
+            mstr_8k_summary += f"  [{f['date']}] {f['form']} — acc: {f['accession']}\n"
+    else:
+        console.print("[dim][eddie] No MSTR 8-K filings in last 7d[/dim]")
+
     if buys:
-        # Sort by value descending
         buys.sort(key=lambda b: b.total_value, reverse=True)
-        t = Table(title=f"Eddie — Form 4 Insider Buys (top {min(5, len(buys))})")
+        wl_tickers = {b.ticker for b in buys if b.ticker in BTC_WATCHLIST}
+        title = f"Eddie — Form 4 Insider Buys (top {min(5, len(buys))})"
+        if wl_tickers:
+            title += f" 🎯 WATCHLIST: {', '.join(sorted(wl_tickers))}"
+        t = Table(title=title)
         t.add_column("Ticker"); t.add_column("Company"); t.add_column("Filer")
         t.add_column("Role");   t.add_column("Value $"); t.add_column("Date")
         for b in buys[:5]:
-            t.add_row(b.ticker, b.company[:30], b.filer[:22], b.role[:20],
+            ticker_str = f"[bold yellow]{b.ticker}[/bold yellow]" if b.ticker in BTC_WATCHLIST else b.ticker
+            t.add_row(ticker_str, b.company[:30], b.filer[:22], b.role[:20],
                       f"${b.total_value:,.0f}", b.date)
         console.print(t)
     else:
-        console.print("[dim][eddie] No qualifying buys found — passing to Claude for analysis[/dim]")
+        console.print("[dim][eddie] No qualifying buys found[/dim]")
 
-    # Claude analysis — pass raw data + ask for structured signal
-    context = _format_eddie_context(buys, index)
+    if mstr_8k:
+        console.print(f"[bold yellow]⚡ MSTR 8-K alert — {len(mstr_8k)} filing(s) — może być zakup BTC![/bold yellow]")
+
+    context = _format_eddie_context(buys, index, mstr_8k_summary)
     signal  = _llm_signal("eddie", _EDDIE_SYSTEM, context)
     _print_signal(signal)
     return signal
 
 
-def _format_eddie_context(buys: list[Form4Buy], index: list[dict]) -> str:
+def _format_eddie_context(buys: list[Form4Buy], index: list[dict], mstr_8k_summary: str = "") -> str:
+    threshold = f"${MIN_BUY_USD:,}"
     if buys:
-        lines = [f"Qualifying insider buys found ({len(buys)} total):"]
+        wl = [b for b in buys if b.ticker in BTC_WATCHLIST]
+        lines = [f"Qualifying insider buys found ({len(buys)} total, min {threshold}):"]
+        if wl:
+            lines.append(f"\n🎯 BTC/CRYPTO WATCHLIST HITS ({len(wl)}):")
+            for b in wl[:5]:
+                lines.append(f"  ⭐ {b.ticker} — {b.filer} ({b.role}) bought ${b.total_value:,.0f} on {b.date}")
+        lines.append(f"\nAll buys (top 10 by value):")
         for b in buys[:10]:
-            lines.append(f"  {b.ticker} — {b.filer} ({b.role}) bought ${b.total_value:,.0f} on {b.date} [{b.company}]")
+            flag = " 🎯" if b.ticker in BTC_WATCHLIST else ""
+            lines.append(f"  {b.ticker}{flag} — {b.filer} ({b.role}) bought ${b.total_value:,.0f} on {b.date} [{b.company}]")
     else:
-        lines = ["No qualifying buys (≥$100k, open-market, C-suite) parsed from today's Form 4 filings."]
+        lines = [f"No qualifying buys (≥{threshold}, open-market P-code, C-suite/director) in last {EDGAR_DAYS_BACK} days."]
         lines.append(f"Total Form 4 filings in window: {len(index)}")
 
-    lines.append("\nGenerate your structured signal based on the data above.")
+    if mstr_8k_summary:
+        lines.append(mstr_8k_summary)
+        lines.append("NOTE: MSTR 8-K filings often indicate Bitcoin purchase announcements by MicroStrategy.")
+
+    lines.append("\nGenerate your structured signal. If MSTR 8-K present, prioritize that as BTC-bullish signal.")
     return "\n".join(lines)
 
 
@@ -630,9 +758,10 @@ def _send_telegram(sig: InsiderSignal) -> None:
 
     dir_emoji = "🟢" if sig.direction == "BULLISH" else ("🔴" if sig.direction == "BEARISH" else "⚪")
     scout_emoji = {"eddie": "📋", "maggie": "🏛", "frank": "🏦"}.get(sig.scout, "🔍")
+    watchlist_flag = " 🎯" if sig.ticker in BTC_WATCHLIST else ""
     text = (
         f"{scout_emoji} *INSIDER SCOUT — {sig.scout.upper()}*\n"
-        f"{dir_emoji} `{sig.direction}` on `{sig.ticker}` (conf {sig.confidence}/5)\n"
+        f"{dir_emoji} `{sig.direction}` on `{sig.ticker}`{watchlist_flag} (conf {sig.confidence}/5)\n"
         f"_{sig.reason}_"
     )
     import urllib.request, urllib.parse
