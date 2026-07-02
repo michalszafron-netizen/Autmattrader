@@ -1,0 +1,17 @@
+[Unit]
+Description=ScalpBot3 Faza 0 collector (Pyth + HL + Extended) — PAPER/data only
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Zgodne z konwencja VPS trading-ai (patrz SERWER.md). Kolektor NIE potrzebuje .env
+# — czyta tylko publiczne feedy (zero kluczy, zero podpisywania). Baza: scalpbot3/data/.
+WorkingDirectory=/trading-ai/scalpbot3
+ExecStart=/trading-ai/.venv/bin/python collector.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/trading-ai/logs/scalpbot3.log
+StandardError=append:/trading-ai/logs/scalpbot3.log
+
+[Install]
+WantedBy=multi-user.target
