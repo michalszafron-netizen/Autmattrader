@@ -170,8 +170,18 @@ def symbol_to_ext_market(symbol: str) -> str | None:
         "XAGUSD":   "SILVER-USD",
         "XAU":      "XAU-USD",
         "XAG":      "XAG-USD",
+        # 1000x tokens — TV wysyła bez prefiksu
         "BONKUSDT": "1000BONK-USD",
         "BONK":     "1000BONK-USD",
+        "PEPEUSDT": "1000PEPE-USD",
+        "PEPE":     "1000PEPE-USD",
+        "SHIBUSDT": "1000SHIB-USD",
+        "SHIB":     "1000SHIB-USD",
+        # Equity (Extended używa nazwy z datą expirii)
+        "METAUSDT": "META_24_5-USD",
+        "META":     "META_24_5-USD",
+        "NFLXUSDT": "NFLX-USD",
+        "NFLX":     "NFLX-USD",
     }
     s = symbol.upper()
     if s in _ALIASES:
@@ -216,6 +226,12 @@ def execute_trade(data: dict) -> tuple[bool, str, dict]:
     risk_pct = float(data.get("risk_pct", 1))
     stop_pct = float(data.get("stop_pct", 2))
     venue    = detect_venue(symbol, data)
+
+    # Odrzuć sygnały z price=0 — TV alert wysłał puste/nieobliczone zmienne
+    if price == 0 and side not in ("close", "exit", "partial_close", "update_sl"):
+        msg = f"[SKIP] {symbol} price=0 — Pine alert nie obliczył ceny (sprawdź zmienne w alert())"
+        log.warning(msg)
+        return False, msg, {}
 
     log.info("Venue: %s | Symbol: %s | Side: %s | Price: %s", venue, symbol, side, price)
 
@@ -533,7 +549,7 @@ def clear_alerts():
             for line in lines:
                 try:
                     d = json.loads(line)
-                    s_ok = not strategy or d.get("strategy","").lower() == strategy or not d.get("strategy")
+                    s_ok = not strategy or d.get("strategy","").lower() == strategy
                     y_ok = not symbol   or d.get("symbol","").upper() == symbol
                     if s_ok and y_ok:
                         n += 1

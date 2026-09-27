@@ -101,8 +101,8 @@ def _build_client(account):
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 async def _place_order(args: argparse.Namespace) -> None:
-    from x10.models.order import OrderSide, OrderTpslType, OrderTriggerPriceType, OrderPriceType
-    from x10.signing.order_object import OrderTpslTriggerParam, DEFAULT_TAKER_FEE
+    from x10.models.order import OrderSide, OrderTriggerPriceType, OrderPriceType
+    from x10.signing.order_object import DEFAULT_TAKER_FEE
 
     market     = args.market.upper()
     side_str   = args.side.lower()
@@ -189,7 +189,8 @@ async def _place_order(args: argparse.Namespace) -> None:
         if is_rfq:
             print(f"  [RFQ market] Uzycie endpointu /user/order/rfq")
 
-        # 1) Entry — MARKET IOC: natychmiastowy fill albo odrzucenie
+        # 1) Entry — MARKET IOC
+        # RFQ: price = worst-acceptable bound; SDK default expire_time (+1h) > wymagane 1.1s
         if not reduce_only:
             entry_order = create_order_object(
                 account=account,
@@ -230,58 +231,63 @@ async def _place_order(args: argparse.Namespace) -> None:
             print(f"OK Zlecenie zlozone:")
             print(f"  order_id:    {getattr(order, 'id', '?')}")
 
-        # 2) Separate TPSL order for SL on the POSITION
+        # pos_size tracks whether entry was confirmed (used to gate TPSL+TP)
+        pos_size = 0
+        pos_side = None
+
+        # 2) Wait for position, then place stop-limit (CONDITIONAL) as SL
         if sl_price is not None and not reduce_only:
+            from x10.signing.order_object import OrderConditionalTriggerParam
+            from x10.models.order import OrderTriggerDirection
             import asyncio as _aio
-            for _attempt in range(5):
+            _wait_iters = 60 if is_rfq else 10
+            for _attempt in range(_wait_iters):
                 await _aio.sleep(1)
                 pos_side, pos_size = _get_position_size(market)
                 if pos_size > 0:
                     print(f"  Pozycja potwierdzona: {pos_side} {pos_size}")
                     break
             else:
-                print("[WARN] Pozycja nie pojawila sie po 5s — SL/TP moga nie zadzialac")
+                print(f"[WARN] Pozycja nie pojawila sie po {_wait_iters}s — SL pominiety")
 
-            sl_trigger = OrderTpslTriggerParam(
-                trigger_price=sl_price,
-                trigger_price_type=OrderTriggerPriceType.MARK,
-                price=sl_price,
-                price_type=OrderPriceType.MARKET,
-            )
+            if pos_size > 0:
+                close_side = OrderSide.SELL if side == OrderSide.BUY else OrderSide.BUY
+                direction  = OrderTriggerDirection.DOWN if side == OrderSide.BUY else OrderTriggerDirection.UP
+                pos_amount = _round_amount(Decimal(str(pos_size)), spec)
 
-            from x10.signing.order_object import create_order_object
-            from x10.config import MAINNET_CONFIG
+                cond_trigger = OrderConditionalTriggerParam(
+                    trigger_price=sl_price,
+                    trigger_price_type=OrderTriggerPriceType.MARK,
+                    direction=direction,
+                    execution_price_type=OrderPriceType.MARKET,
+                )
+                from datetime import datetime, timezone, timedelta
+                sl_expiry = datetime.now(timezone.utc) + timedelta(days=30)
+                sl_order_obj = create_order_object(
+                    account=account,
+                    market=markets_dict[market],
+                    amount_of_synthetic=pos_amount,
+                    price=sl_price,
+                    side=close_side,
+                    taker_fee=DEFAULT_TAKER_FEE,
+                    reduce_only=True,
+                    order_type=OrderType.CONDITIONAL,
+                    trigger=cond_trigger,
+                    time_in_force=TimeInForce.GTT,
+                    expire_time=sl_expiry,
+                    starknet_domain=MAINNET_CONFIG.signing.starknet_domain,
+                )
+                try:
+                    sl_raw = await _place_order_maybe_rfq(sl_order_obj, API_KEY, is_rfq=is_rfq)
+                    sl_id = (sl_raw.get("data") or sl_raw).get("id", "?")
+                    print(f"OK SL ustawiony (stop-market @ {sl_price}):")
+                    print(f"  sl_id: {sl_id}")
+                except Exception as sl_err:
+                    print(f"[WARN] SL nie ustawiony (blad: {sl_err})")
+                    print(f"[WARN] Ustaw SL recznie na Extended Exchange dla {market}")
 
-            markets_dict = await client.info.get_markets_dict()
-
-            tpsl_order_obj = create_order_object(
-                account=account,
-                market=markets_dict[market],
-                amount_of_synthetic=Decimal("0"),  # POSITION type wymaga 0 — Exchange odrzuca niezerowe
-                price=sl_price,
-                side=side,
-                taker_fee=DEFAULT_TAKER_FEE,
-                reduce_only=True,
-                tp_sl_type=OrderTpslType.POSITION,
-                stop_loss=sl_trigger,
-                order_type=OrderType.TPSL,
-                starknet_domain=MAINNET_CONFIG.signing.starknet_domain,
-            )
-            if is_rfq:
-                tpsl_raw = await _place_order_maybe_rfq(tpsl_order_obj, API_KEY, is_rfq=True)
-                tpsl_id = (tpsl_raw.get("data") or tpsl_raw).get("id", "?")
-                print(f"OK SL ustawiony (RFQ):")
-                print(f"  tpsl_id:     {tpsl_id}")
-                print(f"  SL trigger:  ${float(sl_price):,.2f}")
-            else:
-                tpsl_result = await client.orders.place_order(tpsl_order_obj)
-                tpsl_order = tpsl_result.data if hasattr(tpsl_result, "data") else tpsl_result
-                print(f"OK SL ustawiony:")
-                print(f"  tpsl_id:     {getattr(tpsl_order, 'id', '?')}")
-                print(f"  SL trigger:  ${float(sl_price):,.2f}")
-
-        # 3) TP1-4 as reduce-only limit orders at each TP price
-        if tp_levels and not reduce_only:
+        # 3) TP1-4 as reduce-only limit orders (only if position confirmed)
+        if tp_levels and not reduce_only and pos_size > 0:
             close_side = OrderSide.SELL if side == OrderSide.BUY else OrderSide.BUY
             remaining = amount
             for tp_p, tp_pct in tp_levels:
@@ -295,33 +301,21 @@ async def _place_order(args: argparse.Namespace) -> None:
                     print(f"  [SKIP] TP {tp_pct}% qty={tp_qty} < min {spec['min']}")
                     continue
                 try:
-                    if is_rfq:
-                        from x10.models.order import TimeInForce as _TIF
-                        tp_obj = create_order_object(
-                            account=account,
-                            market=markets_dict[market],
-                            amount_of_synthetic=tp_qty,
-                            price=tp_price_r,
-                            side=close_side,
-                            taker_fee=DEFAULT_TAKER_FEE,
-                            reduce_only=True,
-                            time_in_force=_TIF.GTT,
-                            starknet_domain=MAINNET_CONFIG.signing.starknet_domain,
-                        )
-                        tp_raw = await _place_order_maybe_rfq(tp_obj, API_KEY, is_rfq=True)
-                        tp_id = (tp_raw.get("data") or tp_raw).get("id", "?")
-                        print(f"  OK TP{tp_pct}% (RFQ): {close_side.value} {tp_qty} @ ${float(tp_price_r):,.2f}  id={tp_id}")
-                    else:
-                        tp_res = await client.place_order(
-                            market_name=market,
-                            amount_of_synthetic=tp_qty,
-                            price=tp_price_r,
-                            side=close_side,
-                            taker_fee=DEFAULT_TAKER_FEE,
-                            reduce_only=True,
-                        )
-                        tp_ord = tp_res.data if hasattr(tp_res, "data") else tp_res
-                        print(f"  OK TP{tp_pct}%: {close_side.value} {tp_qty} @ ${float(tp_price_r):,.2f}  id={getattr(tp_ord, 'id', '?')}")
+                    tp_obj = create_order_object(
+                        account=account,
+                        market=markets_dict[market],
+                        amount_of_synthetic=tp_qty,
+                        price=tp_price_r,
+                        side=close_side,
+                        taker_fee=DEFAULT_TAKER_FEE,
+                        reduce_only=True,
+                        time_in_force=TimeInForce.GTT,
+                        starknet_domain=MAINNET_CONFIG.signing.starknet_domain,
+                    )
+                    # RFQ markets require /user/order/rfq for all order types
+                    tp_raw = await _place_order_maybe_rfq(tp_obj, API_KEY, is_rfq=is_rfq)
+                    tp_id = (tp_raw.get("data") or tp_raw).get("id", "?")
+                    print(f"  OK TP{tp_pct}%: {close_side.value} {tp_qty} @ {tp_price_r}  id={tp_id}")
                 except Exception as tp_err:
                     print(f"  [BLAD] TP {tp_pct}%: {tp_err}")
     except Exception as e:
@@ -405,14 +399,18 @@ def _round_price(raw_price: Decimal, spec: dict) -> Decimal:
     return (raw_price / step).to_integral_value(rounding=ROUND_HALF_UP) * step
 
 
-async def _place_order_maybe_rfq(order, api_key: str, is_rfq: bool):
-    """Place an order on the correct endpoint: /user/order or /user/order/rfq."""
+async def _place_order_maybe_rfq(order, api_key: str, is_rfq: bool, price_override=None):
+    """Place an order on the correct endpoint: /user/order or /user/order/rfq.
+    price_override: override 'price' field in JSON (TPSL on RFQ has no StarkNet sig so safe).
+    """
     import aiohttp
     base = "https://api.starknet.extended.exchange/api/v1"
     path = "/user/order/rfq" if is_rfq else "/user/order"
     url = base + path
     headers = {"User-Agent": "trading-ai-bot/1.0", "X-Api-Key": api_key}
     payload = order.to_api_request_json(exclude_none=True)
+    if price_override is not None:
+        payload["price"] = float(price_override)
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as r:
             body = await r.json(content_type=None)
@@ -494,21 +492,33 @@ async def _close_position(args: argparse.Namespace) -> None:
         print("Ustaw EXTENDED_TRADING_MODE=live w .env zeby wykonac.")
         return
 
+    from x10.models.order import OrderType, TimeInForce
+    from x10.signing.order_object import create_order_object
+    from x10.config import MAINNET_CONFIG
+
+    is_rfq = spec.get("is_rfq", False)
+    if is_rfq:
+        print(f"  [RFQ market] Uzycie endpointu /user/order/rfq")
+
     account = _build_account()
     client  = _build_client(account)
     try:
-        result = await client.place_order(
-            market_name=market,
+        close_order = create_order_object(
+            account=account,
+            market=(await client.info.get_markets_dict())[market],
             amount_of_synthetic=close_qty,
             price=fill_price,
             side=close_side,
             taker_fee=DEFAULT_TAKER_FEE,
             reduce_only=True,
+            order_type=OrderType.MARKET,
+            time_in_force=TimeInForce.IOC,
+            starknet_domain=MAINNET_CONFIG.signing.starknet_domain,
         )
-        order = result.data if hasattr(result, "data") else result
+        raw = await _place_order_maybe_rfq(close_order, API_KEY, is_rfq=is_rfq)
+        order_id = (raw.get("data") or raw).get("id", "?")
         print(f"OK Zamknieto {pct:.0f}% pozycji {market}:")
-        print(f"  order_id: {getattr(order, 'id', '?')}")
-        print(f"  status:   {getattr(order, 'status', '?')}")
+        print(f"  order_id: {order_id}")
     except Exception as e:
         print(f"[BLAD] {e}")
         raise
