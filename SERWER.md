@@ -433,21 +433,66 @@ Klucz prywatny Extended był tylko w lokalnym `.env` na laptopie, nigdy nie traf
 **Problem 3 — brak pakietu `x10-python-trading-starknet`**
 SDK Extended nie był zainstalowany w `.venv` na VPS (`ModuleNotFoundError: No module named 'x10'`). Instalacja: `.venv/bin/pip install x10-python-trading-starknet`.
 
-**Problem 4 — usługa `trading-webhook` vs `tv-webhook`**
-Istniejąca dokumentacja mówiła o `trading-webhook.service`. Faktycznie aktywna usługa to `tv-webhook.service` (utworzona 2026-06-18, załadowana przez `EnvironmentFile`).
+---
+
+### Co naprawiono 2026-09-27 (sesja 1 — RFQ + aliasy)
+
+**Problem — RFQ markets (BONK, PEPE, SHIB, META, NFLX, AERO, TRUMP, DOT)**
+Nowe markety na Extended Exchange mają flagę `isRfq=true` w API. Standard TPSL stop-loss zwracał error 1141 ("Invalid price value") na endpoincie `/user/order/rfq`. Root cause: RFQ odrzuca `qty=0` (TPSL) oraz brak StarkNet settlement na głównym zleceniu.
+Rozwiązanie: zamieniono TPSL na `CONDITIONAL stop-limit` — ma `qty=pos_size`, pełne StarkNet settlement, pole `trigger.direction`. Działa na obu endpointach.
+
+**Problem — brak aliasów symbolicznych**
+TV wysyłał `BONKUSDT`, `PEPEUSDT`, `METAUSDT` — webhook nie wiedział gdzie je skierować.
+Rozwiązanie: dodano aliasy w `scripts/tv_webhook.py` w `_ALIASES`.
+
+**Szczegółowa dokumentacja:** [`docs/extended_order_rfq.md`](docs/extended_order_rfq.md)
 
 ---
 
-### Aktualny stan po naprawkach
+### Co naprawiono 2026-09-27 (sesja 2 — webhook crash + SL improvements)
+
+**Problem 1 — crash `float division by zero` gdy price=0**
+Pine Script alert wysyłał `price=0` gdy zmienne alertu nie były obliczone (np. brak baru na danym rynku). Webhook crashował: `sl_dist = price * 0.02 = 0`, następnie `amount = risk_usd / sl_dist` → ZeroDivisionError.
+Naprawka w `scripts/tv_webhook.py`: early exit gdy `price=0` dla sygnałów nie będących close/exit. Log: `[SKIP] BONK price=0 — Pine alert nie obliczył ceny`.
+
+**Problem 2 — SL wygasał po 1 godzinie**
+SDK Extended (`x10.signing.order_object`) domyślnie ustawia `expire_time = utc_now() + timedelta(hours=1)` gdy nie podasz własnego. Po 1h SL znikał bez ostrzeżenia — pozycja bez ochrony.
+Naprawka w `scripts/extended_order.py`: przekazywane `expire_time = now + timedelta(days=30)`.
+
+**Problem 3 — SL nie był stawiany po wejściu RFQ**
+Po złożeniu zlecenia wejścia (RFQ market) webhook czekał tylko 20 sekund na pojawienie się pozycji przed postawieniem SL. RFQ settlement jest wolniejszy — pozycja często nie pojawiała się na czas → SL pomijany.
+Naprawka: wydłużono czekanie z 20s do 60s dla RFQ markets.
+
+**Problem 4 — stop-limit nie gwarantuje wykonania przy gap**
+`CONDITIONAL stop-limit`: gdy trigger odpali, składa zlecenie limit po dokładnie `sl_price`. Jeśli rynek gap-uje przez ten poziom, limit może nie wypełnić. Pozycja pozostaje otwarta.
+Naprawka: zmieniono `execution_price_type=OrderPriceType.LIMIT` → `MARKET`. Teraz gdy trigger odpali, składa market order — wykonuje się po najlepszej dostępnej cenie.
+
+**Problem 5 — port 5005 zajęty po restarcie**
+Gdy `systemctl restart trading-webhook` nie zdąży zabić starego procesu, nowy nie może się uruchomić (`Address already in use`). Webhook crashuje w pętli.
+Naprawka: przed restartem sprawdź i wyczyść port:
+```bash
+lsof -i:5005                              # sprawdź co siedzi
+fuser -k 5005/tcp                         # zabij proces na porcie
+systemctl restart trading-webhook         # teraz wstanie OK
+systemctl status trading-webhook --no-pager
+```
+
+---
+
+### Aktualny stan (2026-09-27 — po sesji 2)
 
 | Komponent | Status |
 |-----------|--------|
-| `tv-webhook.service` | ✅ aktywny, systemd, auto-restart |
+| `trading-webhook.service` | ✅ aktywny, systemd, auto-restart |
 | `/trading-ai/.env` | ✅ istnieje, zawiera wszystkie klucze |
 | `x10-python-trading-starknet` | ✅ zainstalowany w .venv |
-| Extended (IMBUS v1) | ✅ test ręczny: BTC Long $50k weszło i zostało anulowane |
-| Alpaca (ZL-Volatility v1) | ⏳ nie testowane przez webhook — czekamy na sygnał |
-| IMBUS live sygnał | ⏳ czekamy na sygnał z TradingView |
+| Extended — standard markets (BTC, ETH, WTI, WLD…) | ✅ TPSL działa |
+| Extended — RFQ markets (BONK, PEPE, SHIB, AERO, TRUMP, DOT, META, NFLX) | ✅ CONDITIONAL stop-**market** działa |
+| SL TTL | ✅ 30 dni (poprzednio 1h — naprawione) |
+| SL po RFQ wejściu | ✅ 60s czekanie (poprzednio 20s — naprawione) |
+| price=0 guard | ✅ early exit z logiem (poprzednio crash) |
+| Alpaca (ZL-Volatility v1) | ✅ aktywny przez webhook |
+| Symbol aliasy TV → Extended | ✅ zaktualizowane (patrz niżej) |
 
 ---
 
@@ -466,15 +511,19 @@ ALPACA_API_KEY / ALPACA_API_SECRET / ALPACA_PAPER=true / ALPACA_BASE_URL / ALPAC
 
 ### Aktywna usługa webhooks — poprawne nazwy
 
+⚠️ Właściwa nazwa to `trading-webhook` (NIE `tv-webhook` — stara dokumentacja z 2026-06-18 była błędna).
+
 ```bash
 # Sprawdź status
-systemctl status tv-webhook --no-pager
+systemctl status trading-webhook --no-pager
 
 # Logi na żywo
-tail -f /trading-ai/logs/tv_webhook.log
+journalctl -u trading-webhook -f
+# lub:
+tail -f /trading-ai/logs/webhook.log
 
 # Restart po zmianach kodu
-systemctl restart tv-webhook
+systemctl restart trading-webhook
 
 # Health check
 curl http://localhost:5005/health
@@ -483,12 +532,118 @@ curl http://localhost:5005/health
 
 ---
 
-### Na co czekamy — lista testów do wykonania
+### Extended Exchange — RFQ markets i mapowanie symboli
 
-1. **Sygnał IMBUS → Extended** — poczekać na alert z TradingView (BTC/SUI na 15m). Sprawdzić w logach `[Extended] Sizing:` i że order wyszedł na Extended.
-2. **Sygnał ZL-Volatility → Alpaca** — poczekać na alert z TradingView. Sprawdzić że alpaca_executor.py bracket order wchodzi (paper). Jeśli padnie brak kluczy Alpaka — dodać do `.env` i zrestartować usługę.
-3. **Pine risk_pct** — w IMBUS Pine suwak `risk_pct` jest wbudowany w JSON alertu (`str.tostring(risk_pct)`). Sprawdzić w logach że `risk_pct` ≠ 1 po zmianie w TV.
-4. **RGTI SL na Alpaca** — gdy zombie TP order (pending_cancel z 16.06) zostanie wyczyszczony przez Alpaca Paper Trading, uruchomić: `python scripts/alpaca_executor.py place_sl RGTI buy 437 22.04`
+Szczegółowa dokumentacja: [`docs/extended_order_rfq.md`](docs/extended_order_rfq.md)
+
+#### Typy marketów (auto-wykrywane)
+
+| Typ | Endpoint | Przykłady |
+|-----|----------|-----------|
+| Standard | `/user/order` | BTC-USD, ETH-USD, WTI-USD, WLD-USD |
+| RFQ | `/user/order/rfq` | 1000BONK-USD, 1000PEPE-USD, 1000SHIB-USD, AERO-USD, TRUMP-USD, DOT-USD, META_24_5-USD, NFLX-USD |
+
+Kod wykrywa `isRfq` z API automatycznie — nic nie trzeba konfigurować ręcznie.
+
+#### Stop-loss: TPSL vs CONDITIONAL stop-market
+
+Na **standard markets** stop-loss to `TPSL POSITION` (standardowy SDK).
+Na **RFQ markets** TPSL jest odrzucane (error 1141). Używamy `CONDITIONAL stop-market`:
+- `qty = pos_size` (nie 0 jak TPSL)
+- `execution_price_type = MARKET` (nie LIMIT — market order gwarantuje wykonanie)
+- `trigger.direction = DOWN` dla long SL, `UP` dla short SL
+- `expire_time = now + 30 days` (nie domyślne +1h)
+
+#### Ręczne postawienie SL na VPS (wzorzec EOF)
+
+Gdy SL nie został postawiony automatycznie (np. po restarcie, po ręcznym wejściu):
+
+```bash
+/trading-ai/.venv/bin/python - << 'EOF'
+import sys, asyncio
+from datetime import datetime, timezone, timedelta
+sys.path.insert(0, '/trading-ai/scripts')
+from decimal import Decimal
+from dotenv import load_dotenv
+from pathlib import Path
+load_dotenv(Path('/trading-ai/.env'))
+
+from extended_order import _build_account, _build_client, _get_market_spec, _round_amount, _round_price, _place_order_maybe_rfq, API_KEY
+from x10.config import MAINNET_CONFIG
+from x10.models.order import OrderSide, OrderType, TimeInForce, OrderTriggerPriceType, OrderPriceType, OrderTriggerDirection
+from x10.signing.order_object import create_order_object, OrderConditionalTriggerParam, DEFAULT_TAKER_FEE
+
+async def main():
+    account = _build_account()
+    client  = _build_client(account)
+    markets = await client.info.get_markets_dict()
+
+    # Zmień parametry poniżej:
+    MARKET    = '1000BONK-USD'   # nazwa marketu na Extended
+    SL_PRICE  = Decimal('3.561') # cena w jednostkach Extended (BONK: *1000)
+    AMOUNT    = Decimal('6200')  # rozmiar pozycji
+    SIDE      = OrderSide.SELL   # SELL dla long SL, BUY dla short SL
+    DIRECTION = OrderTriggerDirection.DOWN  # DOWN dla long SL, UP dla short SL
+
+    spec = _get_market_spec(MARKET)
+    obj = create_order_object(
+        account=account, market=markets[MARKET],
+        amount_of_synthetic=_round_amount(AMOUNT, spec),
+        price=_round_price(SL_PRICE, spec), side=SIDE,
+        taker_fee=DEFAULT_TAKER_FEE, reduce_only=True,
+        order_type=OrderType.CONDITIONAL,
+        trigger=OrderConditionalTriggerParam(
+            trigger_price=_round_price(SL_PRICE, spec),
+            trigger_price_type=OrderTriggerPriceType.MARK,
+            direction=DIRECTION,
+            execution_price_type=OrderPriceType.MARKET,
+        ),
+        time_in_force=TimeInForce.GTT,
+        expire_time=datetime.now(timezone.utc) + timedelta(days=30),
+        starknet_domain=MAINNET_CONFIG.signing.starknet_domain,
+    )
+    r = await _place_order_maybe_rfq(obj, API_KEY, is_rfq=True)
+    print("SL OK:", (r.get('data') or r).get('id','?'))
+
+asyncio.run(main())
+EOF
+```
+
+> ⚠️ Zawsze używaj `.venv/bin/python` (nie `python3`) żeby mieć dostęp do SDK i dotenv.
+> Signing (fast_stark_crypto) działa tylko na VPS (Linux) — nie na Windows.
+
+#### Mapowanie TV ticker → Extended market (aliasy w `scripts/tv_webhook.py`)
+
+| TV ticker | Extended market | Uwaga |
+|-----------|-----------------|-------|
+| `BONKUSDT`, `BONK` | `1000BONK-USD` | 1000x token, cena ×1000 |
+| `PEPEUSDT`, `PEPE` | `1000PEPE-USD` | 1000x token, cena ×1000 |
+| `SHIBUSDT`, `SHIB` | `1000SHIB-USD` | 1000x token, cena ×1000 |
+| `METAUSDT`, `META` | `META_24_5-USD` | Equity z datą expirii |
+| `NFLXUSDT`, `NFLX` | `NFLX-USD` | Aktywna seria |
+| `USOIL`, `OIL` | `WTI-USD` | Ropa |
+| `AEROUSDT` | `AERO-USD` | auto (bez aliasu) |
+| `DOTUSDT` | `DOT-USD` | auto |
+| `TRUMPUSDT` | `TRUMP-USD` | auto |
+
+> ⚠️ `NFLX_24_5-USD` jest PRELISTED (nie handluje). Używaj `NFLX-USD`.
+> `META_24_5-USD` — jedyna aktywna seria META (nie ma `META-USD`).
+
+#### Sprawdzenie RFQ marketów na VPS
+
+```bash
+cd /trading-ai && .venv/bin/python -c "
+import httpx, ssl, truststore
+_SSL = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+with httpx.Client(verify=_SSL, timeout=10) as c:
+    r = c.get('https://api.starknet.extended.exchange/api/v1/info/markets')
+    for m in r.json().get('data', []):
+        if m.get('isRfq'):
+            print(m['name'])
+"
+```
+
+---
 
 ---
 
