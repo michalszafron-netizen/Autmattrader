@@ -66,6 +66,9 @@ log = logging.getLogger("tv_webhook")
 
 app = Flask(__name__)
 
+import time as _time
+_STARTED_AT = _time.time()
+
 # ── Schema validation ─────────────────────────────────────────────────────────
 
 REQUIRED_FIELDS = {"symbol", "side", "price"}
@@ -129,11 +132,50 @@ def _find_sl_order_id(symbol: str) -> str | None:
 
 # ── Trade execution ───────────────────────────────────────────────────────────
 
-def symbol_to_ext_market(symbol: str) -> str:
-    """Convert TV ticker to Extended market name.
+# Symbole TV których NIE MA na Extended jako perp — brak mapy, odrzucamy sygnał
+_EXT_UNSUPPORTED: frozenset[str] = frozenset({
+    "MSTR",                  # tylko MSTR_24_5-USD (kwartalny), brak perpa
+    "RGTI",                  # tylko RGTI_24_5-USD (kwartalny), brak perpa
+    "RAYUSDT", "RAY",        # brak RAY-USD na Extended
+})
+
+# Symbole których nie ma na Extended ale są na Hyperliquid — auto-routing do HL
+_HL_ONLY: frozenset[str] = frozenset({
+    "SUPERUSDT", "SUPER",   # SUPER jest na HL, nie na Extended
+})
+
+# Mnożnik ceny: TV wysyła cenę jednego tokena, Extended wycenia pakiet N tokenów
+# BONKUSDT price=0.000024 → 1000BONK-USD price=0.024 (×1000)
+_EXT_PRICE_MULT: dict[str, float] = {
+    "1000BONK-USD": 1000.0,
+    "1000PEPE-USD": 1000.0,
+    "1000SHIB-USD": 1000.0,
+    "1000ASTEROID-USD": 1000.0,
+}
+
+
+def symbol_to_ext_market(symbol: str) -> str | None:
+    """Convert TV ticker to Extended market name. Returns None if symbol unsupported.
     BTCUSDT → BTC-USD  |  BTCUSD → BTC-USD  |  BTC → BTC-USD
+    USOIL → WTI-USD  (Extended uses WTI, not USOIL)
     """
+    if symbol.upper() in _EXT_UNSUPPORTED:
+        return None
+    # Manual aliases — TV symbol → Extended market name
+    _ALIASES: dict[str, str] = {
+        "USOIL":    "WTI-USD",
+        "OIL":      "WTI-USD",
+        "CRUDEOIL": "WTI-USD",
+        "XAUUSD":   "GOLD-USD",
+        "XAGUSD":   "SILVER-USD",
+        "XAU":      "XAU-USD",
+        "XAG":      "XAG-USD",
+        "BONKUSDT": "1000BONK-USD",
+        "BONK":     "1000BONK-USD",
+    }
     s = symbol.upper()
+    if s in _ALIASES:
+        return _ALIASES[s]
     for suffix in ("USDT", "BUSD", "PERP", "USD"):
         if s.endswith(suffix):
             s = s[:-len(suffix)]
@@ -142,17 +184,15 @@ def symbol_to_ext_market(symbol: str) -> str:
 
 
 def detect_venue(symbol: str, data: dict) -> str:
-    """Auto-detect venue: alpaca for stocks, hl for crypto/commodities."""
+    """Auto-detect venue. Extended is default. HL_ONLY symbols route to Hyperliquid."""
     explicit = data.get("venue", "").lower()
-    if explicit in ("alpaca", "hl", "hyperliquid"):
-        return explicit
-    if explicit == "extended":
+    if explicit in ("hl", "hyperliquid"):
+        return "hl"
+    if explicit in ("extended", "alpaca"):  # alpaca → reroute to extended
         return "extended"
-    # US stock symbols: 1-5 uppercase letters, no numbers
-    import re
-    if re.match(r'^[A-Z]{1,5}$', symbol) and symbol not in ("BTC","ETH","SOL","HYPE","SILVER","GOLD"):
-        return "alpaca"
-    return "hl"
+    if symbol.upper() in _HL_ONLY:
+        return "hl"
+    return "extended"
 
 
 def _parse_exec_output(stdout: str) -> dict:
@@ -182,6 +222,15 @@ def execute_trade(data: dict) -> tuple[bool, str, dict]:
     # ── EXTENDED path ─────────────────────────────────────────────────────────
     if venue == "extended":
         market = symbol_to_ext_market(symbol)
+        if market is None:
+            msg = f"[SKIP] Symbol {symbol} nie istnieje na Extended jako perp — usuń alert z TV"
+            log.warning(msg)
+            return False, msg, {}
+        # Skaluj ceny jeśli Extended wycenia pakiet tokenów (np. 1000BONK)
+        pmult = _EXT_PRICE_MULT.get(market, 1.0)
+        if pmult != 1.0:
+            price = price * pmult
+            log.info("[Extended] Price scaling ×%.0f for %s → price=%.6f", pmult, market, price)
         log.info("[Extended] Market: %s | Side: %s", market, side)
 
         if side == "close":
@@ -203,23 +252,26 @@ def execute_trade(data: dict) -> tuple[bool, str, dict]:
         else:
             ext_side   = "long" if side in ("long", "buy") else "short"
             sl_raw     = data.get("sl_price")
-            sl_price   = float(sl_raw) if sl_raw else (
+            sl_price   = float(sl_raw) * pmult if sl_raw else (
                 price * (1 - stop_pct / 100) if ext_side == "long" else price * (1 + stop_pct / 100)
             )
             sl_dist    = abs(price - sl_price)
+            if sl_dist <= 0:
+                sl_dist = price * 0.02  # fallback: 2% stop for sizing
             full_equity = float(os.getenv("EXTENDED_EQUITY", "1000"))
             equity     = full_equity / EXTENDED_CAPITAL_SLOTS
             risk_usd   = equity * risk_pct / 100
-            amount_btc = max(round(risk_usd / sl_dist, 6), 0.0001) if sl_dist > 0 else 0.0001
+            amount_btc = max(round(risk_usd / sl_dist, 6), 0.01)
             log.info("[Extended] Sizing: equity=$%.0f (1/%d slot of $%.0f) risk=$%.2f sl_dist=%.2f qty=%.6f",
                      equity, EXTENDED_CAPITAL_SLOTS, full_equity, risk_usd, sl_dist, amount_btc)
-            # Brak natywnego --tp na wejsciu: TP1-4 sa zarzadzane wylacznie przez
-            # webhookowe partial_close (40/30/20/10%) z Pine — natywny bracket TP
-            # zamykalby 100% pozycji jednym zleceniem przy pierwszym TP, kolidujac
-            # ze stopniowym scale-out.
             cmd = [PY, str(SCRIPTS / "extended_order.py"), "order",
                    market, ext_side, str(amount_btc), str(round(price, 2)),
                    "--sl", str(round(sl_price, 2))]
+            # TP1-4 jako natywne reduce-only limity na Extended
+            for i in range(1, 5):
+                tp_val = data.get(f"tp{i}_price")
+                if tp_val is not None:
+                    cmd += [f"--tp{i}", str(round(float(tp_val) * pmult, 6))]
 
         if TRADING_MODE != "live":
             return True, f"PAPER mode — would run: {' '.join(cmd)}", {}
@@ -295,6 +347,11 @@ def execute_trade(data: dict) -> tuple[bool, str, dict]:
         return success, note, detail
 
     # ── HYPERLIQUID path ──────────────────────────────────────────────────────
+    # hl_executor.py rozumie "SUPER" nie "SUPERUSDT" — strip suffix
+    for _sfx in ("USDT", "BUSD", "PERP", "USD"):
+        if symbol.upper().endswith(_sfx):
+            symbol = symbol[:-len(_sfx)]
+            break
     if side == "close":
         cmd = [PY, str(SCRIPTS / "hl_executor.py"), "close", symbol]
         log.info("Closing position: %s", symbol)
@@ -391,10 +448,14 @@ def receive_alert():
 
 @app.route("/health", methods=["GET"])
 def health():
+    uptime = _time.time() - _STARTED_AT
     return jsonify({
         "status": "ok",
         "trading_mode": TRADING_MODE,
         "alerts_logged": sum(1 for _ in open(ALERTS_FILE, encoding="utf-8")) if ALERTS_FILE.exists() else 0,
+        "started_at": round(_STARTED_AT),
+        "uptime_sec": round(uptime),
+        "pid": os.getpid(),
     })
 
 

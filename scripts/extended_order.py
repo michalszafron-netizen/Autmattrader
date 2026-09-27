@@ -60,7 +60,7 @@ LIVE_MODE = _ext_mode.lower() == "live"
 # zadnego bledu w logu. EXTENDED_ENTRY_AGGRESSION_PCT przesuwa cene wejscia o
 # ten % od aktualnej mark price w strone przeciecia ksiazki, zeby zlecenie
 # wypelnilo sie od razu (taker) zamiast czekac na traf.
-ENTRY_AGGRESSION_PCT = float(os.getenv("EXTENDED_ENTRY_AGGRESSION_PCT", "0.2"))
+ENTRY_AGGRESSION_PCT = float(os.getenv("EXTENDED_ENTRY_AGGRESSION_PCT", "0.5"))
 
 
 def _check_keys() -> None:
@@ -111,6 +111,14 @@ async def _place_order(args: argparse.Namespace) -> None:
     tp_price   = Decimal(str(args.tp)) if args.tp else None
     reduce_only = args.reduce_only
 
+    # TP1-4 with fixed scale-out percentages (40/30/20/10)
+    tp_levels: list[tuple[float, int]] = []  # (price, close_pct_of_total)
+    TP_PCTS = [40, 30, 20, 10]
+    for i, pct in enumerate(TP_PCTS, 1):
+        tp_raw = getattr(args, f"tp{i}", None)
+        if tp_raw is not None:
+            tp_levels.append((tp_raw, pct))
+
     # Validate market and get step sizes before anything else
     spec = _get_market_spec(market)
     if spec is None:
@@ -137,29 +145,6 @@ async def _place_order(args: argparse.Namespace) -> None:
 
     side = OrderSide.BUY if side_str == "long" else OrderSide.SELL
 
-    # Build SL/TP
-    stop_loss  = None
-    take_profit = None
-    tp_sl_type  = None
-
-    if sl_price is not None:
-        stop_loss = OrderTpslTriggerParam(
-            trigger_price=sl_price,
-            trigger_price_type=OrderTriggerPriceType.MARK,
-            price=sl_price,
-            price_type=OrderPriceType.MARKET,
-        )
-        tp_sl_type = OrderTpslType.ORDER
-
-    if tp_price is not None:
-        take_profit = OrderTpslTriggerParam(
-            trigger_price=tp_price,
-            trigger_price_type=OrderTriggerPriceType.MARK,
-            price=tp_price,
-            price_type=OrderPriceType.MARKET,
-        )
-        tp_sl_type = OrderTpslType.ORDER
-
     # Risk preview
     risk_usd = None
     if sl_price is not None:
@@ -173,7 +158,11 @@ async def _place_order(args: argparse.Namespace) -> None:
     print(f"  Price:       ${float(price):,.2f}")
     if sl_price:
         print(f"  Stop Loss:   ${float(sl_price):,.2f}")
-    if tp_price:
+    if tp_levels:
+        for tp_p, tp_pct in tp_levels:
+            tp_qty = _round_amount(amount * Decimal(str(tp_pct)) / Decimal("100"), spec)
+            print(f"  TP ({tp_pct}%):    ${tp_p:,.2f}  qty={tp_qty}")
+    elif tp_price:
         print(f"  Take Profit: ${float(tp_price):,.2f}")
     if risk_usd is not None:
         print(f"  Max Risk:    ${risk_usd:.2f}")
@@ -186,29 +175,155 @@ async def _place_order(args: argparse.Namespace) -> None:
         print("Ustaw EXTENDED_TRADING_MODE=live lub TRADING_MODE=live w .env zeby wykonac.")
         return
 
+    from x10.models.order import OrderType, TimeInForce
+    from x10.signing.order_object import create_order_object
+    from x10.config import MAINNET_CONFIG
+
     account = _build_account()
     client  = _build_client(account)
 
     try:
-        kwargs: dict = dict(
-            market_name=market,
-            amount_of_synthetic=amount,
-            price=price,
-            side=side,
-            taker_fee=DEFAULT_TAKER_FEE,
-            reduce_only=reduce_only,
-        )
-        if stop_loss:
-            kwargs["stop_loss"]   = stop_loss
-            kwargs["take_profit"] = take_profit  # None is OK
-            kwargs["tp_sl_type"]  = tp_sl_type
+        markets_dict = await client.info.get_markets_dict()
 
-        result = await client.place_order(**kwargs)
-        order = result.data if hasattr(result, "data") else result
-        print(f"OK Zlecenie zlozone:")
-        print(f"  order_id:    {getattr(order, 'id', '?')}")
-        print(f"  external_id: {getattr(order, 'external_id', '?')}")
-        print(f"  status:      {getattr(order, 'status', '?')}")
+        is_rfq = spec.get("is_rfq", False)
+        if is_rfq:
+            print(f"  [RFQ market] Uzycie endpointu /user/order/rfq")
+
+        # 1) Entry — MARKET IOC: natychmiastowy fill albo odrzucenie
+        if not reduce_only:
+            entry_order = create_order_object(
+                account=account,
+                market=markets_dict[market],
+                amount_of_synthetic=amount,
+                price=price,
+                side=side,
+                taker_fee=DEFAULT_TAKER_FEE,
+                reduce_only=False,
+                order_type=OrderType.MARKET,
+                time_in_force=TimeInForce.IOC,
+                starknet_domain=MAINNET_CONFIG.signing.starknet_domain,
+            )
+            if is_rfq:
+                raw = await _place_order_maybe_rfq(entry_order, API_KEY, is_rfq=True)
+                order_id = (raw.get("data") or raw).get("id", "?")
+                ext_id   = (raw.get("data") or raw).get("externalId", "?")
+                print(f"OK Zlecenie zlozone (RFQ):")
+                print(f"  order_id:    {order_id}")
+                print(f"  external_id: {ext_id}")
+            else:
+                result = await client.orders.place_order(entry_order)
+                order = result.data if hasattr(result, "data") else result
+                print(f"OK Zlecenie zlozone:")
+                print(f"  order_id:    {getattr(order, 'id', '?')}")
+                print(f"  external_id: {getattr(order, 'external_id', '?')}")
+                print(f"  status:      {getattr(order, 'status', '?')}")
+        else:
+            result = await client.place_order(
+                market_name=market,
+                amount_of_synthetic=amount,
+                price=price,
+                side=side,
+                taker_fee=DEFAULT_TAKER_FEE,
+                reduce_only=True,
+            )
+            order = result.data if hasattr(result, "data") else result
+            print(f"OK Zlecenie zlozone:")
+            print(f"  order_id:    {getattr(order, 'id', '?')}")
+
+        # 2) Separate TPSL order for SL on the POSITION
+        if sl_price is not None and not reduce_only:
+            import asyncio as _aio
+            for _attempt in range(5):
+                await _aio.sleep(1)
+                pos_side, pos_size = _get_position_size(market)
+                if pos_size > 0:
+                    print(f"  Pozycja potwierdzona: {pos_side} {pos_size}")
+                    break
+            else:
+                print("[WARN] Pozycja nie pojawila sie po 5s — SL/TP moga nie zadzialac")
+
+            sl_trigger = OrderTpslTriggerParam(
+                trigger_price=sl_price,
+                trigger_price_type=OrderTriggerPriceType.MARK,
+                price=sl_price,
+                price_type=OrderPriceType.MARKET,
+            )
+
+            from x10.signing.order_object import create_order_object
+            from x10.config import MAINNET_CONFIG
+
+            markets_dict = await client.info.get_markets_dict()
+
+            tpsl_order_obj = create_order_object(
+                account=account,
+                market=markets_dict[market],
+                amount_of_synthetic=Decimal("0"),  # POSITION type wymaga 0 — Exchange odrzuca niezerowe
+                price=sl_price,
+                side=side,
+                taker_fee=DEFAULT_TAKER_FEE,
+                reduce_only=True,
+                tp_sl_type=OrderTpslType.POSITION,
+                stop_loss=sl_trigger,
+                order_type=OrderType.TPSL,
+                starknet_domain=MAINNET_CONFIG.signing.starknet_domain,
+            )
+            if is_rfq:
+                tpsl_raw = await _place_order_maybe_rfq(tpsl_order_obj, API_KEY, is_rfq=True)
+                tpsl_id = (tpsl_raw.get("data") or tpsl_raw).get("id", "?")
+                print(f"OK SL ustawiony (RFQ):")
+                print(f"  tpsl_id:     {tpsl_id}")
+                print(f"  SL trigger:  ${float(sl_price):,.2f}")
+            else:
+                tpsl_result = await client.orders.place_order(tpsl_order_obj)
+                tpsl_order = tpsl_result.data if hasattr(tpsl_result, "data") else tpsl_result
+                print(f"OK SL ustawiony:")
+                print(f"  tpsl_id:     {getattr(tpsl_order, 'id', '?')}")
+                print(f"  SL trigger:  ${float(sl_price):,.2f}")
+
+        # 3) TP1-4 as reduce-only limit orders at each TP price
+        if tp_levels and not reduce_only:
+            close_side = OrderSide.SELL if side == OrderSide.BUY else OrderSide.BUY
+            remaining = amount
+            for tp_p, tp_pct in tp_levels:
+                tp_price_r = _round_price(Decimal(str(tp_p)), spec)
+                if tp_pct == TP_PCTS[-1]:
+                    tp_qty = remaining
+                else:
+                    tp_qty = _round_amount(amount * Decimal(str(tp_pct)) / Decimal("100"), spec)
+                remaining -= tp_qty
+                if tp_qty < spec["min"]:
+                    print(f"  [SKIP] TP {tp_pct}% qty={tp_qty} < min {spec['min']}")
+                    continue
+                try:
+                    if is_rfq:
+                        from x10.models.order import TimeInForce as _TIF
+                        tp_obj = create_order_object(
+                            account=account,
+                            market=markets_dict[market],
+                            amount_of_synthetic=tp_qty,
+                            price=tp_price_r,
+                            side=close_side,
+                            taker_fee=DEFAULT_TAKER_FEE,
+                            reduce_only=True,
+                            time_in_force=_TIF.GTT,
+                            starknet_domain=MAINNET_CONFIG.signing.starknet_domain,
+                        )
+                        tp_raw = await _place_order_maybe_rfq(tp_obj, API_KEY, is_rfq=True)
+                        tp_id = (tp_raw.get("data") or tp_raw).get("id", "?")
+                        print(f"  OK TP{tp_pct}% (RFQ): {close_side.value} {tp_qty} @ ${float(tp_price_r):,.2f}  id={tp_id}")
+                    else:
+                        tp_res = await client.place_order(
+                            market_name=market,
+                            amount_of_synthetic=tp_qty,
+                            price=tp_price_r,
+                            side=close_side,
+                            taker_fee=DEFAULT_TAKER_FEE,
+                            reduce_only=True,
+                        )
+                        tp_ord = tp_res.data if hasattr(tp_res, "data") else tp_res
+                        print(f"  OK TP{tp_pct}%: {close_side.value} {tp_qty} @ ${float(tp_price_r):,.2f}  id={getattr(tp_ord, 'id', '?')}")
+                except Exception as tp_err:
+                    print(f"  [BLAD] TP {tp_pct}%: {tp_err}")
     except Exception as e:
         print(f"[BLAD] {e}")
         raise
@@ -260,6 +375,7 @@ def _get_market_spec(market: str) -> dict | None:
                             "min":             Decimal(str(cfg.get("minOrderSize")        or "1")),
                             "price_step":      Decimal(str(cfg.get("minPriceChange")      or "0.0001")),
                             "asset_precision": int(m.get("assetPrecision") or 0),
+                            "is_rfq":          bool(m.get("isRfq", False)),
                         }
                 names = sorted(m.get("name", "") for m in mkts if m.get("name"))
                 print(f"[BLAD] Market {market} not found on Extended.")
@@ -287,6 +403,22 @@ def _round_price(raw_price: Decimal, spec: dict) -> Decimal:
     if step <= 0:
         return raw_price
     return (raw_price / step).to_integral_value(rounding=ROUND_HALF_UP) * step
+
+
+async def _place_order_maybe_rfq(order, api_key: str, is_rfq: bool):
+    """Place an order on the correct endpoint: /user/order or /user/order/rfq."""
+    import aiohttp
+    base = "https://api.starknet.extended.exchange/api/v1"
+    path = "/user/order/rfq" if is_rfq else "/user/order"
+    url = base + path
+    headers = {"User-Agent": "trading-ai-bot/1.0", "X-Api-Key": api_key}
+    payload = order.to_api_request_json(exclude_none=True)
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as r:
+            body = await r.json(content_type=None)
+            if r.status >= 400:
+                raise RuntimeError(f"HTTP {r.status}: {body}")
+            return body
 
 
 def _get_mark_price(market: str) -> float:
@@ -330,15 +462,24 @@ async def _close_position(args: argparse.Namespace) -> None:
     if close_qty <= 0:
         print(f"[BLAD] Closing amount rounds to 0 dla {market} (pos={pos_size}, pct={pct}).")
         return
+    # Fallback: jesli chunk partial_close < minOrderSize, zamknij cala reszte
+    # pozycji zamiast rzucac blad 1120. Dotyczy glownie rynkow z wysokim min
+    # (np. SUI-USD min=10) przy malych pozycjach.
+    full_qty = _round_amount(Decimal(str(pos_size)), spec)
+    if close_qty < spec["min"] and full_qty >= spec["min"]:
+        print(f"[INFO] Partial close {close_qty} < minOrderSize {spec['min']} — zamykam cala reszte ({full_qty}).")
+        close_qty = full_qty
+    elif close_qty < spec["min"]:
+        print(f"[BLAD] Pozycja {full_qty} < minOrderSize {spec['min']} — nie da sie zamknac na {market}.")
+        return
     close_side = OrderSide.SELL if pos_side == "LONG" else OrderSide.BUY
     side_str   = "SELL" if pos_side == "LONG" else "BUY"
 
-    # Aggressive limit price: 5% past market to guarantee fill as reduce-only
     mark = _get_mark_price(market)
     if mark <= 0:
         print("[BLAD] Nie mozna pobrac mark price — nie wiem po ile zamknac.")
         return
-    raw_fill   = Decimal(str(mark * (0.95 if close_side == OrderSide.SELL else 1.05)))
+    raw_fill   = Decimal(str(mark * (0.99 if close_side == OrderSide.SELL else 1.01)))
     fill_price = _round_price(raw_fill, spec)
 
     print(f"\nExtended Close Position — {'LIVE' if LIVE_MODE else 'DRY-RUN'}")
@@ -449,7 +590,11 @@ def main() -> None:
     ord_p.add_argument("amount",  type=float, help="Ilosc syntetycznego aktywa")
     ord_p.add_argument("price",   type=float, help="Cena limit")
     ord_p.add_argument("--sl",    type=float, default=None, help="Stop Loss cena")
-    ord_p.add_argument("--tp",    type=float, default=None, help="Take Profit cena")
+    ord_p.add_argument("--tp",    type=float, default=None, help="Take Profit cena (single)")
+    ord_p.add_argument("--tp1",   type=float, default=None, help="TP1 cena (40%%)")
+    ord_p.add_argument("--tp2",   type=float, default=None, help="TP2 cena (30%%)")
+    ord_p.add_argument("--tp3",   type=float, default=None, help="TP3 cena (20%%)")
+    ord_p.add_argument("--tp4",   type=float, default=None, help="TP4 cena (10%%)")
     ord_p.add_argument("--reduce-only", action="store_true")
     ord_p.set_defaults(func=_place_order)
 
